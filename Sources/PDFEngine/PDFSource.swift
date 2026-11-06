@@ -28,6 +28,7 @@ public enum PDFReadError: LocalizedError {
 /// PDFKit stays on one serial queue. Main-thread vector drawing uses a separate CGPDFDocument.
 /// Reading and rasterization never mutate the source file.
 public final class PDFSource: @unchecked Sendable {
+    public let edgeSamples = PDFEdgeSampleCache()
     public let id = UUID()
     public let url: URL
     public let pages: [PDFPageInfo]
@@ -79,6 +80,24 @@ public final class PDFSource: @unchecked Sendable {
         guard let dictionary = page.dictionary else { return false }
         var array: CGPDFArrayRef?
         return CGPDFDictionaryGetArray(dictionary, key, &array)
+    }
+    public func prepareGeneratedBleed(pages numbers: [Int]) async throws {
+        let request = RasterRequest()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void,Error>) in
+                queue.async { [self] in
+                    do {
+                        if rasterDocument == nil { rasterDocument = PDFDocument(url: url) }
+                        for number in Set(numbers) where edgeSamples.cached(page: number) == nil {
+                            guard !request.isCancelled else { throw CancellationError() }
+                            guard let page = rasterDocument?.page(at: number-1)?.pageRef else { throw PDFExportError.missingPage(number) }
+                            _ = try edgeSamples.samples(for: page)
+                        }
+                        continuation.resume()
+                    } catch { continuation.resume(throwing: error) }
+                }
+            }
+        } onCancel: { request.cancel() }
     }
     public func cachedImage(page: Int, pixels: Int) -> NSImage? {
         cachedRaster(page: page,pixels: pixels)?.image

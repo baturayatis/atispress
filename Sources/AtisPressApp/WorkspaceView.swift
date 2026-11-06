@@ -33,6 +33,7 @@ struct WorkspaceView: View {
                 Button("Her tabaka — ayrı PDF…") { model.chooseExport(perSheet: true) }
             } label: { Label("PDF Dışa Aktar",systemImage: "square.and.arrow.up") }
                 .disabled(!model.canExportNow).help("PDF Dışa Aktar").accessibilityLabel("PDF Dışa Aktar")
+            if model.samplingBleed { ProgressView().controlSize(.small); Text("Taşma örnekleniyor…") }
             if model.planning { ProgressView().controlSize(.small); Text("Hesaplanıyor…") }
         }
     }
@@ -86,6 +87,17 @@ struct WorkspaceView: View {
             }.frame(minHeight: 130,idealHeight: 230)
         }
     }
+    private var generatedBleedLabel: String? {
+        let settings = model.plan.generatedBleed
+        guard settings.enabled else { return nil }
+        switch settings.method {
+        case .automatic: return String(format: "Taşma: Otomatik · tolerans %.1f%%",settings.tolerance*100)
+        case .mirror: return "Taşma: Yansıt"
+        case .solidColor:
+            let space = settings.color.components.count == 4 ? "CMYK" : "RGB"
+            return "Taşma: Renk · "+space+" "+settings.color.components.map { String(format: "%.0f",$0*100) }.joined(separator: "/")
+        }
+    }
     private var center: some View {
         VStack(spacing: 0) {
             HStack {
@@ -99,7 +111,7 @@ struct WorkspaceView: View {
                 Button { model.zoomFactor = 1.25; model.zoomAction += 1 } label: { Image(systemName: "plus.magnifyingglass") }.help("Yakınlaştır")
             }.padding(10)
             if let sheet = model.currentSheet, let side = model.currentSide {
-                PreviewCanvas(sheet: sheet,side: side,sheetIndex: model.sheetIndex,sideKind: model.side,source: model.source,overlays: model.overlays,
+                PreviewCanvas(sheet: sheet,side: side,sheetIndex: model.sheetIndex,sideKind: model.side,source: model.source,overlays: model.overlays,generatedBleed: model.plan.generatedBleed,
                               highlighted: model.highlightedSlots,zoomAction: model.zoomAction,zoomFactor: model.zoomFactor)
                     .overlay(alignment: .topLeading) {
                         VStack(alignment: .leading,spacing: 3) {
@@ -107,6 +119,7 @@ struct WorkspaceView: View {
                             if let layout = sheet.repeatLayout {
                                 Text("\(layout.columns)×\(layout.rows) · \(layout.copiesPerSheet) adet/tabaka · \(sheet.repeatCount) tabaka")
                             }
+                            if let label = generatedBleedLabel { Text(label) }
                         }
                             .font(.caption).padding(7).background(.regularMaterial,in: RoundedRectangle(cornerRadius: 6)).padding(10)
                             .allowsHitTesting(false)

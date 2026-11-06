@@ -17,7 +17,7 @@ public enum ImpositionPlanner {
     /// Produces the sole geometry source for both preview and future PDF export.
     public static func plan(_ project: Project) -> ImpositionPlan {
         if project.binding == .stepAndRepeat { return repeatPlan(project) }
-        var result = ImpositionPlan()
+        var result = ImpositionPlan(generatedBleed: project.settings.generatedBleed)
         func error(_ code: ValidationIssue.Code, _ message: String) {
             result.issues.append(ValidationIssue(.error, code, message))
         }
@@ -32,7 +32,7 @@ public enum ImpositionPlanner {
         let numbers = [spec.size.width, spec.size.height, spec.gutter, spec.gripperWidth,
                        spec.margins.left, spec.margins.right, spec.margins.top, spec.margins.bottom,
                        s.bleed, s.cropMarkLength, s.cropMarkOffset, s.safeAreaInset]
-        guard !project.pages.isEmpty, numbers.allSatisfy({ $0.isFinite && $0 >= 0 }),
+        guard s.generatedBleed.isValid, !project.pages.isEmpty, numbers.allSatisfy({ $0.isFinite && $0 >= 0 }),
               spec.size.width > 0, spec.size.height > 0,
               project.pages.allSatisfy({ $0.number > 0 && $0.trimSize.width.isFinite && $0.trimSize.height.isFinite &&
                   $0.trimSize.width > 0 && $0.trimSize.height > 0 &&

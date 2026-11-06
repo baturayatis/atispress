@@ -12,7 +12,7 @@ extension ImpositionPlanner {
     }
 
     static func repeatPlan(_ project: Project) -> ImpositionPlan {
-        var plan = ImpositionPlan()
+        var plan = ImpositionPlan(generatedBleed: project.settings.generatedBleed)
         func issue(_ code: ValidationIssue.Code, _ message: String) {
             plan.issues.append(ValidationIssue(.error,code,message))
         }
@@ -20,7 +20,7 @@ extension ImpositionPlanner {
         let values = [spec.size.width,spec.size.height,spec.margins.left,spec.margins.right,
                       spec.margins.top,spec.margins.bottom,spec.gripperWidth,spec.gutter,
                       settings.bleed,settings.cropMarkLength,settings.cropMarkOffset,settings.safeAreaInset]
-        guard !project.pages.isEmpty, values.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1_000_000 }),
+        guard settings.generatedBleed.isValid, !project.pages.isEmpty, values.allSatisfy({ $0.isFinite && $0 >= 0 && $0 <= 1_000_000 }),
               spec.size.width > 0, spec.size.height > 0,
               project.pages.allSatisfy({ $0.number > 0 && $0.trimSize.width.isFinite && $0.trimSize.height.isFinite &&
                   $0.trimSize.width > 0 && $0.trimSize.height > 0 &&
@@ -80,6 +80,16 @@ extension ImpositionPlanner {
             // The array stays in copy order. GridPosition expresses each face's row/column order.
             let frontSide = repeatSide(frontSlots,grid: grid,spec: spec,settings: settings)
             let backSide = repeatSide(backSlots,grid: grid,spec: spec,settings: settings)
+            if settings.generatedBleed.enabled {
+                for slot in frontSide.slots+backSide.slots {
+                    if let clip = slot.artworkClip,
+                       clip.origin.x < -0.000001 || clip.origin.y < -0.000001 ||
+                       clip.origin.x+clip.size.width > grid.sheet.width+0.000001 ||
+                       clip.origin.y+clip.size.height > grid.sheet.height+0.000001 {
+                        issue(.exceedsSheet,"Blok dışındaki taşma payı tabaka kenarına sığmıyor.")
+                    }
+                }
+            }
             let quantity = options.quantity
             let repeats = quantity.map { $0/grid.capacity + ($0%grid.capacity == 0 ? 0 : 1) } ?? 1
             let sheetIndex = plan.sheets.count
@@ -97,6 +107,10 @@ extension ImpositionPlanner {
                         }
                     }
                 }
+            }
+            if settings.generatedBleed.enabled && spec.gutter > 0 && spec.gutter < 2*settings.bleed {
+                plan.issues.append(ValidationIssue(.warning,.insufficientGutter,
+                    "İş \(job+1): ara boşluk iki taşma payından küçük; kesim ayrımını kontrol edin."))
             }
             if spec.gutter == 0 && settings.bleed > 0 && grid.capacity > 1 {
                 plan.issues.append(ValidationIssue(.warning,.sharedCutBleed,
@@ -189,7 +203,18 @@ extension ImpositionPlanner {
             let b = spec.gutter == 0 && p.row > 0 ? slot.y : slot.y-settings.bleed
             let t = spec.gutter == 0 && p.row < grid.rows-1 ? slot.y+slot.size.height : slot.y+slot.size.height+settings.bleed
             slots[index].artworkClip = Rect(x: l,y: b,width: r-l,height: t-b)
-            lines += rectangleLines(l,b,r,t,kind: .bleed)
+            if spec.gutter != 0 || !settings.generatedBleed.enabled { lines += rectangleLines(l,b,r,t,kind: .bleed) }
+        }
+        if spec.gutter == 0 && settings.generatedBleed.enabled {
+            lines += rectangleLines(x0-settings.bleed,y0-settings.bleed,x1+settings.bleed,y1+settings.bleed,kind: .bleed)
+            for column in 1..<grid.columns {
+                let x = x0+Double(column)*grid.item.width
+                lines.append(Mark(kind: .sharedCut,start: Point(x,y0),end: Point(x,y1)))
+            }
+            for row in 1..<grid.rows {
+                let y = y0+Double(row)*grid.item.height
+                lines.append(Mark(kind: .sharedCut,start: Point(x0,y),end: Point(x1,y)))
+            }
         }
         if settings.cropMarkLength > 0 {
             // External ticks describe every row/column trim. A common cut gets one pair of ticks,

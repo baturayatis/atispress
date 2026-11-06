@@ -156,4 +156,38 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("invalid.pdf").path))
     }
 
+    func testGeneratedBleedWarmsSourceCacheAndKeepsPlanSettingsSnapshot() async throws {
+        let model = Workspace()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString,isDirectory: true)
+        try FileManager.default.createDirectory(at: folder,withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let input = folder.appendingPathComponent("generated.pdf")
+        var media = CGRect(x: 0,y: 0,width: 90,height: 60)
+        let context = try XCTUnwrap(CGContext(consumer: XCTUnwrap(CGDataConsumer(url: input as CFURL)),mediaBox: &media,nil))
+        for _ in 0..<2 {
+            context.beginPDFPage(nil); context.setFillColor(CGColor(red: 1,green: 0,blue: 0,alpha: 1)); context.fill(media)
+            context.endPDFPage()
+        }
+        context.closePDF()
+        model.project.settings.generatedBleed.enabled = true
+        model.setMode(.stepAndRepeat)
+        model.open(input)
+        for _ in 0..<300 {
+            if model.source != nil && !model.planning && !model.samplingBleed { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(model.plan.generatedBleed.enabled)
+        XCTAssertEqual(model.plan.generatedBleed.method,.automatic)
+        let first = try XCTUnwrap(model.source?.edgeSamples.cached(page: 1))
+        XCTAssertTrue(model.bleedSampleSummary?.contains("RGB") == true)
+        XCTAssertTrue(model.canExportNow)
+        model.project.settings.generatedBleed.tolerance = 0.1
+        try await settle(model)
+        XCTAssertTrue(model.source?.edgeSamples.cached(page: 1) === first)
+        model.project.settings.generatedBleed.method = .solidColor
+        model.project.settings.generatedBleed.color = .cmyk(1,0,0,0)
+        try await settle(model)
+        XCTAssertEqual(model.plan.generatedBleed.color,.cmyk(1,0,0,0))
+    }
+
 }

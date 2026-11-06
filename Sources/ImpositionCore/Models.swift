@@ -80,6 +80,28 @@ public struct SourcePage: Equatable, Sendable {
         self.number = number; self.trimSize = trimSize; self.availableBleed = availableBleed
     }
 }
+public enum GeneratedBleedMethod: Sendable { case automatic, mirror, solidColor }
+public enum BleedColor: Equatable, Sendable {
+    case rgb(Double,Double,Double)
+    case cmyk(Double,Double,Double,Double)
+    public var components: [Double] {
+        switch self { case .rgb(let r,let g,let b): return [r,g,b]; case .cmyk(let c,let m,let y,let k): return [c,m,y,k] }
+    }
+}
+public struct GeneratedBleedSettings: Equatable, Sendable {
+    public var enabled: Bool
+    public var method: GeneratedBleedMethod
+    /// Maximum per-channel range in a 0.5 mm edge strip, normalized to 0...1.
+    public var tolerance: Double
+    public var color: BleedColor
+    public init(enabled: Bool = false,method: GeneratedBleedMethod = .automatic,tolerance: Double = 0.02,
+                color: BleedColor = .cmyk(0,0,0,0)) {
+        self.enabled = enabled; self.method = method; self.tolerance = tolerance; self.color = color
+    }
+    public var isValid: Bool {
+        tolerance.isFinite && (0...1).contains(tolerance) && color.components.allSatisfy { $0.isFinite && (0...1).contains($0) }
+    }
+}
 public struct ImpositionSettings: Sendable {
     public var bleed: Double
     public var cropMarkLength: Double
@@ -87,11 +109,13 @@ public struct ImpositionSettings: Sendable {
     public var safeAreaInset: Double
     public var signatureSize: SignatureSize
     public var turnMethod: TurnMethod
+    public var generatedBleed: GeneratedBleedSettings
     public init(bleed: Double = 3, cropMarkLength: Double = 5, cropMarkOffset: Double = 3,
                 safeAreaInset: Double = 5, signatureSize: SignatureSize = .automatic,
-                turnMethod: TurnMethod = .sheetwise) {
+                turnMethod: TurnMethod = .sheetwise,generatedBleed: GeneratedBleedSettings = GeneratedBleedSettings()) {
         self.bleed = bleed; self.cropMarkLength = cropMarkLength; self.cropMarkOffset = cropMarkOffset
         self.safeAreaInset = safeAreaInset; self.signatureSize = signatureSize; self.turnMethod = turnMethod
+        self.generatedBleed = generatedBleed
     }
 }
 /// Optional dimensions override the automatically fitted grid independently.
@@ -169,7 +193,7 @@ public struct Slot: Equatable, Sendable {
     public var x: Double { origin.x }
     public var y: Double { origin.y }
 }
-public enum MarkKind: Sendable { case crop, fold, bleed, safeArea, pageLabel, margin, gripper }
+public enum MarkKind: Sendable { case crop, fold, bleed, safeArea, pageLabel, margin, gripper, sharedCut }
 public struct Mark: Equatable, Sendable {
     public var kind: MarkKind
     public var start: Point
@@ -199,7 +223,7 @@ public struct Sheet: Equatable, Sendable {
 public struct ValidationIssue: Equatable, Sendable {
     public enum Severity: Sendable { case error, warning }
     public enum Code: Sendable {
-        case invalidInput, missingBleed, mixedPageSizes, pageCountPadding, exceedsSheet, unsupportedBinding, unsupportedCover, sharedCutBleed
+        case invalidInput, missingBleed, mixedPageSizes, pageCountPadding, exceedsSheet, unsupportedBinding, unsupportedCover, sharedCutBleed, insufficientGutter
     }
     public var severity: Severity
     public var code: Code
@@ -215,11 +239,12 @@ public struct ImpositionPlan: Sendable {
     public var issues: [ValidationIssue]
     public var addedBlankPages: Int
     public var signaturePageCount: Int
+    public var generatedBleed: GeneratedBleedSettings
     public var totalPressSheets: Int { sheets.reduce(0) { $0 + $1.repeatCount } }
     public var canExport: Bool { !issues.contains { $0.severity == .error } }
-    public init(sheets: [Sheet] = [], issues: [ValidationIssue] = [], addedBlankPages: Int = 0, signaturePageCount: Int = 0) {
+    public init(sheets: [Sheet] = [], issues: [ValidationIssue] = [], addedBlankPages: Int = 0, signaturePageCount: Int = 0,generatedBleed: GeneratedBleedSettings = GeneratedBleedSettings()) {
         self.sheets = sheets; self.issues = issues; self.addedBlankPages = addedBlankPages
-        self.signaturePageCount = signaturePageCount
+        self.signaturePageCount = signaturePageCount; self.generatedBleed = generatedBleed
     }
 }
 /// TODO: implement only after stock caliper and bindery-specific creep rules are supplied.

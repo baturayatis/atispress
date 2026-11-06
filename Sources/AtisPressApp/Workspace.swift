@@ -17,12 +17,17 @@ final class Workspace: ObservableObject {
     @Published private(set) var order: [Int] = []
     @Published var included = Set<Int>()
     @Published var selectedPages = Set<Int>()
-    @Published var sheetIndex = 0
-    @Published var side: SideKind = .front
+    @Published var sheetIndex = 0 { didSet { warmGeneratedBleed() } }
+    @Published var side: SideKind = .front { didSet { warmGeneratedBleed() } }
     @Published var overlays = PreviewOverlays()
     @Published var loading = false
     @Published var planning = false
     @Published var error: String?
+    @Published private(set) var samplingBleed = false
+    @Published private(set) var bleedSampleSummary: String?
+    private var bleedSamplingFailed = false
+    private var bleedTask: Task<Void,Never>?
+    private var bleedRevision = UUID()
     @Published private(set) var exporting = false
     @Published private(set) var exportSummary: String?
     @Published private(set) var exportedFiles: [URL] = []
@@ -47,7 +52,33 @@ final class Workspace: ObservableObject {
         })
     }
     var canExportNow: Bool {
-        source != nil && plan.canExport && !plan.sheets.isEmpty && !planning && !loading && !exporting
+        source != nil && plan.canExport && !plan.sheets.isEmpty && !planning && !loading && !exporting && !samplingBleed && !bleedSamplingFailed
+    }
+    private func warmGeneratedBleed() {
+        bleedTask?.cancel()
+        let token = UUID(); bleedRevision = token
+        bleedSamplingFailed = false; bleedSampleSummary = nil
+        guard plan.generatedBleed.enabled,let source,let side = currentSide else { samplingBleed = false; return }
+        if plan.generatedBleed.method == .solidColor {
+            samplingBleed = false
+            bleedSampleSummary = plan.generatedBleed.color.components.count == 4 ? "Dolgu: CMYK" : "Dolgu: RGB — özgün CMYK kanalları korunmaz."
+            return
+        }
+        let numbers = Array(Set(side.slots.compactMap(\.sourcePageNumber)))
+        samplingBleed = true
+        bleedTask = Task {
+            do {
+                try await source.prepareGeneratedBleed(pages: numbers)
+                guard !Task.isCancelled,bleedRevision == token else { return }
+                let native = numbers.filter { source.edgeSamples.cached(page: $0)?.usesCMYK == true }.count
+                let rgb = numbers.count-native
+                bleedSampleSummary = "Kenar örnekleri: \(native) CMYK · \(rgb) RGB" + (rgb > 0 ? " (özgün CMYK kanalları korunmaz)" : "")
+            } catch {
+                guard !Task.isCancelled,bleedRevision == token else { return }
+                bleedSamplingFailed = true; self.error = error.localizedDescription
+            }
+            samplingBleed = false
+        }
     }
     func chooseExport(perSheet: Bool) {
         guard canExportNow, let source else { return }

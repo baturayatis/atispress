@@ -20,7 +20,7 @@ public struct PDFRenderOptions: Equatable, Sendable {
                                                      pageNumbers: false,sheetBoundary: false,pressGuides: false)
     public func shows(_ kind: MarkKind) -> Bool {
         switch kind {
-        case .crop: return crop
+        case .crop,.sharedCut: return crop
         case .fold: return fold
         case .bleed: return bleed
         case .safeArea: return safeArea
@@ -104,7 +104,7 @@ public enum PDFPlanRenderer {
         for mark in marks where options.shows(mark.kind) {
             let color: CGColor
             switch mark.kind {
-            case .crop: color = CGColor(gray: 0,alpha: 1)
+            case .crop,.sharedCut: color = CGColor(gray: 0,alpha: 1)
             case .fold,.pageLabel: color = CGColor(red: 0,green: 0.35,blue: 0.85,alpha: 1)
             case .bleed: color = CGColor(red: 0.9,green: 0.08,blue: 0.1,alpha: 1)
             case .safeArea: color = CGColor(red: 0,green: 0.55,blue: 0.2,alpha: 1)
@@ -117,7 +117,7 @@ public enum PDFPlanRenderer {
             }
             context.setLineWidth(max(mark.kind == .gripper ? 0.4 : 0.25,minimumStroke))
             context.setStrokeColor(color)
-            context.setLineDash(phase: 0,lengths: mark.kind == .crop || mark.kind == .gripper ? [] : [2,1])
+            context.setLineDash(phase: 0,lengths: mark.kind == .crop || mark.kind == .sharedCut || mark.kind == .gripper ? [] : [2,1])
             context.move(to: CGPoint(x: mark.start.x,y: mark.start.y))
             context.addLine(to: CGPoint(x: mark.end.x,y: mark.end.y)); context.strokePath()
             if mark.kind == .gripper {

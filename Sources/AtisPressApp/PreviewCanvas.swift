@@ -9,6 +9,7 @@ struct PreviewCanvas: NSViewRepresentable {
     let sideKind: SideKind
     let source: PDFSource?
     let overlays: PreviewOverlays
+    let generatedBleed: GeneratedBleedSettings
     let highlighted: Set<Int>
     let zoomAction: Int
     let zoomFactor: CGFloat
@@ -37,7 +38,7 @@ struct PreviewCanvas: NSViewRepresentable {
         } else if sizeChanged { (scroll as? PreviewScrollView)?.requestFit() }
     }
     private func update(_ canvas: SheetCanvasView) {
-        canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind)
+        canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed)
     }
 }
 
@@ -82,6 +83,7 @@ final class SheetCanvasView: NSView {
     var sheetIndex = 0
     var sideKind: SideKind = .front
     var slotOverlays: [any PDFSlotOverlay] = []
+    private var generatedOverlay: GeneratedBleedOverlay?
     private var vectorDocument: CGPDFDocument?
     private var loading = Set<Int>()
     private var failedRasters = Set<Int>()
@@ -99,11 +101,12 @@ final class SheetCanvasView: NSView {
     @objc private func magnificationEnded() { needsDisplay = true }
     override var isOpaque: Bool { true }
     override var acceptsFirstResponder: Bool { true }
-    func configure(sheet: Sheet,side: Side,source: PDFSource?,overlays: PreviewOverlays,highlighted: Set<Int>,sheetIndex: Int = 0,kind: SideKind = .front) {
+    func configure(sheet: Sheet,side: Side,source: PDFSource?,overlays: PreviewOverlays,highlighted: Set<Int>,sheetIndex: Int = 0,kind: SideKind = .front,generatedBleed: GeneratedBleedSettings = GeneratedBleedSettings()) {
         if self.source !== source {
             self.source = source; loading = []; failedRasters = []
             vectorDocument = source.flatMap { CGPDFDocument($0.url as CFURL) }
         }
+        generatedOverlay = generatedBleed.enabled ? source.map { GeneratedBleedOverlay(settings: generatedBleed,cache: $0.edgeSamples) } : nil
         self.sheetIndex = sheetIndex; self.sideKind = kind
         self.sheet = sheet; self.side = side; self.overlays = overlays; self.highlighted = highlighted
         let newSize = NSSize(width: sheet.size.width*pointsPerMM+2*padding,height: sheet.size.height*pointsPerMM+2*padding)
@@ -130,6 +133,7 @@ final class SheetCanvasView: NSView {
         context.clip(to: paper)
         let scale = max(0.01,enclosingScrollView?.magnification ?? 1)
         let visible = visibleRect.insetBy(dx: -40,dy: -40)
+        let extensions: [any PDFSlotOverlay] = (generatedOverlay.map { [$0 as any PDFSlotOverlay] } ?? [])+slotOverlays
         for (index,slot) in side.slots.enumerated() {
             let rect = CGRect(x: slot.x,y: slot.y,width: slot.size.width,height: slot.size.height)
             let extent = slot.artworkClip.map { CGRect(x: $0.origin.x,y: $0.origin.y,width: $0.size.width,height: $0.size.height) } ?? rect
@@ -146,14 +150,14 @@ final class SheetCanvasView: NSView {
                 if scale < 0.85 && raster == nil && !failedRasters.contains(number) { loadRaster(number,pixels: rasterPixels) }
                 // A vector fallback avoids flashing empty trim rectangles while the bleed raster loads.
                 try? PDFPlanRenderer.drawSlot(slot,page: page,in: context,
-                    reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),raster: raster,overlays: slotOverlays)
+                    reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),raster: raster,overlays: extensions)
             } else {
                 context.setFillColor(NSColor(white: 0.93,alpha: 1).cgColor); context.fill(rect)
                 context.setStrokeColor(NSColor.lightGray.cgColor); context.setLineWidth(0.35)
                 context.move(to: rect.origin); context.addLine(to: CGPoint(x: rect.maxX,y: rect.maxY))
                 context.move(to: CGPoint(x: rect.minX,y: rect.maxY)); context.addLine(to: CGPoint(x: rect.maxX,y: rect.minY)); context.strokePath()
                 try? PDFPlanRenderer.drawSlot(slot,page: nil,in: context,
-                    reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),overlays: slotOverlays)
+                    reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),overlays: extensions)
             }
             context.restoreGState()
             context.setStrokeColor((highlighted.contains(index) ? NSColor.systemRed : NSColor.gray).cgColor)

@@ -111,6 +111,9 @@ Sources/
     PDFArtwork.swift
     PDFPlanRenderer.swift
     PDFExporter.swift
+    PDFEdgeSamples.swift
+    PDFColorProbe.swift
+    GeneratedBleedOverlay.swift
   AtisPressApp/
     AtisPressApp.swift
     Workspace.swift
@@ -120,8 +123,10 @@ Sources/
 Tests/ImpositionCoreTests/PlannerTests.swift
 Tests/ImpositionCoreTests/StepAndRepeatTests.swift
 Tests/ImpositionCoreTests/ArtworkClipTests.swift
+Tests/ImpositionCoreTests/GeneratedBleedPlanTests.swift
 Tests/PDFEngineTests/PDFSourceTests.swift
 Tests/PDFEngineTests/PDFExportTests.swift
+Tests/PDFEngineTests/GeneratedBleedTests.swift
 Tests/AtisPressAppTests/WorkspaceTests.swift
 ```
 
@@ -197,8 +202,8 @@ Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/
 
 ### Verification and current limits
 
-`swift test --disable-sandbox`: **43 XCTest tests, zero failures** (23 core,
-14 PDF reading/drawing/export, 6 workspace/drop/export/initial-fit regression tests). GUI smoke checks
+`swift test --disable-sandbox`: **54 XCTest tests, zero failures** (26 core,
+21 PDF reading/drawing/export, 7 workspace/drop/export/initial-fit regression tests). GUI smoke checks
 used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
 navigation, page selection/reordering/exclusion, binding change, front/back,
 shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
@@ -400,14 +405,15 @@ existing filenames. Rendering/overlay failures and cancellation remove staged
 files instead of publishing partial PDFs. The app creates a unique per-sheet
 folder, so a normal export does not collide with earlier outputs.
 
-For later variable text, serial numbers or generated bleed, implement
+For later variable text or serial numbers, implement
 `PDFSlotOverlay` and supply an array to `PDFExporter.export(overlays:)` or the shared
 renderer's preview draw call. Hooks run **underArtwork** or **overArtwork**, in
 slot-local trim mm with isolated graphics state and the plan's bleed clip. The
 context provides trim/artwork rectangles, source page, slot/copy identity,
 sheet/face/slot reference and physical repetition index. This requires no new
 fields in `ImpositionPlan` or a separate layout path. Tests demonstrate vector
-serial text and generated bleed with those hooks; there is no variable-data UI yet.
+serial text with those hooks; generated bleed uses the same hooks in production.
+There is no variable-data UI yet.
 
 ### Export validation and remaining limits
 
@@ -430,3 +436,42 @@ The existing booklet/fold/grid tests remain unchanged and pass.
 - A press sheet contains multiple finished trims, so only the sheet MediaBox is
   emitted as page metadata; individual trim/bleed extents remain plan geometry.
 - Existing core packing, binding, cover and creep/spine limits are unchanged.
+
+## Generated bleed
+
+Open a PDF, choose a layout and enable **Üretilmiş Taşma → Taşma üret** in the
+inspector. Existing projects keep generated bleed off by default; the default
+method when enabled is **Otomatik (zemin rengi)**. All generation settings are
+snapshotted in `ImpositionPlan` and use one overlay implementation for preview and
+export. Source artwork within TrimBox is unchanged.
+
+- **Otomatik (zemin rengi)** samples a 0.5 mm strip just inside each trim edge at
+  600 dpi. A channel range within the selected tolerance (default 2%) produces a
+  vector solid fill. A varied strip stretches the nearest edge pixel line outward,
+  preserving its changes along the edge; it never substitutes an average color.
+  Corners use the nearest corner color.
+- **Yansıt** reflects vector source artwork outside the trim; corners use sampled
+  corner colors. **Renk** supplies a vector CMYK or RGB fill with editable channels.
+- With zero gutter, the grid is one block: only its outer perimeter gets generated
+  bleed. Interior boundaries are shared cut lines, controlled by the crop-mark
+  toggle. The plan checks that outer bleed fits the sheet. With positive gutter,
+  each item receives four-sided bleed within its own artwork clip. A warning is
+  shown when gutter is less than twice the bleed. The existing gutter convention
+  remains a clear gap between bleed boxes (`trim spacing = 2 × bleed + gutter`).
+
+Samples are prepared off the main thread and cached per source page in a bounded
+64 MiB cache. Only edge pixel lines, channel ranges and corner colors are retained;
+changing tolerance reuses the samples. Export waits for preview sampling, and the
+engine can also populate its cache when used independently.
+
+DeviceCMYK sources that the conservative content scanner can identify are sampled
+and filled in DeviceCMYK. Mixed RGB/CMYK, ICC/spot/pattern colors, shading,
+transparency and color-space overrides fall back to sRGB; the inspector reports
+RGB sampling. This is not full color preflight or ICC preservation. Varied automatic
+edges are small raster strips; original PDF artwork and solid fills remain vector.
+Mirror tiling has safety limits for extreme bleed-to-trim ratios.
+
+Tests cover a 3×2 touching grid, independent spaced items, uniform/varied/depth
+sampling, caching, clipping, rotated/mirrored slots, native CMYK and matching
+preview/export rendering. Run `swift test` on your Mac; if the host blocks nested
+SwiftPM sandboxing, use `swift test --disable-sandbox`.

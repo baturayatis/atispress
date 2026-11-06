@@ -79,6 +79,7 @@ struct InspectorView: View {
                         measurement("Güvenli alan",$model.project.settings.safeAreaInset,range: 0...30)
                     }.padding(5)
                 }
+                generatedBleedControls
                 GroupBox("Önizleme Katmanları") {
                     VStack(alignment: .leading,spacing: 8) {
                         Toggle("Kesim işaretleri",isOn: $model.overlays.crop)
@@ -96,6 +97,47 @@ struct InspectorView: View {
         .onChange(of: model.project.settings.cropMarkLength) { _,_ in model.overlays.crop = true }
         .onChange(of: model.project.settings.cropMarkOffset) { _,_ in model.overlays.crop = true }
         .onChange(of: model.project.settings.safeAreaInset) { _,_ in model.overlays.safeArea = true }
+    }
+    private var generatedBleedControls: some View {
+        GroupBox("Üretilmiş Taşma") {
+            VStack(alignment: .leading,spacing: 9) {
+                if model.project.settings.bleed > 0 {
+                    Toggle("Taşma üret",isOn: $model.project.settings.generatedBleed.enabled).toggleStyle(.checkbox)
+                    if model.project.settings.generatedBleed.enabled {
+                        Picker("Yöntem",selection: $model.project.settings.generatedBleed.method) {
+                            Text("Otomatik (zemin rengi)").tag(GeneratedBleedMethod.automatic)
+                            Text("Yansıt").tag(GeneratedBleedMethod.mirror)
+                            Text("Renk").tag(GeneratedBleedMethod.solidColor)
+                        }
+                        if model.project.settings.generatedBleed.method == .automatic {
+                            measurement("Tolerans (%)",Binding(get: { model.project.settings.generatedBleed.tolerance*100 },
+                                set: { model.project.settings.generatedBleed.tolerance = $0/100 }),range: 0...100)
+                            Text("Tek renk kenar: vektör dolgu. Değişken kenar: kenar piksellerini uzat.").font(.caption).foregroundStyle(.secondary)
+                        }
+                        if model.project.settings.generatedBleed.method == .solidColor {
+                            Picker("Renk uzayı",selection: Binding(get: { model.project.settings.generatedBleed.color.components.count == 4 },
+                                set: { model.project.settings.generatedBleed.color = $0 ? .cmyk(0,0,0,0) : .rgb(1,1,1) })) {
+                                Text("CMYK").tag(true); Text("RGB").tag(false)
+                            }
+                            let names = model.project.settings.generatedBleed.color.components.count == 4 ? ["C","M","Y","K"] : ["R","G","B"]
+                            ForEach(Array(names.enumerated()),id: \.offset) { index,name in
+                                measurement(name+" (%)",colorComponent(index),range: 0...100)
+                            }
+                        }
+                        if let summary = model.bleedSampleSummary { Text(summary).font(.caption).foregroundStyle(.secondary) }
+                        Text("Yalnız kesim dışını değiştirir. Sıfır ara boşlukta blok çevresi üretilir.").font(.caption).foregroundStyle(.secondary)
+                    }
+                } else { Text("Üretim için taşma payını artırın.").font(.caption).foregroundStyle(.secondary) }
+            }.padding(5)
+        }
+    }
+    private func colorComponent(_ index: Int) -> Binding<Double> {
+        Binding(get: { model.project.settings.generatedBleed.color.components[index]*100 },set: { value in
+            var values = model.project.settings.generatedBleed.color.components
+            values[index] = value/100
+            model.project.settings.generatedBleed.color = values.count == 4 ?
+                .cmyk(values[0],values[1],values[2],values[3]) : .rgb(values[0],values[1],values[2])
+        })
     }
     private var repeatControls: some View {
         GroupBox("Tekrarlı Yerleşim") {

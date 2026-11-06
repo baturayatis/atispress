@@ -35,7 +35,7 @@ public enum PDFExporter {
     /// Physical repeats are expanded, in sheet-front/back order, without rasterizing artwork.
     public static func export(plan: ImpositionPlan,source: PDFSource,destination: PDFExportDestination,
                               options: PDFRenderOptions,overlays: [any PDFSlotOverlay] = []) throws -> PDFExportResult {
-        guard plan.canExport, !plan.sheets.isEmpty else { throw PDFExportError.invalidPlan }
+        guard plan.canExport, plan.generatedBleed.isValid, !plan.sheets.isEmpty else { throw PDFExportError.invalidPlan }
         var sheetCount = 0
         for sheet in plan.sheets {
             guard sheet.repeatCount > 0, sheet.repeatCount <= maximumPageCount/2-sheetCount else { throw PDFExportError.tooManyPages }
@@ -49,6 +49,9 @@ public enum PDFExporter {
                 if let number = slot.sourcePageNumber, number < 1 || number > document.numberOfPages { throw PDFExportError.missingPage(number) }
             }
         }
+        let generated: [any PDFSlotOverlay] = plan.generatedBleed.enabled ?
+            [GeneratedBleedOverlay(settings: plan.generatedBleed,cache: source.edgeSamples,sampleIfMissing: true)] : []
+        let effectiveOverlays = generated+overlays
         let scope = destination.scopeURL
         let accessed = scope.startAccessingSecurityScopedResource()
         defer { if accessed { scope.stopAccessingSecurityScopedResource() } }
@@ -77,7 +80,7 @@ public enum PDFExporter {
         switch destination {
         case .singlePDF:
             let file = stage.appendingPathComponent("job.pdf")
-            try write(file,document: document,plan: plan,options: options,overlays: overlays,only: nil)
+            try write(file,document: document,plan: plan,options: options,overlays: effectiveOverlays,only: nil)
             staged = [file]
         case .perSheet:
             var physical = 0
@@ -85,7 +88,7 @@ public enum PDFExporter {
                 for repetition in 0..<sheet.repeatCount {
                     try Task.checkCancellation()
                     let file = stage.appendingPathComponent(files[physical].lastPathComponent)
-                    try write(file,document: document,plan: plan,options: options,overlays: overlays,only: (index,repetition))
+                    try write(file,document: document,plan: plan,options: options,overlays: effectiveOverlays,only: (index,repetition))
                     staged.append(file); physical += 1
                 }
             }
