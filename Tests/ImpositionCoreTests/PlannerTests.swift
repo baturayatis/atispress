@@ -169,7 +169,7 @@ final class PlannerTests: XCTestCase {
         }
         XCTAssertTrue(f.marks.contains { $0.kind == .crop && $0.start == Point(10,23) && $0.end == Point(5,23) })
         XCTAssertTrue(f.marks.contains { $0.kind == .bleed && $0.start == Point(10,20) })
-        for mark in f.marks {
+        for mark in f.marks where mark.kind != .margin && mark.kind != .gripper {
             for point in [mark.start,mark.end] {
                 XCTAssertGreaterThanOrEqual(point.x,5); XCTAssertGreaterThanOrEqual(point.y,15)
                 XCTAssertLessThanOrEqual(point.x,255); XCTAssertLessThanOrEqual(point.y,195)
@@ -213,7 +213,7 @@ final class PlannerTests: XCTestCase {
             XCTAssertTrue(plan.canExport)
             for sheet in plan.sheets {
                 for side in [sheet.front,sheet.back] {
-                    for mark in side.marks {
+                    for mark in side.marks where mark.kind != .margin && mark.kind != .gripper {
                         for point in [mark.start,mark.end] {
                             XCTAssertGreaterThanOrEqual(point.x,7); XCTAssertLessThanOrEqual(point.x,581)
                             XCTAssertGreaterThanOrEqual(point.y,23); XCTAssertLessThanOrEqual(point.y,577)
@@ -221,6 +221,25 @@ final class PlannerTests: XCTestCase {
                     }
                 }
             }
+        }
+    }
+
+    func testPressGuidesAndBleedReferencesArePlanGeometry() {
+        var p = project(4,size: Size(260,200))
+        p.sheet.margins = Insets(left: 7,right: 11,top: 13,bottom: 17)
+        p.sheet.gripperWidth = 8
+        p.settings.bleed = 3
+        let plan = ImpositionPlanner.plan(p)
+        let marks = plan.sheets[0].front.marks
+        XCTAssertEqual(marks.filter { $0.kind == .margin }.count,4)
+        XCTAssertTrue(marks.contains { $0.kind == .margin && $0.start == Point(7,17) })
+        XCTAssertTrue(marks.contains { $0.kind == .gripper && $0.start == Point(7,25) })
+        let references = plan.issues.filter { $0.code == .missingBleed }.compactMap(\.slot)
+        XCTAssertEqual(references.count,4)
+        for reference in references {
+            let sheet = plan.sheets[reference.sheet]
+            let side = reference.side == .front ? sheet.front : sheet.back
+            XCTAssertNotNil(side.slots[reference.slot].sourcePageNumber)
         }
     }
 

@@ -123,7 +123,7 @@ public struct Slot: Equatable, Sendable {
     public var x: Double { origin.x }
     public var y: Double { origin.y }
 }
-public enum MarkKind: Sendable { case crop, fold, bleed, safeArea, pageLabel }
+public enum MarkKind: Sendable { case crop, fold, bleed, safeArea, pageLabel, margin, gripper }
 public struct Mark: Equatable, Sendable {
     public var kind: MarkKind
     public var start: Point

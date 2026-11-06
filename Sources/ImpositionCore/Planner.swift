@@ -151,9 +151,42 @@ public enum ImpositionPlanner {
             back.marks += back.slots.flatMap { marks($0, s) }
             removeIntrudingCropMarks(&front)
             removeIntrudingCropMarks(&back)
+            let guides = pressGuides(spec, layout.size)
+            front.marks += guides; back.marks += guides
             result.sheets.append(Sheet(size: layout.size, front: front, back: back))
         }
+        if result.issues.contains(where: { $0.code == .missingBleed }) {
+            result.issues.removeAll { $0.code == .missingBleed }
+            let insufficient = Set(project.pages.filter { ($0.availableBleed ?? -1) < s.bleed }.map(\.number))
+            for (sheetIndex, sheet) in result.sheets.enumerated() {
+                for (kind, side) in [(SideKind.front, sheet.front), (.back, sheet.back)] {
+                    for (slotIndex, slot) in side.slots.enumerated() {
+                        if let page = slot.sourcePageNumber, insufficient.contains(page) {
+                            result.issues.append(ValidationIssue(.warning, .missingBleed,
+                                "Sayfa \(page): taşma payı eksik veya bilinmiyor.",
+                                slot: SlotReference(sheet: sheetIndex, side: kind, slot: slotIndex)))
+                        }
+                    }
+                }
+            }
+        }
         return result
+    }
+    private static func pressGuides(_ spec: SheetSpec, _ size: Size) -> [Mark] {
+        let m = spec.margins
+        let a = Point(m.left,m.bottom), b = Point(size.width-m.right,m.bottom)
+        let c = Point(size.width-m.right,size.height-m.top), d = Point(m.left,size.height-m.top)
+        var marks = [(a,b),(b,c),(c,d),(d,a)].map { Mark(kind: .margin,start: $0.0,end: $0.1) }
+        let w = spec.gripperWidth
+        let start: Point, end: Point
+        switch spec.gripperEdge {
+        case .left: start = Point(m.left+w,m.bottom); end = Point(m.left+w,size.height-m.top)
+        case .right: start = Point(size.width-m.right-w,m.bottom); end = Point(size.width-m.right-w,size.height-m.top)
+        case .bottom: start = Point(m.left,m.bottom+w); end = Point(size.width-m.right,m.bottom+w)
+        case .top: start = Point(m.left,size.height-m.top-w); end = Point(size.width-m.right,size.height-m.top-w)
+        }
+        marks.append(Mark(kind: .gripper,start: start,end: end,label: "Maşa \(w) mm"))
+        return marks
     }
     private static func signatureGrid(_ n: Int) -> (Int, Int) { n == 8 ? (2, 2) : (4, n / 8) }
     private static func makeSlot(_ page: Int?, _ x: Int, _ y: Int, _ size: Size, _ gutter: Double, _ signature: Int) -> Slot {

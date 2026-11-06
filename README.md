@@ -1,8 +1,9 @@
-# AtışPress — core, steps 1–2
+# AtışPress — live preview, step 3
 
 Swift 5.9 package; macOS 14+, no external dependencies. `ImpositionCore` imports
-neither UI nor PDF frameworks. The other two targets contain comments only; the
-app target is deliberately not executable until the UI step.
+neither UI nor PDF frameworks. `PDFEngine` reads page metadata and supplies
+preview rasters/vector drawing helpers. `AtisPressApp` is a native SwiftUI executable.
+There is no PDF export implementation or export action.
 
 ## Build and test
 
@@ -103,7 +104,102 @@ Sources/
   ImpositionCore/
     Models.swift
     Planner.swift
-  PDFEngine/Placeholder.swift
-  AtisPressApp/Placeholder.swift
+  PDFEngine/PDFSource.swift
+  AtisPressApp/
+    AtisPressApp.swift
+    Workspace.swift
+    WorkspaceView.swift
+    InspectorView.swift
+    PreviewCanvas.swift
 Tests/ImpositionCoreTests/PlannerTests.swift
+Tests/PDFEngineTests/PDFSourceTests.swift
+Tests/AtisPressAppTests/WorkspaceTests.swift
 ```
+
+## Run the live preview
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+swift run AtisPressApp
+# Optional file argument (quote paths containing spaces):
+swift run AtisPressApp "/path/to/book.pdf"
+```
+
+For Xcode, open `Package.swift`, choose the **AtisPressApp** scheme and **My Mac**,
+then Run (⌘R). No generated Xcode project or signing team is needed for local use.
+The app sets `NSApplication` activation policy to `.regular` and activates on launch.
+In this agent's restricted shell, use `--disable-sandbox` for SwiftPM; the shell also
+blocks LaunchServices connections, so interactive GUI checks used an ad hoc local
+bundle containing the exact same executable, launched through the desktop tools.
+On a normal Mac terminal, use the `swift run` command above.
+
+Open with **PDF Aç… / ⌘O**, the toolbar, or drop a PDF anywhere in the workspace.
+A new PDF replaces the previous source. Checkboxes control inclusion; select rows
+with ⌘/⇧ and move with ↑/↓ toolbar buttons or native List drag reordering. Source
+numbers retain their original PDF identity after a move. Select a sheet in the
+lower sidebar to jump to it; **Ön / Arka** selects its face. Pinch to zoom, scroll
+with the trackpad/wheel, drag the canvas to pan, or use **− / Sığdır / +**.
+
+| Control | Visible effect |
+| --- | --- |
+| Ciltleme | Nested saddle leaves versus folded perfect-bound signatures; page ordering, blank count and sheet count change. |
+| Forma (perfect binding only) | 8/16/32 or automatic folding scheme and padding. Hidden for saddle stitch, where it would have no effect. |
+| Çevirme | Separate front/back versus paired same-plate halves; mirrored/rotated slots and copy count convention. |
+| Boyut / Özel / Yön | Press sheet boundary, packing capacity, orientation or a no-fit validation error. Units are mm; preset names 33×48 etc. are cm. |
+| Sol / Sağ / Üst / Alt | Orange margin guides plus the plan's usable area/placement. Even an unchanged packing count has visibly different guides. |
+| Maşa kenarı / Maşa payı | Orange labeled gripper boundary and reserved edge. |
+| Ara boşluk | Panel separation and fold lines, sometimes packing capacity. |
+| Taşma | Red bleed guides and per-slot insufficient/unknown bleed warnings. |
+| Kesim uzunluğu / uzaklığı | Crop geometry and reserved outer space. Offset is hidden when mark length is zero. |
+| Güvenli alan | Green inset guides. |
+| Katmanlar | Show/hide only the corresponding plan marks or the sheet border; never alter layout. |
+
+Changing mark geometry automatically enables its overlay so the change is visible.
+Page labels stay readable at low zoom; purple badges identify rotation/mirroring,
+and gray crossed slots identify blanks. Validation issues with slot references
+outline those slots in red; clicking a referenced issue jumps to its sheet/face.
+Margins/gripper are always visible. Errors with no viable layout show an empty
+preview and a validation explanation rather than retaining an unrelated old plan.
+
+### Responsiveness and rendering
+
+`Workspace` snapshots `Project`, debounces changes by 140 ms, calculates via
+`ImpositionPlanner` in a detached task, and publishes only the latest revision on
+the main actor. No imposition math exists in the app or PDF reader. Overlay/zoom
+changes redraw immediately and do not need a new imposition calculation.
+
+PDF box scanning runs off the main thread. Actual TrimBox (with CropBox/MediaBox
+fallback), MediaBox intersection and inherited `/Rotate` determine displayed trim
+size. Available bleed is the minimum of the four BleedBox-to-TrimBox distances,
+clipped to MediaBox; an absent explicit BleedBox stays unknown rather than being
+invented from MediaBox. Missing bleed warnings are supplied by the core plan,
+including slot references. Dimensions enter the core in mm.
+
+PDFKit thumbnails are requested by visible List rows; offscreen rows release their
+image state and cancelled queued requests are skipped. A 64 MiB `NSCache` holds
+128-pixel thumbnails and adaptive 128/256/512-pixel low-zoom preview rasters. Only the visible slots
+are drawn. At magnification ≥0.85, a separate main-thread `CGPDFDocument` draws
+real PDF vectors with `CGPDFPage.getDrawingTransform`; PDF objects are never shared
+concurrently between the vector view and the serial PDFKit raster queue.
+
+The transform helper follows Apple's
+[PDF drawing and transformation documentation](https://developer.apple.com/library/archive/documentation/GraphicsImaging/Conceptual/drawingwithquartz2d/dq_pdf/dq_pdf.html).
+Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/documentation/appkit/nsscrollview/allowsmagnification).
+
+### Verification and current limits
+
+`swift test --disable-sandbox`: **20 XCTest tests, zero failures** (12 core,
+4 PDF reading/drawing, 4 workspace/drop/initial-fit regression tests). GUI smoke checks
+used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
+navigation, page selection/reordering/exclusion, binding change, front/back,
+shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
+
+- Single imported PDF per workspace; replacement rather than multi-document merging.
+- Locked PDFs require unlocking externally. Mixed trim sizes are rejected by the core.
+- PDF annotations/forms are omitted consistently from thumbnails and vector preview.
+- Content is clipped to TrimBox; bleed is shown as plan geometry, not exterior artwork.
+- No PDF/X, separation, overprint or color-managed press-proof simulation.
+- Native file-dialog chrome and standard system commands follow the macOS language.
+- Existing core limits remain: regular-grid packing, one explicit fold sequence per
+  signature size, included covers only, no creep/spine correction, unsupported bindings.
+- No export, printing, persistence or installer/bundle distribution in this step.
