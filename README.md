@@ -1,4 +1,4 @@
-# AtışPress — live preview, step 3
+# AtışPress — booklet and step-and-repeat live preview
 
 Swift 5.9 package; macOS 14+, no external dependencies. `ImpositionCore` imports
 neither UI nor PDF frameworks. `PDFEngine` reads page metadata and supplies
@@ -104,6 +104,7 @@ Sources/
   ImpositionCore/
     Models.swift
     Planner.swift
+    StepAndRepeat.swift
   PDFEngine/PDFSource.swift
   AtisPressApp/
     AtisPressApp.swift
@@ -112,6 +113,7 @@ Sources/
     InspectorView.swift
     PreviewCanvas.swift
 Tests/ImpositionCoreTests/PlannerTests.swift
+Tests/ImpositionCoreTests/StepAndRepeatTests.swift
 Tests/PDFEngineTests/PDFSourceTests.swift
 Tests/AtisPressAppTests/WorkspaceTests.swift
 ```
@@ -188,14 +190,14 @@ Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/
 
 ### Verification and current limits
 
-`swift test --disable-sandbox`: **20 XCTest tests, zero failures** (12 core,
-4 PDF reading/drawing, 4 workspace/drop/initial-fit regression tests). GUI smoke checks
+`swift test --disable-sandbox`: **31 XCTest tests, zero failures** (22 core,
+4 PDF reading/drawing, 5 workspace/drop/initial-fit regression tests). GUI smoke checks
 used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
 navigation, page selection/reordering/exclusion, binding change, front/back,
 shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
 
 - Single imported PDF per workspace; replacement rather than multi-document merging.
-- Locked PDFs require unlocking externally. Mixed trim sizes are rejected by the core.
+- Locked PDFs require unlocking externally. Booklets require uniform trim sizes; flat jobs require matching sizes within each front/back pair.
 - PDF annotations/forms are omitted consistently from thumbnails and vector preview.
 - Content is clipped to TrimBox; bleed is shown as plan geometry, not exterior artwork.
 - No PDF/X, separation, overprint or color-managed press-proof simulation.
@@ -203,3 +205,120 @@ shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
 - Existing core limits remain: regular-grid packing, one explicit fold sequence per
   signature size, included covers only, no creep/spine correction, unsupported bindings.
 - No export, printing, persistence or installer/bundle distribution in this step.
+
+## Step & repeat — Tekrarlı yerleşim
+
+Run with the same commands above (`swift run AtisPressApp`, or open `Package.swift`
+and run the AtisPressApp scheme on My Mac). Select **Tekrarlı (kartvizit/düz iş)**
+in **Yerleşim Yöntemi**. The existing booklet mode and its original tests remain.
+
+- Consecutive **selected-order** page pairs are independent jobs: 1/2, 3/4, etc.
+  Each job gets its own sheet layout in **Tekrarlı İşler**. Different jobs may have
+  different trim sizes; a job's front/back must match. An odd final page has an
+  unprinted reverse. Source pages are never padded; `addedBlankPages` stays zero,
+  even with the reject-padding policy.
+- **90° döndürmeye izin ver** allows a uniform item rotation if it increases
+  capacity. Stock portrait/landscape and item 0°/90° candidates are compared.
+  Equal capacities prefer unrotated items, then portrait stock. Packing is optimal
+  among those regular-grid candidates; mixed-rotation nesting is not implemented.
+- **Sütun / Satır sayısını belirle** overrides either dimension independently;
+  the other remains automatic. Overrides that do not fit produce validation errors.
+- **Adet hesapla** applies the requested finished quantity to **every job**. Each
+  press sheet is fully populated, including the final sheet. Sheet count is
+  `quantity / copiesPerSheet`, rounded up; produced quantity can exceed the request.
+  Nil quantity means one full press sheet per job. The inspector and preview HUD
+  show the grid, copies per sheet, required sheets and all-job total. The inspector
+  also shows produced quantity.
+- The UI remembers the booklet gutter separately and starts flat jobs with **0 mm**.
+  Switching back restores the booklet gutter. The core always reads `SheetSpec.gutter`.
+
+### Grid, bleed and crop geometry
+
+For a positive gutter `g`, spacing between trim rectangles is `2 × bleed + g`:
+neighboring bleed boxes have the requested clear gap. Outer reserved space is the
+larger of bleed and crop offset + crop length (crop reservation is zero if crop
+length is zero). Margins and gripper reservation reduce usable stock first.
+For each axis, automatic count is `floor((usable + spacing)/(trim + spacing))`.
+The rotated candidate swaps trim width/height.
+
+**Zero gutter explicitly means shared trim cuts:** pitch equals trim size,
+outer bleed is still reserved, and internal bleed guides stop at the common cut.
+A warning explains that internal bleed is clipped and neighboring edge designs
+must be checked. This provides common cuts without silently overlapping artwork.
+Choose a positive gutter for independent bleed on every item edge.
+
+Crop ticks identify every row/column trim coordinate around the grid. Positive
+spacing also receives individual corner ticks where they fit, clipped before the
+next item's trim. Shared-cut ticks are deduplicated; marks never cross neighboring
+trim artwork. Bleed, safe-area and page-label marks are generated by the core.
+There are no folds in flat work, so its fold overlay toggle is hidden.
+The existing canvas renders these plan marks without additional layout logic.
+
+### Back registration and same-plate work styles
+
+Grid positions are zero-based with rows counted from the bottom **as viewed from
+each face**. `Slot.copyIndex` identifies the same physical cut piece on both faces.
+For a bottom/top gripper:
+
+| Work style | Back index for front `(column, row)` | Plate content |
+| --- | --- | --- |
+| Sheetwise | `(columns - 1 - column, row)` | Separate front/back plates |
+| Work-and-turn | `(columns - 1 - column, row)` | Front on left half, back on right; even columns |
+| Work-and-tumble | `(column, rows - 1 - row)` | Front on bottom half, back on top; even rows |
+
+For a left/right gripper the turn axis is exchanged (turn keeps the gripper;
+tumble switches it). The corresponding grid axis must be even in same-plate styles.
+The grid is centered along its reflection axis, and both passes' margin/gripper
+clearances are reserved. Tumble also displays the opposite gripper guide.
+
+These are **position reflections**, not reversed printed lettering: flat-work
+slots have `mirrored == false`. An x reflection reverses item rotation `θ` to
+`-θ`; a y reflection changes it to `180° - θ`. For same-plate styles, the plan
+contains front/back pages in opposite halves on each face; their geometry/content
+by grid position is identical on both plate views. Their arrays remain in
+physical-copy order, so mapped indices identify the corresponding reverse page.
+After both passes, finished copies per physical sheet equal the full grid count,
+including pieces from both halves. Both faces of a one-page job consist of
+complementary printed/blank halves in same-plate styles; every finished piece
+still has one printed face and one unprinted face.
+
+Same-plate halves and gripper handling follow Kodak's
+[work-style documentation](https://workflowhelp.kodak.com/spaces/flyingpdf/pdfpageexport.action?pageId=263717741).
+The explicit index/rotation convention above is implemented and tested in the core.
+
+### API additions and limits
+
+```swift
+project.binding = .stepAndRepeat
+project.sheet.gutter = 0
+project.stepAndRepeat = StepAndRepeatSettings(
+    columns: nil, rows: nil, allowRotation: true, quantity: 1000
+)
+let plan = ImpositionPlanner.plan(project)
+for sheet in plan.sheets {
+    if let layout = sheet.repeatLayout {
+        // layout.columns, layout.rows, layout.copiesPerSheet, layout.jobIndex,
+        // layout.frontPageNumber, layout.backPageNumber, layout.requestedQuantity
+        print(layout.copiesPerSheet, sheet.repeatCount)
+    }
+}
+print(plan.totalPressSheets)
+```
+
+Geometry is stored once per job, with `Sheet.repeatCount` recording identical
+physical sheets; large quantities do not allocate duplicate slots. The existing
+booklet sheets default to `repeatCount == 1` and `repeatLayout == nil`.
+
+Manual dimensions are limited to 1–200 per axis, quantity to 1–1,000,000,000 per
+job, and rendered capacity to 20,000 items per sheet. Larger values report errors.
+There is no gang mixing of different jobs on one sheet, per-job quantity override,
+partial final sheet, registration calibration, mixed-rotation packing, printing or
+PDF export. Existing PDF preview limitations (trim-only artwork, omitted annotations,
+no color proofing) still apply.
+
+Ten new pure-core tests cover pairing/no padding, exact row/column back mapping,
+all gripper edges, readable rotation, same-plate identity, grid optimization,
+bleed/gutter/margins, manual overrides, quantities and crop geometry. A workspace
+regression verifies debounced grid/quantity changes and restoring booklet settings.
+GUI checks used a three-page 85×55 mm card fixture, including two jobs, an unprinted
+reverse, manual grid changes, sheet counts and same-plate halves.

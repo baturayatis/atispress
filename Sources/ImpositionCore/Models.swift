@@ -18,7 +18,7 @@ public struct Insets: Equatable, Sendable {
         self.left = left; self.right = right; self.top = top; self.bottom = bottom
     }
 }
-public enum BindingMethod: Sendable { case saddleStitch, perfectBound, sewn, spiral, wireO }
+public enum BindingMethod: Sendable { case saddleStitch, perfectBound, stepAndRepeat, sewn, spiral, wireO }
 public enum CoverMode: Sendable { case included, excluded, separate }
 public enum BlankPagePolicy: Sendable { case append, reject }
 public enum Orientation: Sendable { case auto, portrait, landscape }
@@ -86,6 +86,36 @@ public struct ImpositionSettings: Sendable {
         self.safeAreaInset = safeAreaInset; self.signatureSize = signatureSize; self.turnMethod = turnMethod
     }
 }
+/// Optional dimensions override the automatically fitted grid independently.
+public struct StepAndRepeatSettings: Sendable {
+    public var columns: Int?
+    public var rows: Int?
+    public var allowRotation: Bool
+    /// Finished pieces per page pair, not impressions. Nil means one full press sheet.
+    public var quantity: Int?
+    public init(columns: Int? = nil, rows: Int? = nil, allowRotation: Bool = true, quantity: Int? = nil) {
+        self.columns = columns; self.rows = rows; self.allowRotation = allowRotation; self.quantity = quantity
+    }
+}
+public struct GridPosition: Equatable, Sendable {
+    /// Zero-based indices, rows counted from the bottom in each face's viewing frame.
+    public var column: Int
+    public var row: Int
+    public init(column: Int, row: Int) { self.column = column; self.row = row }
+}
+public struct RepeatLayout: Equatable, Sendable {
+    public var jobIndex: Int
+    public var frontPageNumber: Int
+    public var backPageNumber: Int?
+    public var columns: Int
+    public var rows: Int
+    public var requestedQuantity: Int?
+    public var copiesPerSheet: Int { columns * rows }
+    public init(jobIndex: Int, frontPageNumber: Int, backPageNumber: Int?, columns: Int, rows: Int, requestedQuantity: Int?) {
+        self.jobIndex = jobIndex; self.frontPageNumber = frontPageNumber; self.backPageNumber = backPageNumber
+        self.columns = columns; self.rows = rows; self.requestedQuantity = requestedQuantity
+    }
+}
 public struct Project: Sendable {
     public var pages: [SourcePage]
     public var blankPagePolicy: BlankPagePolicy
@@ -93,11 +123,13 @@ public struct Project: Sendable {
     public var coverMode: CoverMode
     public var sheet: SheetSpec
     public var settings: ImpositionSettings
+    public var stepAndRepeat: StepAndRepeatSettings
     public init(pages: [SourcePage], binding: BindingMethod, sheet: SheetSpec,
                 blankPagePolicy: BlankPagePolicy = .append, coverMode: CoverMode = .included,
-                settings: ImpositionSettings = ImpositionSettings()) {
+                settings: ImpositionSettings = ImpositionSettings(), stepAndRepeat: StepAndRepeatSettings = StepAndRepeatSettings()) {
         self.pages = pages; self.binding = binding; self.sheet = sheet
         self.blankPagePolicy = blankPagePolicy; self.coverMode = coverMode; self.settings = settings
+        self.stepAndRepeat = stepAndRepeat
     }
 }
 public enum SideKind: Sendable { case front, back }
@@ -115,10 +147,14 @@ public struct Slot: Equatable, Sendable {
     public var rotation: Int
     public var mirrored: Bool
     public var signature: Int
+    public var gridPosition: GridPosition?
+    /// Identifies the same physical cut piece on both faces of a repeat sheet.
+    public var copyIndex: Int?
     public init(sourcePageNumber: Int?, origin: Point, size: Size, rotation: Int = 0,
-                mirrored: Bool = false, signature: Int = 0) {
+                mirrored: Bool = false, signature: Int = 0, gridPosition: GridPosition? = nil, copyIndex: Int? = nil) {
         self.sourcePageNumber = sourcePageNumber; self.origin = origin; self.size = size
         self.rotation = rotation; self.mirrored = mirrored; self.signature = signature
+        self.gridPosition = gridPosition; self.copyIndex = copyIndex
     }
     public var x: Double { origin.x }
     public var y: Double { origin.y }
@@ -142,12 +178,18 @@ public struct Sheet: Equatable, Sendable {
     public var size: Size
     public var front: Side
     public var back: Side
-    public init(size: Size, front: Side, back: Side) { self.size = size; self.front = front; self.back = back }
+    /// Identical physical press sheets; a run is represented once instead of duplicating its geometry.
+    public var repeatCount: Int
+    public var repeatLayout: RepeatLayout?
+    public init(size: Size, front: Side, back: Side, repeatCount: Int = 1, repeatLayout: RepeatLayout? = nil) {
+        self.size = size; self.front = front; self.back = back
+        self.repeatCount = repeatCount; self.repeatLayout = repeatLayout
+    }
 }
 public struct ValidationIssue: Equatable, Sendable {
     public enum Severity: Sendable { case error, warning }
     public enum Code: Sendable {
-        case invalidInput, missingBleed, mixedPageSizes, pageCountPadding, exceedsSheet, unsupportedBinding, unsupportedCover
+        case invalidInput, missingBleed, mixedPageSizes, pageCountPadding, exceedsSheet, unsupportedBinding, unsupportedCover, sharedCutBleed
     }
     public var severity: Severity
     public var code: Code
@@ -163,6 +205,7 @@ public struct ImpositionPlan: Sendable {
     public var issues: [ValidationIssue]
     public var addedBlankPages: Int
     public var signaturePageCount: Int
+    public var totalPressSheets: Int { sheets.reduce(0) { $0 + $1.repeatCount } }
     public var canExport: Bool { !issues.contains { $0.severity == .error } }
     public init(sheets: [Sheet] = [], issues: [ValidationIssue] = [], addedBlankPages: Int = 0, signaturePageCount: Int = 0) {
         self.sheets = sheets; self.issues = issues; self.addedBlankPages = addedBlankPages

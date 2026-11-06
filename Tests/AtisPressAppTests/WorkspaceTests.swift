@@ -89,4 +89,33 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertTrue(model.plan.canExport)
     }
 
+    func testRepeatModeLiveGridQuantityAndBookletGutterAreIndependent() async throws {
+        let model = Workspace()
+        model.project.sheet = SheetSpec(size: Size(100,80),gutter: 6,orientation: .landscape)
+        model.project.settings = ImpositionSettings(bleed: 0,cropMarkLength: 0,cropMarkOffset: 0,safeAreaInset: 1)
+        model.project.pages = [1,2].map { SourcePage(number: $0,trimSize: Size(30,20)) }
+        model.project.stepAndRepeat.allowRotation = false
+        model.setMode(.stepAndRepeat)
+        XCTAssertEqual(model.project.sheet.gutter,0)
+        try await settle(model)
+        XCTAssertEqual(model.currentSheet?.repeatLayout?.copiesPerSheet,12)
+        model.project.stepAndRepeat.quantity = 37
+        try await settle(model)
+        XCTAssertEqual(model.currentSheet?.repeatCount,4)
+        model.project.stepAndRepeat.columns = 2
+        try await settle(model)
+        XCTAssertEqual(model.currentSheet?.repeatLayout?.copiesPerSheet,8)
+        XCTAssertEqual(model.currentSheet?.repeatCount,5)
+        model.project.sheet.gutter = 2
+        model.setMode(.saddleStitch)
+        XCTAssertEqual(model.project.sheet.gutter,6)
+        try await settle(model)
+        XCTAssertNil(model.currentSheet?.repeatLayout)
+        XCTAssertEqual(model.plan.addedBlankPages,2)
+        model.setMode(.stepAndRepeat)
+        XCTAssertEqual(model.project.sheet.gutter,2)
+        try await settle(model)
+        XCTAssertEqual(model.plan.addedBlankPages,0)
+    }
+
 }

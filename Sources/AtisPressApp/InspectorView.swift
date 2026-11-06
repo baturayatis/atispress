@@ -9,9 +9,10 @@ struct InspectorView: View {
             VStack(alignment: .leading,spacing: 16) {
                 Text("Baskı Ayarları").font(.title2.bold())
                 Text("Tüm ölçüler mm").font(.caption).foregroundStyle(.secondary)
-                GroupBox("Ciltleme") {
+                GroupBox("Yerleşim Yöntemi") {
                     VStack(alignment: .leading,spacing: 10) {
-                        Picker("Yöntem",selection: $model.project.binding) {
+                        Picker("Yöntem",selection: Binding(get: { model.project.binding },set: model.setMode)) {
+                            Text("Tekrarlı (kartvizit/düz iş)").tag(BindingMethod.stepAndRepeat)
                             Text("Tel dikiş").tag(BindingMethod.saddleStitch)
                             Text("Tutkallı cilt").tag(BindingMethod.perfectBound)
                         }
@@ -28,11 +29,12 @@ struct InspectorView: View {
                             Text("Yan çevirme").tag(TurnMethod.workAndTurn)
                             Text("Takla").tag(TurnMethod.workAndTumble)
                         }
-                        if model.project.settings.turnMethod != .sheetwise {
+                        if model.project.binding != .stepAndRepeat && model.project.settings.turnMethod != .sheetwise {
                             Text("Aynı kalıpta iki yarım; tabaka başına iki kopya.").font(.caption).foregroundStyle(.secondary)
                         }
                     }.padding(5)
                 }
+                if model.project.binding == .stepAndRepeat { repeatControls }
                 GroupBox("Baskı Tabakası") {
                     VStack(spacing: 10) {
                         Picker("Boyut",selection: $preset) {
@@ -80,7 +82,7 @@ struct InspectorView: View {
                 GroupBox("Önizleme Katmanları") {
                     VStack(alignment: .leading,spacing: 8) {
                         Toggle("Kesim işaretleri",isOn: $model.overlays.crop)
-                        Toggle("Katlama çizgileri",isOn: $model.overlays.fold)
+                        if model.project.binding != .stepAndRepeat { Toggle("Katlama çizgileri",isOn: $model.overlays.fold) }
                         Toggle("Taşma çizgileri",isOn: $model.overlays.bleed)
                         Toggle("Güvenli alan",isOn: $model.overlays.safeArea)
                         Toggle("Sayfa numaraları",isOn: $model.overlays.pageNumbers)
@@ -93,6 +95,51 @@ struct InspectorView: View {
         .onChange(of: model.project.settings.cropMarkLength) { _,_ in model.overlays.crop = true }
         .onChange(of: model.project.settings.cropMarkOffset) { _,_ in model.overlays.crop = true }
         .onChange(of: model.project.settings.safeAreaInset) { _,_ in model.overlays.safeArea = true }
+    }
+    private var repeatControls: some View {
+        GroupBox("Tekrarlı Yerleşim") {
+            VStack(alignment: .leading,spacing: 10) {
+                Text("Seçili sırada 1–2 ön/arka, 3–4 ayrı iş… Tek kalan sayfanın arkası boş.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("90° döndürmeye izin ver",isOn: $model.project.stepAndRepeat.allowRotation)
+                gridOverride("Sütun",value: $model.project.stepAndRepeat.columns,
+                             automatic: model.currentSheet?.repeatLayout?.columns ?? 1)
+                gridOverride("Satır",value: $model.project.stepAndRepeat.rows,
+                             automatic: model.currentSheet?.repeatLayout?.rows ?? 1)
+                Toggle("Adet hesapla (her iş için)",isOn: Binding(
+                    get: { model.project.stepAndRepeat.quantity != nil },
+                    set: { model.project.stepAndRepeat.quantity = $0 ? 1000 : nil }))
+                if model.project.stepAndRepeat.quantity != nil {
+                    HStack {
+                        Text("Adet")
+                        TextField("Adet",value: Binding(get: { model.project.stepAndRepeat.quantity ?? 1000 },
+                            set: { model.project.stepAndRepeat.quantity = $0 }),format: .number)
+                            .textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing).accessibilityLabel("Adet")
+                    }
+                }
+                if let sheet = model.currentSheet, let layout = sheet.repeatLayout {
+                    Text("\(layout.columns) × \(layout.rows) = \(layout.copiesPerSheet) adet/tabaka").fontWeight(.medium)
+                    Text("Bu iş: \(sheet.repeatCount) tabaka · Üretim: \(sheet.repeatCount*layout.copiesPerSheet) adet")
+                    Text("Tüm işler: \(model.plan.totalPressSheets) tabaka")
+                }
+                Text(model.project.sheet.gutter == 0 ? "Ortak kesim: iç taşmalar sınırda kırpılır." : "Ara boşluk, komşu taşma kutuları arasında ölçülür.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if model.project.settings.turnMethod != .sheetwise {
+                    Text("Aynı kalıp iki yüzde kullanılır. Çevirme eksenindeki ürün sayısı çift olmalıdır.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }.toggleStyle(.checkbox).padding(5)
+        }
+    }
+    private func gridOverride(_ title: String,value: Binding<Int?>,automatic: Int) -> some View {
+        VStack(alignment: .leading,spacing: 5) {
+            Toggle("\(title) sayısını belirle",isOn: Binding(get: { value.wrappedValue != nil },
+                set: { value.wrappedValue = $0 ? min(200,automatic) : nil }))
+            if value.wrappedValue != nil {
+                Stepper("\(title): \(value.wrappedValue ?? 1)",value: Binding(get: { value.wrappedValue ?? 1 },
+                    set: { value.wrappedValue = $0 }),in: 1...200)
+            }
+        }
     }
     private func measurement(_ title: String, _ value: Binding<Double>, range: ClosedRange<Double> = 0...200) -> some View {
         HStack {

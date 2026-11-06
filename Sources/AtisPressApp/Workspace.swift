@@ -42,8 +42,11 @@ final class Workspace: ObservableObject {
     @Published var error: String?
     @Published var zoomAction = 0
     @Published var zoomFactor: CGFloat = 1
+    private var filePanel: NSOpenPanel?
     private var planTask: Task<Void,Never>?
     private var importTask: Task<Void,Never>?
+    private var bookletGutter: Double?
+    private var repeatGutter: Double = 0
     private var revision = UUID()
     private var importRevision = UUID()
 
@@ -55,12 +58,28 @@ final class Workspace: ObservableObject {
             return ref.slot
         })
     }
+    func setMode(_ mode: BindingMethod) {
+        guard mode != project.binding else { return }
+        var next = project
+        if mode == .stepAndRepeat {
+            bookletGutter = project.sheet.gutter
+            next.sheet.gutter = repeatGutter
+        } else if project.binding == .stepAndRepeat {
+            repeatGutter = project.sheet.gutter
+            next.sheet.gutter = bookletGutter ?? 6
+        }
+        next.binding = mode
+        project = next
+    }
     func openPanel() {
+        if let filePanel { filePanel.makeKeyAndOrderFront(nil); return }
         let panel = NSOpenPanel()
+        filePanel = panel
         panel.allowedContentTypes = [.pdf]; panel.allowsMultipleSelection = false
         panel.title = "PDF Aç"; panel.prompt = "Aç"
         panel.message = "Önizleme için bir PDF seçin"
         panel.begin { [weak self] response in
+            self?.filePanel = nil
             if response == .OK, let url = panel.url { self?.open(url) }
         }
     }

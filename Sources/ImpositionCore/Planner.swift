@@ -16,6 +16,7 @@ public enum ImpositionPlanner {
     }
     /// Produces the sole geometry source for both preview and future PDF export.
     public static func plan(_ project: Project) -> ImpositionPlan {
+        if project.binding == .stepAndRepeat { return repeatPlan(project) }
         var result = ImpositionPlan()
         func error(_ code: ValidationIssue.Code, _ message: String) {
             result.issues.append(ValidationIssue(.error, code, message))
@@ -172,7 +173,7 @@ public enum ImpositionPlanner {
         }
         return result
     }
-    private static func pressGuides(_ spec: SheetSpec, _ size: Size) -> [Mark] {
+    static func pressGuides(_ spec: SheetSpec, _ size: Size) -> [Mark] {
         let m = spec.margins
         let a = Point(m.left,m.bottom), b = Point(size.width-m.right,m.bottom)
         let c = Point(size.width-m.right,size.height-m.top), d = Point(m.left,size.height-m.top)
@@ -295,7 +296,7 @@ public enum ImpositionPlanner {
             }
         }
     }
-    private static func marks(_ p: Slot, _ s: ImpositionSettings) -> [Mark] {
+    static func marks(_ p: Slot, _ s: ImpositionSettings) -> [Mark] {
         var result: [Mark] = []
         let x = p.x, y = p.y, w = p.size.width, h = p.size.height
         func rectangle(_ inset: Double, _ kind: MarkKind) {

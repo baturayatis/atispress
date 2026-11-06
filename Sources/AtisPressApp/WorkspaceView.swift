@@ -55,15 +55,21 @@ struct WorkspaceView: View {
                     .font(.caption).foregroundStyle(.secondary).padding(8)
             }.frame(minHeight: 250)
             VStack(spacing: 0) {
-                HStack { Text("Tabakalar / Formalar").font(.headline); Spacer(); Text("\(model.plan.sheets.count)") }.padding(12)
+                HStack { Text(model.project.binding == .stepAndRepeat ? "Tekrarlı İşler" : "Tabakalar / Formalar").font(.headline); Spacer(); Text("\(model.plan.sheets.count)") }.padding(12)
                 List(selection: $model.sheetIndex) {
                     ForEach(model.plan.sheets.indices,id: \.self) { index in
                         let sheet = model.plan.sheets[index]
                         let signatures = Set(sheet.front.slots.map(\.signature)).sorted().map { String($0+1) }.joined(separator: ", ")
                         VStack(alignment: .leading,spacing: 4) {
-                            Text("Tabaka \(index+1)").fontWeight(.medium)
-                            Text("\(sheet.size.width,specifier: "%.0f") × \(sheet.size.height,specifier: "%.0f") mm · Forma \(signatures)")
-                                .font(.caption).foregroundStyle(.secondary)
+                            if let layout = sheet.repeatLayout {
+                                Text("İş \(layout.jobIndex+1) · \(sheet.repeatCount) tabaka").fontWeight(.medium)
+                                Text("Ön \(layout.frontPageNumber) / Arka \(layout.backPageNumber.map(String.init) ?? "Boş") · \(layout.columns)×\(layout.rows)")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            } else {
+                                Text("Tabaka \(index+1)").fontWeight(.medium)
+                                Text("\(sheet.size.width,specifier: "%.0f") × \(sheet.size.height,specifier: "%.0f") mm · Forma \(signatures)")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
                         }.tag(index)
                     }
                 }.listStyle(.sidebar)
@@ -86,7 +92,12 @@ struct WorkspaceView: View {
                 PreviewCanvas(sheet: sheet,side: side,source: model.source,overlays: model.overlays,
                               highlighted: model.highlightedSlots,zoomAction: model.zoomAction,zoomFactor: model.zoomFactor)
                     .overlay(alignment: .topLeading) {
-                        Text("Tabaka \(model.sheetIndex+1) · \(model.side == .front ? "Ön" : "Arka") · \(sheet.size.width,specifier: "%.1f") × \(sheet.size.height,specifier: "%.1f") mm")
+                        VStack(alignment: .leading,spacing: 3) {
+                            Text("\(sheet.repeatLayout == nil ? "Tabaka" : "İş") \(model.sheetIndex+1) · \(model.side == .front ? "Ön" : "Arka") · \(sheet.size.width,specifier: "%.1f") × \(sheet.size.height,specifier: "%.1f") mm")
+                            if let layout = sheet.repeatLayout {
+                                Text("\(layout.columns)×\(layout.rows) · \(layout.copiesPerSheet) adet/tabaka · \(sheet.repeatCount) tabaka")
+                            }
+                        }
                             .font(.caption).padding(7).background(.regularMaterial,in: RoundedRectangle(cornerRadius: 6)).padding(10)
                             .allowsHitTesting(false)
                     }
@@ -103,7 +114,9 @@ struct WorkspaceView: View {
                 HStack {
                     Text("Doğrulama").font(.headline)
                     Spacer()
-                    Text("Eklenen boş: \(model.plan.addedBlankPages)")
+                    if let sheet = model.currentSheet, let layout = sheet.repeatLayout {
+                        Text("\(layout.copiesPerSheet) adet/tabaka · \(sheet.repeatCount) tabaka · Toplam \(model.plan.totalPressSheets)")
+                    } else { Text("Eklenen boş: \(model.plan.addedBlankPages)") }
                     if model.project.binding == .perfectBound { Text("Forma: \(model.plan.signaturePageCount) sayfa") }
                 }
                 if model.plan.issues.isEmpty {
