@@ -1,0 +1,179 @@
+/// All distances are millimetres. Coordinates originate at the sheet's bottom left.
+public struct Size: Equatable, Sendable {
+    public var width: Double
+    public var height: Double
+    public init(_ width: Double, _ height: Double) { self.width = width; self.height = height }
+}
+public struct Point: Equatable, Sendable {
+    public var x: Double
+    public var y: Double
+    public init(_ x: Double, _ y: Double) { self.x = x; self.y = y }
+}
+public struct Insets: Equatable, Sendable {
+    public var left: Double
+    public var right: Double
+    public var top: Double
+    public var bottom: Double
+    public init(left: Double = 0, right: Double = 0, top: Double = 0, bottom: Double = 0) {
+        self.left = left; self.right = right; self.top = top; self.bottom = bottom
+    }
+}
+public enum BindingMethod: Sendable { case saddleStitch, perfectBound, sewn, spiral, wireO }
+public enum CoverMode: Sendable { case included, excluded, separate }
+public enum BlankPagePolicy: Sendable { case append, reject }
+public enum Orientation: Sendable { case auto, portrait, landscape }
+public enum Edge: Sendable { case left, right, top, bottom }
+public enum TurnMethod: Sendable { case sheetwise, workAndTurn, workAndTumble }
+public enum SignatureSize: Sendable {
+    case automatic, eight, sixteen, thirtyTwo
+    public var pageCount: Int? {
+        switch self { case .automatic: return nil; case .eight: return 8; case .sixteen: return 16; case .thirtyTwo: return 32 }
+    }
+}
+public enum SheetPreset: Sendable {
+    case a4, a3, sra3, cm33x48, cm35x50, cm50x70, cm70x100
+    public var size: Size {
+        switch self {
+        case .a4: return Size(210, 297)
+        case .a3: return Size(297, 420)
+        case .sra3: return Size(320, 450)
+        case .cm33x48: return Size(330, 480)
+        case .cm35x50: return Size(350, 500)
+        case .cm50x70: return Size(500, 700)
+        case .cm70x100: return Size(700, 1000)
+        }
+    }
+}
+public struct SheetSpec: Sendable {
+    public var size: Size
+    public var margins: Insets
+    public var gripperEdge: Edge
+    public var gripperWidth: Double
+    public var gutter: Double
+    public var orientation: Orientation
+    public init(size: Size, margins: Insets = Insets(), gripperEdge: Edge = .bottom,
+                gripperWidth: Double = 0, gutter: Double = 0, orientation: Orientation = .auto) {
+        self.size = size; self.margins = margins; self.gripperEdge = gripperEdge
+        self.gripperWidth = gripperWidth; self.gutter = gutter; self.orientation = orientation
+    }
+    public init(preset: SheetPreset, margins: Insets = Insets(), gripperEdge: Edge = .bottom,
+                gripperWidth: Double = 0, gutter: Double = 0, orientation: Orientation = .auto) {
+        self.init(size: preset.size, margins: margins, gripperEdge: gripperEdge,
+                  gripperWidth: gripperWidth, gutter: gutter, orientation: orientation)
+    }
+}
+public struct SourcePage: Equatable, Sendable {
+    /// One-based identifier in the source document. Array order is the reading order.
+    public var number: Int
+    public var trimSize: Size
+    /// Nil means unknown; PDFEngine will populate this later.
+    public var availableBleed: Double?
+    public init(number: Int, trimSize: Size, availableBleed: Double? = nil) {
+        self.number = number; self.trimSize = trimSize; self.availableBleed = availableBleed
+    }
+}
+public struct ImpositionSettings: Sendable {
+    public var bleed: Double
+    public var cropMarkLength: Double
+    public var cropMarkOffset: Double
+    public var safeAreaInset: Double
+    public var signatureSize: SignatureSize
+    public var turnMethod: TurnMethod
+    public init(bleed: Double = 3, cropMarkLength: Double = 5, cropMarkOffset: Double = 3,
+                safeAreaInset: Double = 5, signatureSize: SignatureSize = .automatic,
+                turnMethod: TurnMethod = .sheetwise) {
+        self.bleed = bleed; self.cropMarkLength = cropMarkLength; self.cropMarkOffset = cropMarkOffset
+        self.safeAreaInset = safeAreaInset; self.signatureSize = signatureSize; self.turnMethod = turnMethod
+    }
+}
+public struct Project: Sendable {
+    public var pages: [SourcePage]
+    public var blankPagePolicy: BlankPagePolicy
+    public var binding: BindingMethod
+    public var coverMode: CoverMode
+    public var sheet: SheetSpec
+    public var settings: ImpositionSettings
+    public init(pages: [SourcePage], binding: BindingMethod, sheet: SheetSpec,
+                blankPagePolicy: BlankPagePolicy = .append, coverMode: CoverMode = .included,
+                settings: ImpositionSettings = ImpositionSettings()) {
+        self.pages = pages; self.binding = binding; self.sheet = sheet
+        self.blankPagePolicy = blankPagePolicy; self.coverMode = coverMode; self.settings = settings
+    }
+}
+public enum SideKind: Sendable { case front, back }
+public struct SlotReference: Equatable, Sendable {
+    public var sheet: Int
+    public var side: SideKind
+    public var slot: Int
+    public init(sheet: Int, side: SideKind, slot: Int) { self.sheet = sheet; self.side = side; self.slot = slot }
+}
+public struct Slot: Equatable, Sendable {
+    public var sourcePageNumber: Int?
+    public var origin: Point
+    public var size: Size
+    /// Clockwise degrees, followed by an optional horizontal reflection in local trim coordinates.
+    public var rotation: Int
+    public var mirrored: Bool
+    public var signature: Int
+    public init(sourcePageNumber: Int?, origin: Point, size: Size, rotation: Int = 0,
+                mirrored: Bool = false, signature: Int = 0) {
+        self.sourcePageNumber = sourcePageNumber; self.origin = origin; self.size = size
+        self.rotation = rotation; self.mirrored = mirrored; self.signature = signature
+    }
+    public var x: Double { origin.x }
+    public var y: Double { origin.y }
+}
+public enum MarkKind: Sendable { case crop, fold, bleed, safeArea, pageLabel }
+public struct Mark: Equatable, Sendable {
+    public var kind: MarkKind
+    public var start: Point
+    public var end: Point
+    public var label: String?
+    public init(kind: MarkKind, start: Point, end: Point, label: String? = nil) {
+        self.kind = kind; self.start = start; self.end = end; self.label = label
+    }
+}
+public struct Side: Equatable, Sendable {
+    public var slots: [Slot]
+    public var marks: [Mark]
+    public init(slots: [Slot] = [], marks: [Mark] = []) { self.slots = slots; self.marks = marks }
+}
+public struct Sheet: Equatable, Sendable {
+    public var size: Size
+    public var front: Side
+    public var back: Side
+    public init(size: Size, front: Side, back: Side) { self.size = size; self.front = front; self.back = back }
+}
+public struct ValidationIssue: Equatable, Sendable {
+    public enum Severity: Sendable { case error, warning }
+    public enum Code: Sendable {
+        case invalidInput, missingBleed, mixedPageSizes, pageCountPadding, exceedsSheet, unsupportedBinding, unsupportedCover
+    }
+    public var severity: Severity
+    public var code: Code
+    /// User-facing messages are Turkish.
+    public var message: String
+    public var slot: SlotReference?
+    public init(_ severity: Severity, _ code: Code, _ message: String, slot: SlotReference? = nil) {
+        self.severity = severity; self.code = code; self.message = message; self.slot = slot
+    }
+}
+public struct ImpositionPlan: Sendable {
+    public var sheets: [Sheet]
+    public var issues: [ValidationIssue]
+    public var addedBlankPages: Int
+    public var signaturePageCount: Int
+    public var canExport: Bool { !issues.contains { $0.severity == .error } }
+    public init(sheets: [Sheet] = [], issues: [ValidationIssue] = [], addedBlankPages: Int = 0, signaturePageCount: Int = 0) {
+        self.sheets = sheets; self.issues = issues; self.addedBlankPages = addedBlankPages
+        self.signaturePageCount = signaturePageCount
+    }
+}
+/// TODO: implement only after stock caliper and bindery-specific creep rules are supplied.
+public protocol CreepCalculating {
+    func displacement(sheetIndex: Int, sheetCount: Int, stockCaliper: Double) -> Double
+}
+/// TODO: implement only after adhesive, stock and compression rules are supplied.
+public protocol SpineThicknessCalculating {
+    func thickness(pageCount: Int, stockCaliper: Double) -> Double
+}
