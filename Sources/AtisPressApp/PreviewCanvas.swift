@@ -5,6 +5,8 @@ import ImpositionCore
 struct PreviewCanvas: NSViewRepresentable {
     let sheet: Sheet
     let side: Side
+    let sheetIndex: Int
+    let sideKind: SideKind
     let source: PDFSource?
     let overlays: PreviewOverlays
     let highlighted: Set<Int>
@@ -35,7 +37,7 @@ struct PreviewCanvas: NSViewRepresentable {
         } else if sizeChanged { (scroll as? PreviewScrollView)?.requestFit() }
     }
     private func update(_ canvas: SheetCanvasView) {
-        canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted)
+        canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind)
     }
 }
 
@@ -77,6 +79,9 @@ final class SheetCanvasView: NSView {
     var overlays = PreviewOverlays()
     var highlighted = Set<Int>()
     var zoomAction = 0
+    var sheetIndex = 0
+    var sideKind: SideKind = .front
+    var slotOverlays: [any PDFSlotOverlay] = []
     private var vectorDocument: CGPDFDocument?
     private var loading = Set<Int>()
     private var failedRasters = Set<Int>()
@@ -94,11 +99,12 @@ final class SheetCanvasView: NSView {
     @objc private func magnificationEnded() { needsDisplay = true }
     override var isOpaque: Bool { true }
     override var acceptsFirstResponder: Bool { true }
-    func configure(sheet: Sheet,side: Side,source: PDFSource?,overlays: PreviewOverlays,highlighted: Set<Int>) {
+    func configure(sheet: Sheet,side: Side,source: PDFSource?,overlays: PreviewOverlays,highlighted: Set<Int>,sheetIndex: Int = 0,kind: SideKind = .front) {
         if self.source !== source {
             self.source = source; loading = []; failedRasters = []
             vectorDocument = source.flatMap { CGPDFDocument($0.url as CFURL) }
         }
+        self.sheetIndex = sheetIndex; self.sideKind = kind
         self.sheet = sheet; self.side = side; self.overlays = overlays; self.highlighted = highlighted
         let newSize = NSSize(width: sheet.size.width*pointsPerMM+2*padding,height: sheet.size.height*pointsPerMM+2*padding)
         if frame.size != newSize { setFrameSize(newSize) }
@@ -121,40 +127,33 @@ final class SheetCanvasView: NSView {
         context.translateBy(x: padding,y: padding); context.scaleBy(x: pointsPerMM,y: pointsPerMM)
         let paper = CGRect(x: 0,y: 0,width: sheet.size.width,height: sheet.size.height)
         context.setFillColor(NSColor.white.cgColor); context.fill(paper)
+        context.clip(to: paper)
         let scale = max(0.01,enclosingScrollView?.magnification ?? 1)
         let visible = visibleRect.insetBy(dx: -40,dy: -40)
         for (index,slot) in side.slots.enumerated() {
             let rect = CGRect(x: slot.x,y: slot.y,width: slot.size.width,height: slot.size.height)
-            let viewRect = CGRect(x: rect.minX*pointsPerMM+padding,y: rect.minY*pointsPerMM+padding,
-                                  width: rect.width*pointsPerMM,height: rect.height*pointsPerMM)
+            let extent = slot.artworkClip.map { CGRect(x: $0.origin.x,y: $0.origin.y,width: $0.size.width,height: $0.size.height) } ?? rect
+            let viewRect = CGRect(x: extent.minX*pointsPerMM+padding,y: extent.minY*pointsPerMM+padding,
+                                  width: extent.width*pointsPerMM,height: extent.height*pointsPerMM)
             guard visible.intersects(viewRect) else { continue }
             let projectedPixels = max(viewRect.width,viewRect.height)*scale*(window?.backingScaleFactor ?? 2)
             let rasterPixels = projectedPixels <= 128 ? 128 : projectedPixels <= 256 ? 256 : 512
             context.saveGState()
-            context.clip(to: rect)
             context.setFillColor(NSColor.white.cgColor); context.fill(rect)
             if let number = slot.sourcePageNumber {
-                context.concatenate(PDFPreviewDrawing.slotTransform(slot))
-                let rotated = slot.rotation % 180 != 0
-                let local = CGRect(x: 0,y: 0,width: rotated ? slot.size.height : slot.size.width,
-                                   height: rotated ? slot.size.width : slot.size.height)
-                if scale >= 0.85, let page = vectorDocument?.page(at: number) {
-                    PDFPreviewDrawing.draw(page,in: context,rect: local)
-                } else if let image = source?.cachedImage(page: number,pixels: rasterPixels),
-                          let cgImage = image.cgImage(forProposedRect: nil,context: nil,hints: nil) {
-                    context.interpolationQuality = .high
-                    context.draw(cgImage,in: local)
-                } else if failedRasters.contains(number), let page = vectorDocument?.page(at: number) {
-                    PDFPreviewDrawing.draw(page,in: context,rect: local)
-                } else {
-                    context.setFillColor(NSColor(white: 0.96,alpha: 1).cgColor); context.fill(local)
-                    loadRaster(number,pixels: rasterPixels)
-                }
+                let page = vectorDocument?.page(at: number)
+                let raster = scale < 0.85 ? source?.cachedRaster(page: number,pixels: rasterPixels) : nil
+                if scale < 0.85 && raster == nil && !failedRasters.contains(number) { loadRaster(number,pixels: rasterPixels) }
+                // A vector fallback avoids flashing empty trim rectangles while the bleed raster loads.
+                try? PDFPlanRenderer.drawSlot(slot,page: page,in: context,
+                    reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),raster: raster,overlays: slotOverlays)
             } else {
                 context.setFillColor(NSColor(white: 0.93,alpha: 1).cgColor); context.fill(rect)
                 context.setStrokeColor(NSColor.lightGray.cgColor); context.setLineWidth(0.35)
                 context.move(to: rect.origin); context.addLine(to: CGPoint(x: rect.maxX,y: rect.maxY))
                 context.move(to: CGPoint(x: rect.minX,y: rect.maxY)); context.addLine(to: CGPoint(x: rect.maxX,y: rect.minY)); context.strokePath()
+                try? PDFPlanRenderer.drawSlot(slot,page: nil,in: context,
+                    reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),overlays: slotOverlays)
             }
             context.restoreGState()
             context.setStrokeColor((highlighted.contains(index) ? NSColor.systemRed : NSColor.gray).cgColor)
@@ -165,32 +164,7 @@ final class SheetCanvasView: NSView {
                 label(text,at: CGPoint(x: rect.midX,y: rect.minY+min(5,rect.height/5)),size: 3,color: .systemPurple)
             }
         }
-        for mark in side.marks where overlays.shows(mark.kind) {
-            if mark.kind == .pageLabel {
-                label(mark.label ?? "",at: CGPoint(x: mark.start.x,y: mark.start.y),size: 4,color: .systemBlue)
-            } else {
-                let color: NSColor
-                switch mark.kind {
-                case .crop: color = .black
-                case .fold: color = .systemBlue
-                case .bleed: color = .systemRed
-                case .safeArea: color = .systemGreen
-                case .margin, .gripper: color = .systemOrange
-                case .pageLabel: color = .systemBlue
-                }
-                context.setStrokeColor(color.withAlphaComponent(0.85).cgColor)
-                context.setLineWidth((mark.kind == .gripper ? 1.8 : 1)/pointsPerMM/scale)
-                context.setLineDash(phase: 0,lengths: mark.kind == .crop || mark.kind == .gripper ? [] : [2,1])
-                context.move(to: CGPoint(x: mark.start.x,y: mark.start.y)); context.addLine(to: CGPoint(x: mark.end.x,y: mark.end.y)); context.strokePath()
-                if mark.kind == .gripper {
-                    label(mark.label ?? "Maşa",at: CGPoint(x: (mark.start.x+mark.end.x)/2,y: (mark.start.y+mark.end.y)/2),size: 3,color: .systemOrange)
-                }
-            }
-        }
-        context.setLineDash(phase: 0,lengths: [])
-        if overlays.sheetBoundary {
-            context.setLineWidth(1.5/pointsPerMM/scale); context.setStrokeColor(NSColor.black.cgColor); context.stroke(paper)
-        }
+        PDFPlanRenderer.drawMarks(side.marks,sheetSize: sheet.size,in: context,options: overlays,displayScale: scale)
         context.restoreGState()
     }
     private func label(_ text: String,at point: CGPoint,size: CGFloat,color: NSColor) {

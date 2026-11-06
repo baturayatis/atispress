@@ -103,14 +103,24 @@ public enum ImpositionPlanner {
                 func placed(_ slots: [Slot], shift: Point = Point(0, 0)) -> [Slot] {
                     slots.map { slot in
                         var p = slot
+                        let left = slot.x > 0 ? min(s.bleed,spec.gutter/2) : s.bleed
+                        let bottom = slot.y > 0 ? min(s.bleed,spec.gutter/2) : s.bleed
+                        let right = slot.x+trim.width < rawSize.width-0.000001 ? min(s.bleed,spec.gutter/2) : s.bleed
+                        let top = slot.y+trim.height < rawSize.height-0.000001 ? min(s.bleed,spec.gutter/2) : s.bleed
+                        var clip = Rect(x: slot.x+reserve-left,y: slot.y+reserve-bottom,
+                                        width: trim.width+left+right,height: trim.height+bottom+top)
                         p.origin.x += reserve; p.origin.y += reserve
                         if layout.rotated {
                             let old = p.origin
                             p.origin = Point(old.y, rawSize.width + 2*reserve - old.x - p.size.width)
                             p.size = Size(slot.size.height, slot.size.width)
                             p.rotation = (p.rotation + 90) % 360
+                            clip = Rect(x: clip.origin.y,y: rawSize.width+2*reserve-clip.origin.x-clip.size.width,
+                                        width: clip.size.height,height: clip.size.width)
                         }
                         p.origin.x += origin.x + shift.x; p.origin.y += origin.y + shift.y
+                        clip.origin.x += origin.x+shift.x; clip.origin.y += origin.y+shift.y
+                        p.artworkClip = clip
                         return p
                     }
                 }
@@ -277,6 +287,11 @@ public enum ImpositionPlanner {
         var q = p
         if method == .workAndTurn { q.origin.x = size.width-p.x-p.size.width; q.rotation = (360-p.rotation)%360 }
         else { q.origin.y = size.height-p.y-p.size.height; q.rotation = (540-p.rotation)%360 }
+        if var clip = p.artworkClip {
+            if method == .workAndTurn { clip.origin.x = size.width-clip.origin.x-clip.size.width }
+            else { clip.origin.y = size.height-clip.origin.y-clip.size.height }
+            q.artworkClip = clip
+        }
         q.mirrored.toggle(); return q
     }
     private static func reflectMark(_ m: Mark, _ size: Size, _ method: TurnMethod) -> Mark {
@@ -304,7 +319,12 @@ public enum ImpositionPlanner {
             let c = Point(x+w-inset,y+h-inset), d = Point(x+inset,y+h-inset)
             result += [(a,b),(b,c),(c,d),(d,a)].map { Mark(kind: kind,start: $0.0,end: $0.1) }
         }
-        rectangle(-s.bleed,.bleed); rectangle(s.safeAreaInset,.safeArea)
+        if let clip = p.artworkClip {
+            let l = clip.origin.x, b = clip.origin.y, r = l+clip.size.width, t = b+clip.size.height
+            let a = Point(l,b), c = Point(r,b), d = Point(r,t), e = Point(l,t)
+            result += [(a,c),(c,d),(d,e),(e,a)].map { Mark(kind: .bleed,start: $0.0,end: $0.1) }
+        } else { rectangle(-s.bleed,.bleed) }
+        rectangle(s.safeAreaInset,.safeArea)
         if s.cropMarkLength > 0 {
             for cx in [x,x+w] {
                 for cy in [y,y+h] {

@@ -166,6 +166,7 @@ extension ImpositionPlanner {
     }
 
     private static func repeatSide(_ slots: [Slot], grid: RepeatGrid, spec: SheetSpec, settings: ImpositionSettings) -> Side {
+        var slots = slots
         var lines = pressGuides(spec,grid.sheet)
         if settings.turnMethod == .workAndTumble {
             lines += lines.filter { $0.kind == .gripper }.map { mark in
@@ -178,7 +179,8 @@ extension ImpositionPlanner {
         let x0 = grid.origin.x, y0 = grid.origin.y
         let x1 = x0+Double(grid.columns)*grid.item.width+Double(grid.columns-1)*grid.spacing
         let y1 = y0+Double(grid.rows)*grid.item.height+Double(grid.rows-1)*grid.spacing
-        for slot in slots {
+        for index in slots.indices {
+            let slot = slots[index]
             lines += marks(slot,settings).filter { $0.kind != .crop && $0.kind != .bleed }
             // Bleed guides stop at shared cuts; they never imply overlapping neighboring artwork.
             let p = slot.gridPosition!
@@ -186,6 +188,7 @@ extension ImpositionPlanner {
             let r = spec.gutter == 0 && p.column < grid.columns-1 ? slot.x+slot.size.width : slot.x+slot.size.width+settings.bleed
             let b = spec.gutter == 0 && p.row > 0 ? slot.y : slot.y-settings.bleed
             let t = spec.gutter == 0 && p.row < grid.rows-1 ? slot.y+slot.size.height : slot.y+slot.size.height+settings.bleed
+            slots[index].artworkClip = Rect(x: l,y: b,width: r-l,height: t-b)
             lines += rectangleLines(l,b,r,t,kind: .bleed)
         }
         if settings.cropMarkLength > 0 {

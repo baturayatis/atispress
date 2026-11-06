@@ -3,24 +3,7 @@ import PDFEngine
 import ImpositionCore
 import UniformTypeIdentifiers
 
-struct PreviewOverlays: Equatable {
-    var crop = true
-    var fold = true
-    var bleed = true
-    var safeArea = false
-    var pageNumbers = true
-    var sheetBoundary = true
-    func shows(_ kind: MarkKind) -> Bool {
-        switch kind {
-        case .crop: return crop
-        case .fold: return fold
-        case .bleed: return bleed
-        case .safeArea: return safeArea
-        case .pageLabel: return pageNumbers
-        case .margin, .gripper: return true
-        }
-    }
-}
+typealias PreviewOverlays = PDFRenderOptions
 
 @MainActor
 final class Workspace: ObservableObject {
@@ -40,9 +23,14 @@ final class Workspace: ObservableObject {
     @Published var loading = false
     @Published var planning = false
     @Published var error: String?
+    @Published private(set) var exporting = false
+    @Published private(set) var exportSummary: String?
+    @Published private(set) var exportedFiles: [URL] = []
     @Published var zoomAction = 0
     @Published var zoomFactor: CGFloat = 1
     private var filePanel: NSOpenPanel?
+    private var exportPanel: NSSavePanel?
+    private var exportTask: Task<Void,Never>?
     private var planTask: Task<Void,Never>?
     private var importTask: Task<Void,Never>?
     private var bookletGutter: Double?
@@ -57,6 +45,75 @@ final class Workspace: ObservableObject {
             guard let ref = issue.slot, ref.sheet == sheetIndex, ref.side == side else { return nil }
             return ref.slot
         })
+    }
+    var canExportNow: Bool {
+        source != nil && plan.canExport && !plan.sheets.isEmpty && !planning && !loading && !exporting
+    }
+    func chooseExport(perSheet: Bool) {
+        guard canExportNow, let source else { return }
+        if let exportPanel { exportPanel.makeKeyAndOrderFront(nil); return }
+        if perSheet {
+            let panel = NSOpenPanel()
+            exportPanel = panel
+            panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
+            panel.title = "Her tabaka için PDF"; panel.prompt = "Klasörü Seç"
+            panel.message = "Yeni bir çıktı klasörü oluşturulacak. Açık önizleme katmanları PDF’ye aktarılır."
+            panel.begin { [weak self] response in
+                guard let self else { return }
+                self.exportPanel = nil
+                guard response == .OK, let folder = panel.url, self.canExportNow else { return }
+                let granted = folder.startAccessingSecurityScopedResource()
+                let name = source.url.deletingPathExtension().lastPathComponent
+                let directory = folder.appendingPathComponent("AtisPress-"+UUID().uuidString,isDirectory: true)
+                do {
+                    try FileManager.default.createDirectory(at: directory,withIntermediateDirectories: false)
+                    self.beginExport(to: .perSheet(directory: directory,baseName: name),
+                                     scopedParent: granted ? folder : nil,cleanupOnFailure: directory)
+                } catch {
+                    if granted { folder.stopAccessingSecurityScopedResource() }
+                    self.error = error.localizedDescription
+                }
+            }
+        } else {
+            let panel = NSSavePanel()
+            exportPanel = panel
+            panel.allowedContentTypes = [.pdf]; panel.canCreateDirectories = true
+            panel.title = "Bütün işi PDF olarak dışa aktar"; panel.prompt = "Dışa Aktar"
+            panel.message = "Açık önizleme işaretleri ve kılavuzları PDF’ye aktarılır."
+            panel.nameFieldStringValue = source.url.deletingPathExtension().lastPathComponent+"-baski.pdf"
+            panel.begin { [weak self] response in
+                self?.exportPanel = nil
+                if response == .OK, let url = panel.url { self?.beginExport(to: .singlePDF(url)) }
+            }
+        }
+    }
+    func cancelExport() { exportTask?.cancel() }
+    func revealExport() { NSWorkspace.shared.activateFileViewerSelecting(exportedFiles) }
+    func beginExport(to destination: PDFExportDestination,scopedParent: URL? = nil,cleanupOnFailure: URL? = nil) {
+        guard canExportNow, let source else {
+            if let scopedParent { scopedParent.stopAccessingSecurityScopedResource() }
+            if let cleanupOnFailure { try? FileManager.default.removeItem(at: cleanupOnFailure) }
+            error = PDFExportError.invalidPlan.localizedDescription; return
+        }
+        let snapshot = plan, options = overlays
+        exporting = true; exportSummary = nil; exportedFiles = []
+        let worker = Task.detached(priority: .userInitiated) {
+            defer { scopedParent?.stopAccessingSecurityScopedResource() }
+            do { return try PDFExporter.export(plan: snapshot,source: source,destination: destination,options: options) }
+            catch {
+                if let cleanupOnFailure { try? FileManager.default.removeItem(at: cleanupOnFailure) }
+                throw error
+            }
+        }
+        exportTask = Task {
+            do {
+                let result = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
+                exportedFiles = result.files
+                exportSummary = "Son çıktı hazır: \(result.sheetCount) tabaka · \(result.pageCount) sayfa · \(result.files.count) dosya"
+            } catch is CancellationError { exportSummary = "Dışa aktarma iptal edildi." }
+            catch { self.error = error.localizedDescription }
+            exporting = false
+        }
     }
     func setMode(_ mode: BindingMethod) {
         guard mode != project.binding else { return }

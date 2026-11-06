@@ -26,7 +26,7 @@ public enum PDFReadError: LocalizedError {
 }
 
 /// PDFKit stays on one serial queue. Main-thread vector drawing uses a separate CGPDFDocument.
-/// No PDF export APIs exist in this module.
+/// Reading and rasterization never mutate the source file.
 public final class PDFSource: @unchecked Sendable {
     public let id = UUID()
     public let url: URL
@@ -34,7 +34,7 @@ public final class PDFSource: @unchecked Sendable {
     private let queue = DispatchQueue(label: "com.atispress.pdf-raster", qos: .userInitiated)
     private var rasterDocument: PDFDocument?
     private let scopedAccess: Bool
-    private let cache = NSCache<NSString, NSImage>()
+    private let cache = NSCache<NSString, PDFPageRaster>()
 
     private init(url: URL, pages: [PDFPageInfo], scopedAccess: Bool) {
         self.url = url; self.pages = pages; self.scopedAccess = scopedAccess
@@ -81,31 +81,45 @@ public final class PDFSource: @unchecked Sendable {
         return CGPDFDictionaryGetArray(dictionary, key, &array)
     }
     public func cachedImage(page: Int, pixels: Int) -> NSImage? {
+        cachedRaster(page: page,pixels: pixels)?.image
+    }
+    public func cachedRaster(page: Int,pixels: Int) -> PDFPageRaster? {
         cache.object(forKey: "\(page)-\(pixels)" as NSString)
     }
     /// Requested only by visible rows/slots. A bounded cache avoids rasterizing 1000 pages eagerly.
     public func image(page: Int, pixels: Int) async -> NSImage? {
         guard !Task.isCancelled, page > 0, page <= pages.count, (1...2048).contains(pixels) else { return nil }
-        if let hit = cachedImage(page: page, pixels: pixels) { return hit }
+        if let hit = cachedRaster(page: page, pixels: pixels) { return hit.image }
         let request = RasterRequest()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 queue.async { [self] in
                     guard !request.isCancelled else { continuation.resume(returning: nil); return }
-                    if let hit = cachedImage(page: page, pixels: pixels) {
-                        continuation.resume(returning: hit); return
+                    if let hit = cachedRaster(page: page, pixels: pixels) {
+                        continuation.resume(returning: hit.image); return
                     }
                     if rasterDocument == nil { rasterDocument = PDFDocument(url: url) }
-                    let image: NSImage? = autoreleasepool {
-                        guard let pdfPage = rasterDocument?.page(at: page-1) else { return nil }
-                        // Match CGPDFPage vector drawing: annotations are outside the page content stream.
-                        for annotation in pdfPage.annotations { pdfPage.removeAnnotation(annotation) }
-                        return pdfPage.thumbnail(of: NSSize(width: pixels,height: pixels), for: .trimBox)
+                    let raster: PDFPageRaster? = autoreleasepool {
+                        guard let pdfPage = rasterDocument?.page(at: page-1), let ref = pdfPage.pageRef else { return nil }
+                        let size = pages[page-1].trimSize
+                        let trim = CGRect(x: 0,y: 0,width: size.width,height: size.height)
+                        let artwork = PDFPreviewDrawing.artworkGeometry(ref,trimRect: trim).artworkBounds
+                        let scale = Double(pixels)/max(artwork.width,artwork.height)
+                        guard scale.isFinite, scale > 0 else { return nil }
+                        let width = max(1,Int(ceil(artwork.width*scale))), height = max(1,Int(ceil(artwork.height*scale)))
+                        guard let context = CGContext(data: nil,width: width,height: height,bitsPerComponent: 8,bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+                        context.scaleBy(x: scale,y: scale); context.translateBy(x: -artwork.minX,y: -artwork.minY)
+                        PDFPreviewDrawing.draw(ref,in: context,rect: trim)
+                        guard let image = context.makeImage() else { return nil }
+                        return PDFPageRaster(cgImage: image,bounds: CGRect(x: artwork.minX/trim.width,y: artwork.minY/trim.height,
+                            width: artwork.width/trim.width,height: artwork.height/trim.height))
                     }
-                    if let image {
-                        cache.setObject(image, forKey: "\(page)-\(pixels)" as NSString, cost: pixels*pixels*4)
+                    if let raster {
+                        cache.setObject(raster,forKey: "\(page)-\(pixels)" as NSString,
+                                        cost: raster.cgImage.bytesPerRow*raster.cgImage.height)
                     }
-                    continuation.resume(returning: image)
+                    continuation.resume(returning: raster?.image)
                 }
             }
         } onCancel: { request.cancel() }
@@ -117,26 +131,4 @@ private final class RasterRequest: @unchecked Sendable {
     private var cancelled = false
     var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
     func cancel() { lock.lock(); cancelled = true; lock.unlock() }
-}
-
-/// This transforms one plan slot only; it never calculates imposition or placement.
-public enum PDFPreviewDrawing {
-    public static func slotTransform(_ slot: Slot) -> CGAffineTransform {
-        let quarterTurn = slot.rotation % 180 != 0
-        let w = quarterTurn ? slot.size.height : slot.size.width
-        let h = quarterTurn ? slot.size.width : slot.size.height
-        let angle = -Double(slot.rotation) * .pi / 180
-        var transform = CGAffineTransform(rotationAngle: angle)
-        if slot.mirrored { transform = transform.scaledBy(x: -1,y: 1) }
-        let footprint = CGRect(x: 0,y: 0,width: w,height: h).applying(transform)
-        transform.tx += slot.x-footprint.minX; transform.ty += slot.y-footprint.minY
-        return transform
-    }
-    public static func draw(_ page: CGPDFPage, in context: CGContext, rect: CGRect) {
-        context.saveGState()
-        context.clip(to: rect)
-        context.concatenate(page.getDrawingTransform(.trimBox, rect: rect, rotate: 0, preserveAspectRatio: true))
-        context.drawPDFPage(page)
-        context.restoreGState()
-    }
 }

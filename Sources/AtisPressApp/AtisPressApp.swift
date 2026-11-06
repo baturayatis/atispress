@@ -36,10 +36,15 @@ struct AtisPressApp: App {
             CommandGroup(replacing: .newItem) {
                 Button("PDF Aç…") { workspace.openPanel() }.keyboardShortcut("o")
             }
+            CommandGroup(after: .saveItem) {
+                Button("PDF Dışa Aktar…") { workspace.chooseExport(perSheet: false) }
+                    .keyboardShortcut("e",modifiers: [.command,.shift]).disabled(!workspace.canExportNow)
+                Button("Her Tabaka İçin PDF…") { workspace.chooseExport(perSheet: true) }.disabled(!workspace.canExportNow)
+            }
             CommandGroup(replacing: .appInfo) {
                 Button("AtışPress Hakkında") {
                     NSApplication.shared.orderFrontStandardAboutPanel(options: [
-                        .applicationName: "AtışPress", .applicationVersion: "Canlı önizleme — Adım 3"
+                        .applicationName: "AtışPress", .applicationVersion: "PDF dışa aktarma — Adım 4"
                     ])
                 }
             }

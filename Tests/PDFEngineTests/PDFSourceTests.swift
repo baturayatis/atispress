@@ -16,7 +16,7 @@ final class PDFSourceTests: XCTestCase {
         page.setBounds(CGRect(x: 4,y: 4,width: 212,height: 312),for: .bleedBox)
         page.rotation = 90
         document.insert(page,at: 0)
-        XCTAssertTrue(document.write(to: url)) // Test fixture only; production contains no export.
+        XCTAssertTrue(document.write(to: url)) // Fixture authored independently of the exporter under test.
         let source = try await PDFSource.open(url)
         XCTAssertEqual(source.pages.count,1)
         XCTAssertEqual(source.pages[0].trimSize.width,300*25.4/72,accuracy: 0.001)

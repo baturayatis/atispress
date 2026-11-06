@@ -87,6 +87,7 @@ struct InspectorView: View {
                         Toggle("Güvenli alan",isOn: $model.overlays.safeArea)
                         Toggle("Sayfa numaraları",isOn: $model.overlays.pageNumbers)
                         Toggle("Tabaka sınırı",isOn: $model.overlays.sheetBoundary)
+                        Toggle("Kenar payı / maşa",isOn: $model.overlays.pressGuides)
                     }.toggleStyle(.checkbox).frame(maxWidth: .infinity,alignment: .leading).padding(5)
                 }
             }.padding(14)

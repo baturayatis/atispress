@@ -1,9 +1,9 @@
-# AtışPress — booklet and step-and-repeat live preview
+# AtışPress — live preview and vector PDF export
 
 Swift 5.9 package; macOS 14+, no external dependencies. `ImpositionCore` imports
-neither UI nor PDF frameworks. `PDFEngine` reads page metadata and supplies
-preview rasters/vector drawing helpers. `AtisPressApp` is a native SwiftUI executable.
-There is no PDF export implementation or export action.
+neither UI nor PDF frameworks. `PDFEngine` reads PDF metadata, draws bleed-aware
+preview artwork and writes vector-preserving imposed PDFs. `AtisPressApp` is a
+native SwiftUI executable. Preview and export consume the same `ImpositionPlan`.
 
 ## Build and test
 
@@ -32,7 +32,7 @@ let project = Project(
     settings: ImpositionSettings(signatureSize: .sixteen)
 )
 let plan = ImpositionPlanner.plan(project)
-// plan.canExport gates future export; plan.issues contains Turkish messages.
+// plan.canExport gates export; plan.issues contains Turkish messages.
 // Both preview and PDFEngine must consume plan.sheets, without recalculating it.
 ```
 
@@ -54,8 +54,9 @@ silently scaled. Bleed that is absent, unknown or insufficient produces a warnin
 - Slot `size` is the axis-aligned footprint on the press sheet. Optionally reflect original
   source trim horizontally in local coordinates, rotate clockwise by `rotation`,
   then translate the resulting bounding box to `origin`. Bleed,
-  safe-area and fold marks are guides; a future exporter must choose which mark
-  kinds are printable. Labels are anchors plus text, not font metrics.
+  safe-area and fold marks are plan geometry selected by `PDFRenderOptions`.
+  Labels are anchors plus text, not font metrics. `Slot.artworkClip` is the planned
+  sheet-space extent including bleed and shared-cut clipping.
 - Saddle stitch uses nested bifolia, outer to inner, padded to a multiple of four.
   The required `[last, first] / [second, penultimate]` face convention is used.
 - Perfect binding uses full rectangular folding sheets: 8 pages = 2×2 panels,
@@ -85,9 +86,9 @@ silently scaled. Bleed that is absent, unknown or insufficient produces a warnin
   or 22 for 32-page perfect binding. Automatic depends on sheet fit and packing.
 - Gutter is the explicit trim-to-trim gap, also at folds. Outer space reserves the
   larger of bleed and crop offset + length. Crop segments that would cross another
-  trim rectangle are omitted. Bleed guides may overlap at shared folds; they do
-  not authorize overlapping artwork. Future PDFEngine must clip placed content
-  at the midpoint of shared gutters/folds. Safe area is a configurable inset.
+  trim rectangle are omitted. The plan clips artwork and bleed guides at the
+  midpoint of shared gutters/folds, so neighboring artwork cannot overlap.
+  Safe area is a configurable inset.
 - Creep and spine thickness are intentionally only protocols, marked TODO, with
   no unverified stock/adhesive formula or correction applied.
 
@@ -105,7 +106,11 @@ Sources/
     Models.swift
     Planner.swift
     StepAndRepeat.swift
-  PDFEngine/PDFSource.swift
+  PDFEngine/
+    PDFSource.swift
+    PDFArtwork.swift
+    PDFPlanRenderer.swift
+    PDFExporter.swift
   AtisPressApp/
     AtisPressApp.swift
     Workspace.swift
@@ -114,7 +119,9 @@ Sources/
     PreviewCanvas.swift
 Tests/ImpositionCoreTests/PlannerTests.swift
 Tests/ImpositionCoreTests/StepAndRepeatTests.swift
+Tests/ImpositionCoreTests/ArtworkClipTests.swift
 Tests/PDFEngineTests/PDFSourceTests.swift
+Tests/PDFEngineTests/PDFExportTests.swift
 Tests/AtisPressAppTests/WorkspaceTests.swift
 ```
 
@@ -160,7 +167,7 @@ Changing mark geometry automatically enables its overlay so the change is visibl
 Page labels stay readable at low zoom; purple badges identify rotation/mirroring,
 and gray crossed slots identify blanks. Validation issues with slot references
 outline those slots in red; clicking a referenced issue jumps to its sheet/face.
-Margins/gripper are always visible. Errors with no viable layout show an empty
+Margins/gripper have their own visibility toggle. Errors with no viable layout show an empty
 preview and a validation explanation rather than retaining an unrelated old plan.
 
 ### Responsiveness and rendering
@@ -190,8 +197,8 @@ Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/
 
 ### Verification and current limits
 
-`swift test --disable-sandbox`: **31 XCTest tests, zero failures** (22 core,
-4 PDF reading/drawing, 5 workspace/drop/initial-fit regression tests). GUI smoke checks
+`swift test --disable-sandbox`: **43 XCTest tests, zero failures** (23 core,
+14 PDF reading/drawing/export, 6 workspace/drop/export/initial-fit regression tests). GUI smoke checks
 used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
 navigation, page selection/reordering/exclusion, binding change, front/back,
 shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
@@ -199,12 +206,12 @@ shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
 - Single imported PDF per workspace; replacement rather than multi-document merging.
 - Locked PDFs require unlocking externally. Booklets require uniform trim sizes; flat jobs require matching sizes within each front/back pair.
 - PDF annotations/forms are omitted consistently from thumbnails and vector preview.
-- Content is clipped to TrimBox; bleed is shown as plan geometry, not exterior artwork.
+- Artwork uses BleedBox (MediaBox/TrimBox fallback), anchored at TrimBox and clipped to plan bleed bounds.
 - No PDF/X, separation, overprint or color-managed press-proof simulation.
 - Native file-dialog chrome and standard system commands follow the macOS language.
 - Existing core limits remain: regular-grid packing, one explicit fold sequence per
   signature size, included covers only, no creep/spine correction, unsupported bindings.
-- No export, printing, persistence or installer/bundle distribution in this step.
+- Standard PDF export is implemented; printing, persistence and installer distribution are not.
 
 ## Step & repeat — Tekrarlı yerleşim
 
@@ -312,9 +319,8 @@ booklet sheets default to `repeatCount == 1` and `repeatLayout == nil`.
 Manual dimensions are limited to 1–200 per axis, quantity to 1–1,000,000,000 per
 job, and rendered capacity to 20,000 items per sheet. Larger values report errors.
 There is no gang mixing of different jobs on one sheet, per-job quantity override,
-partial final sheet, registration calibration, mixed-rotation packing, printing or
-PDF export. Existing PDF preview limitations (trim-only artwork, omitted annotations,
-no color proofing) still apply.
+partial final sheet, registration calibration, mixed-rotation packing or printing.
+Existing omitted-annotation and color-proofing limitations still apply.
 
 Ten new pure-core tests cover pairing/no padding, exact row/column back mapping,
 all gripper edges, readable rotation, same-plate identity, grid optimization,
@@ -322,3 +328,105 @@ bleed/gutter/margins, manual overrides, quantities and crop geometry. A workspac
 regression verifies debounced grid/quantity changes and restoring booklet settings.
 GUI checks used a three-page 85×55 mm card fixture, including two jobs, an unprinted
 reverse, manual grid changes, sheet counts and same-plate halves.
+
+## Step 4 — PDF export
+
+Run `swift run AtisPressApp` from the package folder, or open `Package.swift` in
+Xcode, choose **AtisPressApp / My Mac**, and Run. Import the source and select
+**PDF Dışa Aktar** in the toolbar or **Dosya → PDF Dışa Aktar…** (⇧⌘E).
+
+- **Bütün iş — tek PDF:** a Save panel selects the output file. Pages are ordered
+  sheet 1 front, sheet 1 back, sheet 2 front, sheet 2 back, including every physical
+  `repeatCount` in flat work. Blank reverse faces are retained.
+- **Her tabaka — ayrı PDF:** choose a parent folder. A new unique AtisPress folder
+  receives one two-page PDF per physical sheet, with front then back. Files are
+  numbered continuously across jobs and repetitions.
+- Export requires a source, a nonempty plan and `plan.canExport == true`. It is also
+  disabled during import, recalculation and another export. Warnings still permit
+  export. The engine independently enforces the same error gate.
+- The current plan, source and overlay options are frozen when the destination is
+  accepted. Export runs off the main actor while preview/settings remain usable.
+  **İptal** cancels rendering between slots/pages. Completion reports files/pages
+  and offers **Finder’da Göster**. The completion banner describes the last output.
+- Open overlay layers are printed: crop, fold, bleed, safe area, page numbers,
+  sheet boundary and margin/gripper guides. Turn off proof guides or numbers before
+  exporting if they are not wanted on the print sheet. Gray blank crosses, rotation
+  badges, trim-selection outlines and validation highlights remain editor decorations.
+
+### Bleed-aware drawing
+
+Artwork selection is explicit BleedBox first, then MediaBox, then TrimBox. BleedBox
+is intersected with a valid MediaBox. Quartz's **TrimBox** transform still anchors
+and scales the trim to the plan slot; fitting the whole bleed box into that slot
+would incorrectly shrink/move the trim. Nonzero box origins, `/Rotate`, plan rotation
+and local mirroring are all honored. No source-TrimBox clipping remains in the draw
+path. Both raster and vector preview retain artwork outside the trim.
+
+The core now records a sheet-space `artworkClip` per slot. Booklets clip at the
+midpoint of internal gutters/folds; flat jobs use the already planned bleed bounds,
+including common-cut clipping. Export and preview apply that rectangle directly;
+the PDF layer performs no fitting, pairing, grid optimization or pagination.
+
+The low-zoom cache stores a bleed-aware Quartz raster of each PDFKit page reference,
+plus its extent normalized to the displayed trim. High zoom and export draw the
+original `CGPDFPage` through the same `PDFPreviewDrawing` transform. The raster cache
+is never consulted during export. Output MediaBox is each plan sheet's exact mm
+size converted to PDF points (`72/25.4`), with no content scaling to another stock.
+
+`PDFPlanRenderer` handles artwork and CoreText/vector marks for both consumers.
+On-screen minimum text/stroke sizes keep guides legible at low zoom; exported
+marks use physical mm sizes and the same plan anchors. Export writes drawing
+operators through a Quartz PDF context. Vector paths/text remain vector, and
+existing bitmap assets inside source PDFs remain images; no page-sized raster
+flattening or bitmap-to-vector conversion is performed.
+
+### PDFEngine API and extensibility
+
+```swift
+let result = try PDFExporter.export(
+    plan: plan,
+    source: source, // PDFSource opened by the reader
+    destination: .singlePDF(outputURL),
+    options: PDFRenderOptions.artworkOnly
+)
+// Alternative: .perSheet(directory: folderURL, baseName: "book")
+// result.files, result.pageCount, result.sheetCount
+```
+
+Call the synchronous engine API on a worker task. `PDFRenderOptions` is also the
+app's preview overlay state. The source file is protected from overwrite; whole-job
+replacement is staged and atomically published. Per-sheet destinations reject
+existing filenames. Rendering/overlay failures and cancellation remove staged
+files instead of publishing partial PDFs. The app creates a unique per-sheet
+folder, so a normal export does not collide with earlier outputs.
+
+For later variable text, serial numbers or generated bleed, implement
+`PDFSlotOverlay` and supply an array to `PDFExporter.export(overlays:)` or the shared
+renderer's preview draw call. Hooks run **underArtwork** or **overArtwork**, in
+slot-local trim mm with isolated graphics state and the plan's bleed clip. The
+context provides trim/artwork rectangles, source page, slot/copy identity,
+sheet/face/slot reference and physical repetition index. This requires no new
+fields in `ImpositionPlan` or a separate layout path. Tests demonstrate vector
+serial text and generated bleed with those hooks; there is no variable-data UI yet.
+
+### Export validation and remaining limits
+
+The new tests reopen exported PDFs to verify page order/count, exact MediaBox sizes,
+slot centers/corners, rotated/mirrored source content, BleedBox/MediaBox fallback,
+nonzero TrimBox origins, inherited source rotation, overlay switches, repeated
+physical sheets and per-sheet files. Vector-resource inspection confirms pure
+vector fixtures contain no image XObjects after export, while source image assets
+are retained. Additional checks cover overwrite protection, failed-export cleanup,
+PDF replacement, extension hooks and UI export gating during recalculation.
+Rendered PDFs were inspected using Apple Quartz, including both GUI save flows.
+The existing booklet/fold/grid tests remain unchanged and pass.
+
+- Up to **20,000 PDF pages (10,000 physical sheets)** per export operation. Larger
+  quantity runs are rejected explicitly; their plan remains available for preview.
+- Standard PDF output only: no PDF/X certification, output intents, separation or
+  overprint preflight, CMYK/spot-color conversion, trapping or press color proof.
+- Source annotations, forms, links, bookmarks and document structure are not copied;
+  the rendered PDF page content is imposed. Unlock encrypted input externally.
+- A press sheet contains multiple finished trims, so only the sheet MediaBox is
+  emitted as page metadata; individual trim/bleed extents remain plan geometry.
+- Existing core packing, binding, cover and creep/spine limits are unchanged.

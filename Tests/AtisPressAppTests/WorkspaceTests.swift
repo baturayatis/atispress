@@ -118,4 +118,42 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertEqual(model.plan.addedBlankPages,0)
     }
 
+    func testExportIsGatedAndUsesFrozenPlanWhileSettingsChange() async throws {
+        let model = Workspace()
+        XCTAssertFalse(model.canExportNow)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString,isDirectory: true)
+        try FileManager.default.createDirectory(at: directory,withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let input = directory.appendingPathComponent("source.pdf")
+        var media = CGRect(x: 0,y: 0,width: 200,height: 300)
+        let context = try XCTUnwrap(CGContext(consumer: XCTUnwrap(CGDataConsumer(url: input as CFURL)),mediaBox: &media,nil))
+        for _ in 0..<8 { context.beginPDFPage(nil); context.endPDFPage() }; context.closePDF()
+        model.open(input)
+        for _ in 0..<200 {
+            if model.source != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try await settle(model)
+        XCTAssertTrue(model.canExportNow)
+        let count = model.plan.totalPressSheets*2
+        let output = directory.appendingPathComponent("result.pdf")
+        model.overlays = .artworkOnly
+        model.beginExport(to: .singlePDF(output))
+        XCTAssertTrue(model.exporting); XCTAssertFalse(model.canExportNow)
+        model.project.settings.bleed = 7
+        for _ in 0..<200 {
+            if !model.exporting { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertNil(model.error)
+        XCTAssertEqual(CGPDFDocument(output as CFURL)?.numberOfPages,count)
+        XCTAssertEqual(model.exportedFiles,[output])
+        model.project.pages = []
+        XCTAssertFalse(model.canExportNow)
+        try await settle(model)
+        model.beginExport(to: .singlePDF(directory.appendingPathComponent("invalid.pdf")))
+        XCTAssertFalse(model.exporting); XCTAssertNotNil(model.error)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("invalid.pdf").path))
+    }
+
 }

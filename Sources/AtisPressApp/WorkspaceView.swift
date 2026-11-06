@@ -15,7 +15,7 @@ struct WorkspaceView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .overlay { if dropTarget { RoundedRectangle(cornerRadius: 10).stroke(.blue,lineWidth: 4).padding(5).allowsHitTesting(false) } }
         .onDrop(of: [.fileURL],isTargeted: $dropTarget,perform: model.acceptDrop)
-        .alert("PDF açılamadı",isPresented: Binding(get: { model.error != nil },set: { if !$0 { model.error = nil } })) {
+        .alert("İşlem tamamlanamadı",isPresented: Binding(get: { model.error != nil },set: { if !$0 { model.error = nil } })) {
             Button("Tamam") { model.error = nil }
         } message: { Text(model.error ?? "") }
         .toolbar {
@@ -23,6 +23,16 @@ struct WorkspaceView: View {
             if model.loading { ProgressView().controlSize(.small); Text("PDF okunuyor…") }
             else if let source = model.source { Text(source.url.lastPathComponent).lineLimit(1) }
             Spacer()
+            if model.exporting {
+                ProgressView().controlSize(.small)
+                Text("PDF oluşturuluyor…")
+                Button("İptal",action: model.cancelExport)
+            }
+            Menu {
+                Button("Bütün iş — tek PDF…") { model.chooseExport(perSheet: false) }
+                Button("Her tabaka — ayrı PDF…") { model.chooseExport(perSheet: true) }
+            } label: { Label("PDF Dışa Aktar",systemImage: "square.and.arrow.up") }
+                .disabled(!model.canExportNow).help("PDF Dışa Aktar").accessibilityLabel("PDF Dışa Aktar")
             if model.planning { ProgressView().controlSize(.small); Text("Hesaplanıyor…") }
         }
     }
@@ -89,7 +99,7 @@ struct WorkspaceView: View {
                 Button { model.zoomFactor = 1.25; model.zoomAction += 1 } label: { Image(systemName: "plus.magnifyingglass") }.help("Yakınlaştır")
             }.padding(10)
             if let sheet = model.currentSheet, let side = model.currentSide {
-                PreviewCanvas(sheet: sheet,side: side,source: model.source,overlays: model.overlays,
+                PreviewCanvas(sheet: sheet,side: side,sheetIndex: model.sheetIndex,sideKind: model.side,source: model.source,overlays: model.overlays,
                               highlighted: model.highlightedSlots,zoomAction: model.zoomAction,zoomFactor: model.zoomFactor)
                     .overlay(alignment: .topLeading) {
                         VStack(alignment: .leading,spacing: 3) {
@@ -109,6 +119,13 @@ struct WorkspaceView: View {
             }
             Text("Kaydır: izleme dörtgeni / tekerlek · Yakınlaştır: kıstır · Taşı: sürükle · Turuncu: kenar payı / maşa")
                 .font(.caption).foregroundStyle(.secondary).padding(6)
+            if let summary = model.exportSummary {
+                HStack {
+                    Text(summary).font(.caption)
+                    Spacer()
+                    if !model.exportedFiles.isEmpty { Button("Finder’da Göster",action: model.revealExport).font(.caption) }
+                }.padding(8)
+            }
             Divider()
             VStack(alignment: .leading,spacing: 6) {
                 HStack {

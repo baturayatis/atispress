@@ -9,6 +9,14 @@ public struct Point: Equatable, Sendable {
     public var y: Double
     public init(_ x: Double, _ y: Double) { self.x = x; self.y = y }
 }
+/// Axis-aligned bounds in sheet millimetres. Shared with every plan consumer.
+public struct Rect: Equatable, Sendable {
+    public var origin: Point
+    public var size: Size
+    public init(x: Double, y: Double, width: Double, height: Double) {
+        origin = Point(x,y); size = Size(width,height)
+    }
+}
 public struct Insets: Equatable, Sendable {
     public var left: Double
     public var right: Double
@@ -148,13 +156,15 @@ public struct Slot: Equatable, Sendable {
     public var mirrored: Bool
     public var signature: Int
     public var gridPosition: GridPosition?
+    /// Artwork extent on the press sheet, including bleed and shared-cut clipping.
+    public var artworkClip: Rect?
     /// Identifies the same physical cut piece on both faces of a repeat sheet.
     public var copyIndex: Int?
     public init(sourcePageNumber: Int?, origin: Point, size: Size, rotation: Int = 0,
-                mirrored: Bool = false, signature: Int = 0, gridPosition: GridPosition? = nil, copyIndex: Int? = nil) {
+                mirrored: Bool = false, signature: Int = 0, gridPosition: GridPosition? = nil, copyIndex: Int? = nil, artworkClip: Rect? = nil) {
         self.sourcePageNumber = sourcePageNumber; self.origin = origin; self.size = size
         self.rotation = rotation; self.mirrored = mirrored; self.signature = signature
-        self.gridPosition = gridPosition; self.copyIndex = copyIndex
+        self.gridPosition = gridPosition; self.copyIndex = copyIndex; self.artworkClip = artworkClip
     }
     public var x: Double { origin.x }
     public var y: Double { origin.y }
