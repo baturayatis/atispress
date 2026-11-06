@@ -111,7 +111,7 @@ public struct Slot: Equatable, Sendable {
     public var sourcePageNumber: Int?
     public var origin: Point
     public var size: Size
-    /// Clockwise degrees, followed by an optional horizontal reflection in local trim coordinates.
+    /// Clockwise degrees. Apply horizontal reflection in source trim coordinates before rotation.
     public var rotation: Int
     public var mirrored: Bool
     public var signature: Int
