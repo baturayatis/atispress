@@ -17,6 +17,78 @@ In an environment that prevents nested `sandbox-exec` (including the current
 agent environment), use `swift build --disable-sandbox` and
 `swift test --disable-sandbox`. Xcode can also open `Package.swift` directly.
 
+## Build a double-clickable macOS app
+
+Requires macOS 14+ and Xcode command-line tools (`xcode-select --install` if
+needed). From the repository:
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+./scripts/build_app.sh
+open "dist/AtışPress.app"
+```
+
+The script performs a release build without debug symbols, generates a multi-resolution placeholder
+icon, creates **dist/AtışPress.app**, then runs
+`codesign --force --deep --sign -` and verifies the signature. Generated bundles
+are ignored by Git. The bundle identifier is **com.atisajans.atispress**, minimum
+macOS is **14.0**, and Retina rendering is enabled. Edit
+**packaging/Info.plist** to change the marketing version (currently **0.1.0**) or
+build number (**1**); these are independent of the `.atispress` JSON schema version.
+
+To install, drag **AtışPress.app** from `dist` into **Applications** in Finder.
+Alternatively, copy it with these exact commands, then launch the installed copy:
+
+```sh
+ditto "dist/AtışPress.app" "/Applications/AtışPress.app"
+open "/Applications/AtışPress.app"
+```
+
+The bundle declares `.atispress` as an editable **AtışPress Projesi** document
+using the existing exported UTI **com.atispress.project**, conforming to JSON.
+The build script registers the bundle with LaunchServices when available;
+installing and launching it also lets Finder discover the document type.
+Double-click a saved `.atispress` project to open it. If another app was previously
+chosen, use Finder **Get Info → Open with → AtışPress → Change All**. To open a
+specific project explicitly:
+
+```sh
+open -a "/Applications/AtışPress.app" "/absolute/path/example.atispress"
+```
+
+The existing URL-open handler restores the saved project, including the Turkish
+source-PDF relink dialog if needed. Source PDFs remain linked, not embedded.
+
+**Placeholder icon:** replace **packaging/AppIcon.icns** with your final icon and
+rerun the script. If that file is absent, **scripts/generate_app_icon.swift** draws
+the placeholder into all standard 16–1024-pixel icon representations using AppKit
+and writes a PNG-backed ICNS container directly to
+**Contents/Resources/AppIcon.icns**. It needs no external image tools or services.
+Editing an already signed bundle invalidates its signature, so rebuild after
+replacing the icon or changing metadata.
+
+**Gatekeeper:** this local bundle is ad-hoc signed, without Developer ID or Apple
+notarization. On macOS 14, if a trusted copy is blocked, right-click (or
+Control-click) **AtışPress.app → Open**, then confirm **Open**. On newer macOS
+versions where that shortcut does not offer an override, attempt to launch once,
+then use **System Settings → Privacy & Security → Open Anyway** and confirm.
+See [Apple's current Gatekeeper instructions](https://support.apple.com/en-gb/102445).
+The script does not change Gatekeeper settings or remove quarantine attributes.
+
+The default release targets the build Mac's architecture. For a universal binary,
+with the full Xcode toolchain installed, pass SwiftPM architecture flags:
+
+```sh
+./scripts/build_app.sh --arch arm64 --arch x86_64
+```
+
+Packaging does not provide an installer, updater or notarized distribution.
+Verification: all 114 existing tests pass unchanged; release packaging, strict
+ad-hoc signature validation, bundle metadata/UTI consistency, all ten icon sizes,
+and a native bundle launch were checked. This restricted shell cannot register
+with LaunchServices, so Finder project double-click dispatch was not exercised;
+use the installed app on the desktop to verify that integration.
+
 ## API
 
 ```swift
@@ -564,7 +636,7 @@ Limits: one active project/source PDF; PDFs are linked rather than embedded. The
 identity check uses filename/size and selected page geometry, not a content hash.
 Zoom/pan and transient row highlights reset on open; saved artwork placement,
 preview layers and sheet/face are restored. There is no autosave, crash recovery,
-project-version migration beyond v1–4 → v5, or packaged Finder file association/installer.
+project-version migration beyond v1–4 → v5, or an installer. The app bundle declares Finder file association as described above.
 Use the app's Open command or a command-line path with the Swift package build.
 
 ## Serial numbering — Seri Numara
