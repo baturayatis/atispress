@@ -130,7 +130,7 @@ final class ProductionWorkspaceTests: XCTestCase {
         let url = folder.appendingPathComponent("all.atispress")
         try workspace.saveProject(as: url)
         let decoded = try ProjectDocument.decode(Data(contentsOf: url))
-        XCTAssertEqual(decoded.version,6)
+        XCTAssertEqual(decoded.version,ProjectDocument.currentVersion)
         let restored = model(); try await restored.loadProject(at: url); try await settle(restored)
         XCTAssertEqual(restored.project,workspace.project)
         XCTAssertEqual(restored.plan.sheets,workspace.plan.sheets)

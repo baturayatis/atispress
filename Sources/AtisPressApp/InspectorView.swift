@@ -123,6 +123,9 @@ struct InspectorView: View {
                         Toggle("Sayfa numaraları",isOn: $model.overlays.pageNumbers)
                         Toggle("Tabaka sınırı",isOn: $model.overlays.sheetBoundary)
                         Toggle("Kenar payı / maşa",isOn: $model.overlays.pressGuides)
+                        Toggle("Renk skalası",isOn: Binding(get: { model.overlays.colorBar },set: model.setPreviewColorBar))
+                        Toggle("Diz işaretleri",isOn: Binding(get: { model.overlays.registrationTargets },set: model.setPreviewTargets))
+                        if model.overlays.colorBar || model.overlays.registrationTargets { ColorControlSizeView(model: model) }
                     }.toggleStyle(.checkbox).frame(maxWidth: .infinity,alignment: .leading).padding(5)
                 }
             }.padding(14)

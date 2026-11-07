@@ -153,7 +153,7 @@ struct WorkspaceView: View {
                 PreviewCanvas(sheet: sheet,side: side,sheetIndex: model.sheetIndex,sideKind: model.side,source: model.source,overlays: model.overlays,generatedBleed: model.plan.generatedBleed,
                               highlighted: model.highlightedSlots,zoomAction: model.zoomAction,zoomFactor: model.zoomFactor,
                               repetition: model.repetition,selectedSerial: model.selectedSerialID,
-                              selectSerial: { model.selectedSerialID = $0 },moveSerial: { model.moveSerialField($0,to: $1) })
+                              selectSerial: { model.selectedSerialID = $0 },moveSerial: { model.moveSerialField($0,to: $1) },controlMarks: model.project.exportMarks)
                     .overlay(alignment: .topLeading) {
                         VStack(alignment: .leading,spacing: 3) {
                             Text("\(sheet.repeatLayout == nil ? "Tabaka" : "İş") \(model.sheetIndex+1) · \(model.side == .front ? "Ön" : "Arka") · \(sheet.size.width,specifier: "%.1f") × \(sheet.size.height,specifier: "%.1f") mm")
@@ -173,6 +173,7 @@ struct WorkspaceView: View {
                     description: Text("Sayfa seçimini ve aşağıdaki doğrulama mesajlarını kontrol edin."))
                     .frame(maxWidth: .infinity,maxHeight: .infinity)
             }
+            ForEach(model.previewControlWarnings,id: \.self) { Text($0).font(.caption).foregroundStyle(.orange).padding(.horizontal,10) }
             if let summary = model.project.autoLayout?.summary { Text(summary).font(.caption).padding(.horizontal,10).padding(.vertical,4) }
             Text("Kaydır: izleme dörtgeni / tekerlek · Yakınlaştır: kıstır · Taşı: sürükle · Turuncu: kenar payı / maşa")
                 .font(.caption).foregroundStyle(.secondary).padding(6)

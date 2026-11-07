@@ -174,6 +174,7 @@ public struct RepeatLayout: Equatable, Sendable {
 /// Production marks are independent of preview overlays. Stored with the project.
 public struct ExportMarks: Equatable, Sendable, Codable {
     public enum Color: String, Codable, Sendable { case black, registration }
+    public var colorControls: ColorControlSettings? = nil
     public var crop = true
     public var fold = false
     public var bleed = false
@@ -272,6 +273,9 @@ public struct Side: Equatable, Sendable {
     public init(slots: [Slot] = [], marks: [Mark] = []) { self.slots = slots; self.marks = marks }
 }
 public struct Sheet: Equatable, Sendable {
+    public var gripperEdge: Edge = .bottom
+    /// Back-face viewing convention: reflect X (turn) or Y (tumble / side gripper).
+    public var backFlipsX = true
     public var size: Size
     public var front: Side
     public var back: Side

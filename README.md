@@ -286,8 +286,8 @@ Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/
 
 ### Verification and current limits
 
-`swift test --disable-sandbox`: **134 XCTest tests, zero failures** (56 core,
-38 PDF reading/drawing/export, 40 workspace/project persistence regression tests). GUI smoke checks
+`swift test --disable-sandbox`: **142 XCTest tests, zero failures** (56 core,
+43 PDF reading/drawing/export, 43 workspace/project persistence regression tests). GUI smoke checks
 used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
 navigation, page selection/reordering/exclusion, binding change, front/back,
 shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
@@ -601,7 +601,7 @@ Opening an existing project preserves its own mode, preset and custom dimensions
 - **Kaydet / ⌘S** saves the current project; **Farklı Kaydet… / ⇧⌘S** writes a new
   project and switches subsequent saves to it. Source PDFs cannot be overwritten.
   Project writes are atomic. Empty projects can also be saved.
-- Version 6 is readable JSON with top-level `version: 6` and `state`; version 1–5
+- Version 7 is readable JSON with top-level `version: 7` and `state`; version 1–6
   projects remain readable. Missing serial fields default to empty; old projects
   retain their saved layout values when opened. `state.project`
   contains ordered selected source-page metadata, binding/layout mode, blank-page
@@ -638,7 +638,7 @@ Limits: one active project/source PDF; PDFs are linked rather than embedded. The
 identity check uses filename/size and selected page geometry, not a content hash.
 Zoom/pan and transient row highlights reset on open; saved artwork placement,
 preview layers and sheet/face are restored. There is no autosave, crash recovery,
-project-version migration beyond v1–5 → v6, or an installer. The app bundle declares Finder file association as described above.
+project-version migration beyond v1–6 → v7, or an installer. The app bundle declares Finder file association as described above.
 Use the app's Open command or a command-line path with the Swift package build.
 
 ## Serial numbering — Seri Numara
@@ -770,7 +770,7 @@ button calculations run off the main actor; duplicate page-pair dimensions are
 probed once. Visible generated-bleed samples are prepared before publishing the
 new import. Serial numbering and PDF export consume the resulting plan normally.
 
-`Project.autoLayout` is saved in schema v6 (including sheet-selection policy) with each field's ownership, production,
+`Project.autoLayout` is saved in schema v7 (including sheet-selection policy) with each field's ownership, production,
 level, summary, sheet-clipping policy and standard-paper tolerance. v1/v2 projects
 without this metadata are restored as saved, and their existing settings are
 preserved on PDF replacement until the explicit Auto button is used. The version
@@ -821,7 +821,7 @@ Generated bleed suppresses missing-bleed warnings when enabled and needed.
 Displayed identical warnings are grouped with counts and compressed source-page
 ranges, e.g. **12 sayfada taşma payı eksik: 1-12**; detailed slot references remain
 available internally. Existing preview/export alignment and project roundtrip
-regressions remain active. Run `swift test --disable-sandbox` for all 134 tests.
+regressions remain active. Run `swift test --disable-sandbox` for all 142 tests.
 Native interactive smoke testing has not been rerun for these controls.
 
 ## Empty reverse export and repeat arrangement
@@ -958,8 +958,81 @@ automatic/manual/per-job side selection, serial face migration, known RGB/low-DP
 unembedded-font/spot/transparency/rich-black PDF fixtures and inherited Form
 resources, strip geometry/no-room behavior/vector 6 pt text, grouped preflight,
 and complete schema-6 roundtrips with version-5 compatibility. Current total:
-**134 tests, zero failures**. Native interactive UI smoke testing has not been
+**134 tests, zero failures** at that stage; color-control coverage below brings the total to 142. Native interactive UI smoke testing has not been
 rerun for this change.
+
+```sh
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+./scripts/build_app.sh
+open "dist/AtışPress.app"
+```
+
+## Renk skalası ve diz işaretleri
+
+The export dialog now has independent **Renk skalası** and **Diz işaretleri**
+checkboxes. Both default OFF for Dijital and ON for Ofset. Automatic layout and
+the production selector apply these defaults unless the individual export choice
+was edited manually. A separate pair under **Önizleme Katmanları** controls only
+preview visibility; manually chosen preview visibility survives production
+changes independently. Neither preview switch can enable export content.
+
+**Diz boyutu (mm)** defaults to a 5 mm circle/crosshair, drawn with solid strokes
+in registration **CMYK 100/100/100/100**, regardless of the ordinary mark-color
+selector. Each target stays on the midpoint axis of its sheet edge and moves
+inward only within that outer margin. A target that cannot fit is skipped with a
+Turkish warning; other fitting edges remain available.
+
+**Yama boyutu (mm, kare)** defaults to 5×5 mm. **Skala konumu** selects
+**Maşa tarafı** or **Maşanın karşısı**; horizontal edges get a horizontal bar and
+vertical edges a vertical bar. The twelve adjacent vector patches have these
+exact CMYK values (fractions of 100%):
+
+| Patch | C | M | Y | K |
+| --- | --- | --- | --- | --- |
+| C100 | 1 | 0 | 0 | 0 |
+| M100 | 0 | 1 | 0 | 0 |
+| Y100 | 0 | 0 | 1 | 0 |
+| K100 | 0 | 0 | 0 | 1 |
+| C50 | 0.5 | 0 | 0 | 0 |
+| M50 | 0 | 0.5 | 0 | 0 |
+| Y50 | 0 | 0 | 0.5 | 0 |
+| K50 | 0 | 0 | 0 | 0.5 |
+| B (C+M) | 1 | 1 | 0 | 0 |
+| R (M+Y) | 0 | 1 | 1 | 0 |
+| G (C+Y) | 1 | 0 | 1 | 0 |
+| CMY gri | 0.5 | 0.4 | 0.4 | 0 |
+
+Combined-ink patches are explicit CMYK fills, with no RGB conversion or raster
+image. The gray recipe is fixed, not a calibrated/profile-dependent neutral proof.
+
+Placement uses the artwork/bleed and crop geometry of **both** faces in a common
+physical sheet frame. The back output is reflected using the planner's existing
+turn/tumble viewing convention, so the bar and each colored patch align through
+the sheet relative to the gripper. No extra artwork flip is introduced. Controls
+stay in outer margins, never in item gutters. Stroke width is included in
+clearance. Planned crop ticks and potential target positions remain reserved even
+when hidden, keeping the bar stable as visibility switches change. When needed,
+the bar shifts along the selected edge. If there is insufficient room, a warning
+appears in preview/export settings and export notes, and the affected control is
+omitted. Controls take placement priority over the job info strip, which then
+finds another clear margin or reports its existing no-room warning.
+
+Sizes and bar side are shared between preview and export and saved in
+`project.exportMarks.colorControls`; visibility flags stay independent. Schema
+**7** saves these plus the preview switches and their manual/default ownership.
+Versions 1–6 remain readable; absent controls and preview flags restore as OFF,
+including old Ofset projects, without changing their output on open. An explicit
+production selection adopts defaults for the newly introduced controls.
+
+Eight new tests check both faces' bleed/crop clearance on all gripper edges,
+exact patch values in actual PDF operators, registration target color, printed
+front/back alignment, target/patch sizes, no-room warnings and partial placement,
+info-strip clearance, independent preview/export output, a real AppKit preview
+pixel change, production defaults/manual overrides, and version-7 roundtrip with
+version-6 compatibility. All prior tests remain; the active-schema assertion now
+uses `ProjectDocument.currentVersion`. **142 tests pass.** Interactive desktop
+smoke testing has not been rerun; preview drawing is exercised in XCTest.
 
 ```sh
 swift run --disable-sandbox AtisPressApp

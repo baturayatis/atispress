@@ -11,6 +11,19 @@ public struct PDFRenderOptions: Equatable, Sendable, Codable {
     public var pageNumbers: Bool
     public var sheetBoundary: Bool
     public var pressGuides: Bool
+    // Optional storage keeps version 1–6 preview settings readable.
+    public var colorBarVisible: Bool? = nil
+    public var targetsVisible: Bool? = nil
+    public var manualColorBar: Bool? = nil
+    public var manualTargets: Bool? = nil
+    public var colorBar: Bool {
+        get { colorBarVisible ?? false }
+        set { colorBarVisible = newValue }
+    }
+    public var registrationTargets: Bool {
+        get { targetsVisible ?? false }
+        set { targetsVisible = newValue }
+    }
     public init(crop: Bool = true,fold: Bool = true,bleed: Bool = true,safeArea: Bool = false,
                 pageNumbers: Bool = true,sheetBoundary: Bool = true,pressGuides: Bool = true) {
         self.crop = crop; self.fold = fold; self.bleed = bleed; self.safeArea = safeArea
@@ -86,7 +99,7 @@ public enum PDFPlanRenderer {
     /// Context units are sheet millimetres. Only document content and selected plan marks are drawn.
     public static func drawSide(_ side: Side,sheet: Sheet,document: CGPDFDocument,in context: CGContext,
                                 sheetIndex: Int,kind: SideKind,repetition: Int,options: PDFRenderOptions,
-                                overlays: [any PDFSlotOverlay] = []) throws {
+                                overlays: [any PDFSlotOverlay] = [],controlMarks: ExportMarks = .none) throws {
         let serials: [any PDFSlotOverlay] = sheet.serialPlan.map { [SerialTextOverlay(plan: $0)] } ?? []
         for (index,slot) in side.slots.enumerated() {
             try Task.checkCancellation()
@@ -96,6 +109,11 @@ public enum PDFPlanRenderer {
                          repetition: repetition,overlays: overlays+serials)
         }
         drawMarks(side.marks,sheetSize: sheet.size,in: context,options: options)
+        if options.colorBar || options.registrationTargets {
+            var marks = controlMarks
+            marks.colorBar = options.colorBar; marks.registrationTargets = options.registrationTargets
+            PDFColorControlRenderer.draw(PDFColorControlRenderer.geometry(sheet: sheet,settings: marks,kind: kind),in: context)
+        }
     }
     public static func drawMarks(_ marks: [Mark],sheetSize: Size,in context: CGContext,
                                  options: PDFRenderOptions,displayScale: Double? = nil) {

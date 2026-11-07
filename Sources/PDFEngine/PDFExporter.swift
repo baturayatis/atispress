@@ -59,12 +59,13 @@ public enum PDFExporter {
             pageCount += sheet.repeatCount*faces
             sheetCount += sheet.repeatCount
             omittedBacks = omittedBacks || !hasBack
+            for warning in PDFColorControlRenderer.geometry(sheet: sheet,settings: marks).warnings where !notes.contains(warning) { notes.append(warning) }
             if marks.sheetInfo {
                 let sides: [(SideKind,Side)] = hasBack ? [(.front,sheet.front),(.back,sheet.back)] : [(.front,sheet.front)]
                 for (kind,side) in sides {
                     let context = PDFSheetInfoContext(jobName: jobName,date: date,sheetNumber: sheetCount,totalSheets: plan.totalPressSheets,side: kind,production: production)
                     let text = context.text(settings: sheetInfo,sheet: sheet,dateLabel: dateLabel)
-                    if !text.isEmpty && PDFSheetInfo.placement(text: text,side: side,sheet: sheet,marks: marks) == nil {
+                    if !text.isEmpty && PDFSheetInfo.placement(text: text,side: side,sheet: sheet,marks: marks,kind: kind) == nil {
                         if !notes.contains(PDFSheetInfo.noRoomWarning) { notes.append(PDFSheetInfo.noRoomWarning) }
                     }
                 }
@@ -178,7 +179,7 @@ public enum PDFExporter {
                         let info = marks.sheetInfo ? PDFSheetInfoContext(jobName: jobName,date: date,
                             sheetNumber: firstPhysical+repetition,
                             totalSheets: totalSheets,side: kind,production: production).text(settings: sheetInfo,sheet: sheet,dateLabel: dateLabel) : ""
-                        PDFExportMarkRenderer.draw(side: side,sheet: sheet,in: context,settings: marks,info: info)
+                        PDFExportMarkRenderer.draw(side: side,sheet: sheet,in: context,settings: marks,info: info,kind: kind)
                         context.restoreGState(); context.endPDFPage()
                     } catch {
                         context.restoreGState(); context.endPDFPage(); throw error

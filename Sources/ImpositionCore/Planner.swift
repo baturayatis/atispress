@@ -21,6 +21,11 @@ public enum ImpositionPlanner {
         }
         var result = layoutPlan(project)
         addFitDiagnostics(project,to: &result)
+        for index in result.sheets.indices {
+            result.sheets[index].gripperEdge = project.sheet.gripperEdge
+            result.sheets[index].backFlipsX = project.binding == .stepAndRepeat ? repeatMirrorsX(project) : project.settings.turnMethod != .workAndTumble
+        }
+        for index in result.diagnosticSheets.indices { result.diagnosticSheets[index].gripperEdge = project.sheet.gripperEdge }
         applySerials(project,to: &result)
         result.refreshWarningSummary(project: project)
         return result

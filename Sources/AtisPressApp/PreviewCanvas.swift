@@ -17,6 +17,7 @@ struct PreviewCanvas: NSViewRepresentable {
     var selectedSerial: UUID? = nil
     var selectSerial: ((UUID) -> Void)? = nil
     var moveSerial: ((UUID,Point) -> Void)? = nil
+    var controlMarks = ExportMarks.none
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = PreviewScrollView()
@@ -44,7 +45,7 @@ struct PreviewCanvas: NSViewRepresentable {
     private func update(_ canvas: SheetCanvasView) {
         canvas.repetition = repetition; canvas.selectedSerial = selectedSerial
         canvas.selectSerial = selectSerial; canvas.moveSerial = moveSerial
-        canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed)
+        canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed,controlMarks: controlMarks)
     }
 }
 
@@ -94,6 +95,7 @@ final class SheetCanvasView: NSView {
     var selectSerial: ((UUID) -> Void)?
     var moveSerial: ((UUID,Point) -> Void)?
     private var serialDrag: (slot: Slot,id: UUID,offset: CGPoint)?
+    private var colorControls: PDFColorControlRenderer.Geometry?
     private var generatedOverlay: GeneratedBleedOverlay?
     private var vectorDocument: CGPDFDocument?
     private var loading = Set<Int>()
@@ -112,12 +114,15 @@ final class SheetCanvasView: NSView {
     @objc private func magnificationEnded() { needsDisplay = true }
     override var isOpaque: Bool { true }
     override var acceptsFirstResponder: Bool { true }
-    func configure(sheet: Sheet,side: Side,source: PDFSource?,overlays: PreviewOverlays,highlighted: Set<Int>,sheetIndex: Int = 0,kind: SideKind = .front,generatedBleed: GeneratedBleedSettings = GeneratedBleedSettings()) {
+    func configure(sheet: Sheet,side: Side,source: PDFSource?,overlays: PreviewOverlays,highlighted: Set<Int>,sheetIndex: Int = 0,kind: SideKind = .front,generatedBleed: GeneratedBleedSettings = GeneratedBleedSettings(),controlMarks: ExportMarks = .none) {
         if self.source !== source {
             self.source = source; loading = []; failedRasters = []
             vectorDocument = source.flatMap { CGPDFDocument($0.url as CFURL) }
         }
         generatedOverlay = generatedBleed.enabled ? source.map { GeneratedBleedOverlay(settings: generatedBleed,cache: $0.edgeSamples) } : nil
+        var previewMarks = controlMarks
+        previewMarks.colorBar = overlays.colorBar; previewMarks.registrationTargets = overlays.registrationTargets
+        colorControls = overlays.colorBar || overlays.registrationTargets ? PDFColorControlRenderer.geometry(sheet: sheet,settings: previewMarks,kind: kind) : nil
         self.sheetIndex = sheetIndex; self.sideKind = kind
         self.sheet = sheet; self.side = side; self.overlays = overlays; self.highlighted = highlighted
         let width = max(sheet.size.width,(sheet.diagnosticBounds?.origin.x ?? 0)+(sheet.diagnosticBounds?.size.width ?? 0))
@@ -195,6 +200,7 @@ final class SheetCanvasView: NSView {
             }
         }
         PDFPlanRenderer.drawMarks(side.marks,sheetSize: sheet.size,in: context,options: overlays,displayScale: scale)
+        if let colorControls { PDFColorControlRenderer.draw(colorControls,in: context) }
         context.restoreGState()
         if let r = sheet.diagnosticBounds {
             context.saveGState(); defer { context.restoreGState() }

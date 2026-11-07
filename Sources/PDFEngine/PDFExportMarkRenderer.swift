@@ -63,8 +63,8 @@ public enum PDFExportMarkRenderer {
         }
         return Geometry(segments: output,warnings: warnings)
     }
-    public static func draw(side: Side,sheet: Sheet,in context: CGContext,settings: ExportMarks,info: String) {
-        guard settings.crop || settings.fold || settings.bleed || settings.safeArea || settings.pageNumbers || settings.sheetInfo || settings.fullCut else { return }
+    public static func draw(side: Side,sheet: Sheet,in context: CGContext,settings: ExportMarks,info: String,kind: SideKind = .front) {
+        guard settings.crop || settings.fold || settings.bleed || settings.safeArea || settings.pageNumbers || settings.sheetInfo || settings.fullCut || settings.colorBar || settings.registrationTargets else { return }
         context.saveGState(); defer { context.restoreGState() }
         let width = max(0.01,settings.lineWidth.isFinite ? settings.lineWidth : 0.25)/PDFPreviewDrawing.pointsPerMM
         let color = CGColor(colorSpace: CGColorSpaceCreateDeviceCMYK(),components:
@@ -75,6 +75,7 @@ public enum PDFExportMarkRenderer {
             context.move(to: CGPoint(x: mark.start.x,y: mark.start.y))
             context.addLine(to: CGPoint(x: mark.end.x,y: mark.end.y)); context.strokePath()
         }
+        PDFColorControlRenderer.draw(PDFColorControlRenderer.geometry(sheet: sheet,settings: settings,kind: kind),in: context)
         guard settings.pageNumbers || settings.sheetInfo else { return }
         // Clip text against every artwork box, including the text's white backing.
         let path = CGMutablePath()
@@ -95,7 +96,7 @@ public enum PDFExportMarkRenderer {
             }
         }
         if settings.sheetInfo {
-            if let placement = PDFSheetInfo.placement(text: info,side: side,sheet: sheet,marks: settings) {
+            if let placement = PDFSheetInfo.placement(text: info,side: side,sheet: sheet,marks: settings,kind: kind) {
                 PDFSheetInfo.draw(placement,color: color,in: context)
             }
         }

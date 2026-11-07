@@ -3,7 +3,7 @@ import Foundation
 public enum SheetSelection: String, Codable, Sendable, CaseIterable { case fixed, efficient, automatic }
 public enum ProductionType: String, Codable, Sendable, CaseIterable { case digital, offset }
 public enum AutoLayoutField: String, Codable, Sendable, CaseIterable {
-    case sheetSize, orientation, allowRotation, marginLeft, marginRight, marginTop, marginBottom, gripperEdge, gripperWidth, gutter, cropLength, cropOffset, bleed, safeArea, generatedEnabled, generatedMethod, generatedTolerance, generatedColor, columns, rows, exportCrop, exportFold, exportBleed, exportSafeArea, exportPageNumbers, exportSheetInfo, exportFullCut, exportLineWidth, exportColor
+    case sheetSize, orientation, allowRotation, marginLeft, marginRight, marginTop, marginBottom, gripperEdge, gripperWidth, gutter, cropLength, cropOffset, bleed, safeArea, generatedEnabled, generatedMethod, generatedTolerance, generatedColor, columns, rows, exportCrop, exportFold, exportBleed, exportSafeArea, exportPageNumbers, exportSheetInfo, exportFullCut, exportLineWidth, exportColor, exportColorBar, exportTargets, exportTargetSize, exportPatchSize, exportBarSide
     public static func changes(from old: Project,to new: Project) -> Set<AutoLayoutField> {
         var result = Set<AutoLayoutField>()
         if old.sheet.size != new.sheet.size { result.insert(.sheetSize) }
@@ -35,6 +35,11 @@ public enum AutoLayoutField: String, Codable, Sendable, CaseIterable {
         if old.exportMarks.fullCut != new.exportMarks.fullCut { result.insert(.exportFullCut) }
         if old.exportMarks.lineWidth != new.exportMarks.lineWidth { result.insert(.exportLineWidth) }
         if old.exportMarks.color != new.exportMarks.color { result.insert(.exportColor) }
+        if old.exportMarks.colorBar != new.exportMarks.colorBar { result.insert(.exportColorBar) }
+        if old.exportMarks.registrationTargets != new.exportMarks.registrationTargets { result.insert(.exportTargets) }
+        if old.exportMarks.targetSize != new.exportMarks.targetSize { result.insert(.exportTargetSize) }
+        if old.exportMarks.patchSize != new.exportMarks.patchSize { result.insert(.exportPatchSize) }
+        if old.exportMarks.barSide != new.exportMarks.barSide { result.insert(.exportBarSide) }
         return result
     }
 }
@@ -214,6 +219,11 @@ public enum SmartAutoLayout {
         set(.exportSafeArea,\.exportMarks.safeArea,false); set(.exportPageNumbers,\.exportMarks.pageNumbers,false)
         set(.exportSheetInfo,\.exportMarks.sheetInfo,false); set(.exportFullCut,\.exportMarks.fullCut,false)
         set(.exportLineWidth,\.exportMarks.lineWidth,0.25); set(.exportColor,\.exportMarks.color,.black)
+        set(.exportColorBar,\.exportMarks.colorBar,state.production == .offset)
+        set(.exportTargets,\.exportMarks.registrationTargets,state.production == .offset)
+        set(.exportTargetSize,\.exportMarks.targetSize,5)
+        set(.exportPatchSize,\.exportMarks.patchSize,5)
+        set(.exportBarSide,\.exportMarks.barSide,.gripper)
         set(.generatedEnabled,\.settings.generatedBleed.enabled,p.settings.bleed > 0 && p.pages.contains { ($0.availableBleed ?? 0) < p.settings.bleed })
         set(.generatedMethod,\.settings.generatedBleed.method,.automatic)
         set(.generatedTolerance,\.settings.generatedBleed.tolerance,0.02)

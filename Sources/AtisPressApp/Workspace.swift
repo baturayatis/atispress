@@ -15,6 +15,7 @@ final class Workspace: ObservableObject {
         p.stepAndRepeat.pageLayout = PageLayoutSettings()
         p.stepAndRepeat.waste = WasteSettings()
         p.sheetInfo = SheetInfoSettings()
+        p.exportMarks.colorControls = ColorControlSettings()
         p.autoLayout = AutoLayoutSettings()
         p.autoLayout?.automaticFields.insert(.gutter)
         return p
@@ -558,15 +559,31 @@ extension Workspace {
         Binding(get: { binding.wrappedValue },set: { self.markManual(field); binding.wrappedValue = $0 })
     }
     func setProduction(_ production: ProductionType) {
+        var next = project
         var state = project.autoLayout ?? .legacy; state.production = production
-        project.autoLayout = state
+        if next.exportMarks.colorControls == nil {
+            // These controls did not exist in old projects; an explicit production
+            // choice adopts their defaults without treating them as old overrides.
+            state.manualFields.subtract([.exportColorBar,.exportTargets])
+        }
+        if !state.manualFields.contains(.exportColorBar) {
+            next.exportMarks.colorBar = production == .offset; state.automaticFields.insert(.exportColorBar)
+        }
+        if !state.manualFields.contains(.exportTargets) {
+            next.exportMarks.registrationTargets = production == .offset; state.automaticFields.insert(.exportTargets)
+        }
+        next.autoLayout = state
+        applyingAutomatic = true; project = next; applyingAutomatic = false
+        if overlays.manualColorBar != true { overlays.colorBar = production == .offset }
+        if overlays.manualTargets != true { overlays.registrationTargets = production == .offset }
         if !project.pages.isEmpty { autoArrange(resetOverrides: false) }
         else if state.sheetSelection == .automatic {
             applyingAutomatic = true
             project.sheet.size = production == .digital ? SheetPreset.sra3.size : SheetPreset.cm33x48.size
             if !state.manualFields.contains(.gripperWidth) { project.sheet.gripperWidth = production == .digital ? 0 : 10 }
-            applyingAutomatic = false; refreshModified()
+            applyingAutomatic = false
         }
+        refreshModified()
     }
     func autoArrange(resetOverrides: Bool = true) {
         guard !loading,!exporting,!autoArranging,!project.pages.isEmpty else { return }
@@ -761,5 +778,19 @@ extension Workspace {
     func sheetInfoText(sheet: Sheet,number: Int = 1,kind: SideKind = .front) -> String {
         PDFSheetInfoContext(jobName: source?.url.lastPathComponent ?? "İş adı",sheetNumber: number,totalSheets: plan.totalPressSheets,
             side: kind,production: project.autoLayout?.production ?? .digital).text(settings: project.sheetInfo ?? SheetInfoSettings(),sheet: sheet)
+    }
+}
+
+extension Workspace {
+    func setPreviewColorBar(_ value: Bool) { overlays.colorBar = value; overlays.manualColorBar = true }
+    func setPreviewTargets(_ value: Bool) { overlays.registrationTargets = value; overlays.manualTargets = true }
+    var previewControlSettings: ExportMarks {
+        var marks = project.exportMarks
+        marks.colorBar = overlays.colorBar; marks.registrationTargets = overlays.registrationTargets
+        return marks
+    }
+    var previewControlWarnings: [String] {
+        guard let sheet = currentSheet else { return [] }
+        return PDFColorControlRenderer.geometry(sheet: sheet,settings: previewControlSettings,kind: side).warnings
     }
 }

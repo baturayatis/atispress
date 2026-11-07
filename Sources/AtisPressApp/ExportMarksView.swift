@@ -17,6 +17,9 @@ struct ExportMarksView: View {
                 Divider()
             }
             Text("Çıktı İşaretleri").font(.headline)
+            Toggle(model.autoLabel("Renk skalası",.exportColorBar),isOn: model.autoBinding($model.project.exportMarks.colorBar,.exportColorBar))
+            Toggle(model.autoLabel("Diz işaretleri",.exportTargets),isOn: model.autoBinding($model.project.exportMarks.registrationTargets,.exportTargets))
+            ColorControlSizeView(model: model)
             Toggle(model.autoLabel("Kesim işaretleri / crop marks",.exportCrop),isOn: model.autoBinding($model.project.exportMarks.crop,.exportCrop))
             Toggle(model.autoLabel("Katlama işaretleri",.exportFold),isOn: model.autoBinding($model.project.exportMarks.fold,.exportFold))
             Toggle(model.autoLabel("Taşma çizgisi",.exportBleed),isOn: model.autoBinding($model.project.exportMarks.bleed,.exportBleed))
@@ -38,7 +41,7 @@ struct ExportMarksView: View {
                 if let sheet = model.currentSheet {
                     let text = model.sheetInfoText(sheet: sheet,number: model.plan.sheets.prefix(model.sheetIndex).reduce(0) { $0+$1.repeatCount }+model.repetition+1,kind: model.side)
                     Text("Örnek (6 pt): "+(text.isEmpty ? "Alan seçilmedi; şerit basılmaz." : text)).font(.caption)
-                    if !text.isEmpty,PDFSheetInfo.placement(text: text,side: model.currentSide ?? sheet.front,sheet: sheet,marks: model.project.exportMarks) == nil {
+                    if !text.isEmpty,PDFSheetInfo.placement(text: text,side: model.currentSide ?? sheet.front,sheet: sheet,marks: model.project.exportMarks,kind: model.side) == nil {
                         Text(PDFSheetInfo.noRoomWarning).font(.caption).foregroundStyle(.orange)
                     }
                 }
@@ -53,7 +56,7 @@ struct ExportMarksView: View {
                 Text(model.autoLabel("pt",.exportLineWidth))
             }
             let warnings = Set(model.plan.sheets.flatMap { sheet in
-                [sheet.front,sheet.back].flatMap { PDFExportMarkRenderer.geometry(side: $0,sheet: sheet,settings: model.project.exportMarks).warnings }
+                [sheet.front,sheet.back].flatMap { PDFExportMarkRenderer.geometry(side: $0,sheet: sheet,settings: model.project.exportMarks).warnings } + PDFColorControlRenderer.geometry(sheet: sheet,settings: model.project.exportMarks).warnings
             }).sorted()
             ForEach(warnings,id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
         }.toggleStyle(.checkbox).padding(12).frame(maxWidth: .infinity,alignment: .leading)
