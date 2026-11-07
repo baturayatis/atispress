@@ -155,6 +155,13 @@ public enum PDFExporter {
         guard sheet.size.width.isFinite,sheet.size.height.isFinite,sheet.size.width > 0,sheet.size.height > 0 else {
             throw PDFExportError.invalidGeometry
         }
+        if let serials = sheet.serialPlan {
+            guard (1...1_000_000_000).contains(serials.quantity),(1...20_000).contains(serials.capacity),
+                  serials.sheetCount == sheet.repeatCount,serials.fields.count <= 100,
+                  serials.fields.allSatisfy({ $0.isValid && $0.value(at: serials.quantity-1) != nil }) else {
+                throw PDFExportError.invalidGeometry
+            }
+        }
         for side in [sheet.front,sheet.back] {
             for slot in side.slots {
                 guard [slot.x,slot.y,slot.size.width,slot.size.height].allSatisfy(\.isFinite),

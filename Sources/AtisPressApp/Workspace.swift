@@ -17,7 +17,10 @@ final class Workspace: ObservableObject {
             refreshModified()
             var previous = oldValue
             previous.exportMarks = project.exportMarks
-            if previous != project { schedulePlan() }
+            let serialChanged = previous.serialFields != project.serialFields
+            previous.serialFields = project.serialFields
+            if previous != project || (serialChanged && planning) { schedulePlan() }
+            else if serialChanged { plan = ImpositionPlanner.updatingSerials(in: plan,project: project) }
         }
     }
     @Published private(set) var source: PDFSource?
@@ -25,7 +28,12 @@ final class Workspace: ObservableObject {
     @Published private(set) var order: [Int] = [] { didSet { refreshModified() } }
     @Published var included = Set<Int>() { didSet { refreshModified() } }
     @Published var selectedPages = Set<Int>()
-    @Published var sheetIndex = 0 { didSet { warmGeneratedBleed() } }
+    @Published var sheetIndex = 0 { didSet {
+        if oldValue != sheetIndex { repetition = 0 }
+        warmGeneratedBleed()
+    } }
+    @Published var repetition = 0
+    @Published var selectedSerialID: UUID?
     @Published var side: SideKind = .front { didSet { warmGeneratedBleed() } }
     @Published var overlays = PreviewOverlays() { didSet { refreshModified() } }
     @Published var sheetPreset = "33×48" { didSet { refreshModified() } }
@@ -276,6 +284,7 @@ final class Workspace: ObservableObject {
             guard !Task.isCancelled, revision == token else { return }
             plan = next; planning = false
             sheetIndex = max(0,min(sheetIndex,max(0,next.sheets.count-1)))
+            repetition = max(0,min(repetition,(currentSheet?.repeatCount ?? 1)-1))
         }
     }
     func reveal(_ issue: ValidationIssue) {
@@ -301,13 +310,14 @@ extension Workspace {
     var state: ProjectState {
         ProjectState(project: project,source: sourceReference,order: order,included: included,
                      overlays: overlays,sheetPreset: sheetPreset,sheetIndex: sheetIndex,side: side,
-                     bookletGutter: bookletGutter,repeatGutter: repeatGutter)
+                     bookletGutter: bookletGutter,repetition: repetition,repeatGutter: repeatGutter)
     }
     private func refreshModified() {
         guard !restoring else { return }
         // Navigation is saved but does not make a project dirty by itself.
         var current = state
         current.sheetIndex = savedState?.sheetIndex ?? 0; current.side = savedState?.side ?? .front
+        current.repetition = savedState?.repetition
         isModified = current != savedState
     }
     func createNewProject() {
@@ -319,7 +329,7 @@ extension Workspace {
         bookletGutter = nil; repeatGutter = 0
         project = Self.newProject()
         planTask?.cancel(); revision = UUID()
-        plan = ImpositionPlan(); sheetIndex = 0; side = .front
+        plan = ImpositionPlan(); sheetIndex = 0; side = .front; repetition = 0; selectedSerialID = nil
         planning = false; exportSummary = nil; exportedFiles = []; error = nil
         restoring = false; savedState = state; isModified = false
         zoomFactor = 0; zoomAction += 1
@@ -416,6 +426,7 @@ extension Workspace {
         bookletGutter = snapshot.bookletGutter; repeatGutter = snapshot.repeatGutter
         sheetPreset = snapshot.sheetPreset; project = snapshot.project; overlays = snapshot.overlays
         sheetIndex = snapshot.sheetIndex; side = snapshot.side
+        repetition = snapshot.repetition ?? 0; selectedSerialID = nil
         exportSummary = nil; exportedFiles = []; error = nil
         restoring = false
         // Refreshing a valid/stale bookmark alone is not a user edit; relinking is.
@@ -424,5 +435,23 @@ extension Workspace {
         schedulePlan()
         zoomFactor = 0; zoomAction += 1
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
+    }
+}
+
+extension Workspace {
+    @discardableResult
+    func addSerialField() -> UUID {
+        let field = SerialField(jobIndex: currentSheet?.repeatLayout?.jobIndex ?? 0)
+        project.serialFields.append(field); selectedSerialID = field.id
+        return field.id
+    }
+    func duplicateSerialField(_ id: UUID) {
+        guard var field = project.serialFields.first(where: { $0.id == id }) else { return }
+        field.id = UUID(); field.position.x += 3; field.position.y += 3
+        project.serialFields.append(field); selectedSerialID = field.id
+    }
+    func moveSerialField(_ id: UUID,to position: Point) {
+        guard let index = project.serialFields.firstIndex(where: { $0.id == id }) else { return }
+        project.serialFields[index].position = Point(position.x.rounded(),position.y.rounded())
     }
 }

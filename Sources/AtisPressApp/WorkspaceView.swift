@@ -81,11 +81,38 @@ struct WorkspaceView: View {
                                 Text("\(sheet.size.width,specifier: "%.0f") × \(sheet.size.height,specifier: "%.0f") mm · Forma \(signatures)")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
+                            if let serials = sheet.serialPlan {
+                                ForEach(serials.fields) { field in
+                                    Text("Seri: \(serials.range(field: field,repetition: index == model.sheetIndex ? model.repetition : 0) ?? "—")")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
                         }.tag(index)
+                        if sheet.serialPlan != nil,index == model.sheetIndex { serialSheetRows(sheet,index: index) }
                     }
                 }.listStyle(.sidebar)
             }.frame(minHeight: 130,idealHeight: 230)
         }
+    }
+    @ViewBuilder
+    private func serialSheetRows(_ sheet: Sheet,index: Int) -> some View {
+        let first = (model.repetition/100)*100
+        if first > 0 { Button("Önceki 100 tabaka") { model.repetition = first-1 } }
+        ForEach(first..<min(first+100,sheet.repeatCount),id: \.self) { repetition in
+            Button {
+                model.sheetIndex = index; model.repetition = repetition
+            } label: {
+                VStack(alignment: .leading,spacing: 2) {
+                    Text("Tabaka \(repetition+1)"+(model.repetition == repetition ? " · Önizleme" : ""))
+                    if let serials = sheet.serialPlan {
+                        ForEach(serials.fields) { field in
+                            Text(serials.range(field: field,repetition: repetition) ?? "Numara yok").font(.caption)
+                        }
+                    }
+                }
+            }.buttonStyle(.plain).padding(.leading,8)
+        }
+        if first+100 < sheet.repeatCount { Button("Sonraki 100 tabaka") { model.repetition = first+100 } }
     }
     private var generatedBleedLabel: String? {
         let settings = model.plan.generatedBleed
@@ -112,7 +139,9 @@ struct WorkspaceView: View {
             }.padding(10)
             if let sheet = model.currentSheet, let side = model.currentSide {
                 PreviewCanvas(sheet: sheet,side: side,sheetIndex: model.sheetIndex,sideKind: model.side,source: model.source,overlays: model.overlays,generatedBleed: model.plan.generatedBleed,
-                              highlighted: model.highlightedSlots,zoomAction: model.zoomAction,zoomFactor: model.zoomFactor)
+                              highlighted: model.highlightedSlots,zoomAction: model.zoomAction,zoomFactor: model.zoomFactor,
+                              repetition: model.repetition,selectedSerial: model.selectedSerialID,
+                              selectSerial: { model.selectedSerialID = $0 },moveSerial: { model.moveSerialField($0,to: $1) })
                     .overlay(alignment: .topLeading) {
                         VStack(alignment: .leading,spacing: 3) {
                             Text("\(sheet.repeatLayout == nil ? "Tabaka" : "İş") \(model.sheetIndex+1) · \(model.side == .front ? "Ön" : "Arka") · \(sheet.size.width,specifier: "%.1f") × \(sheet.size.height,specifier: "%.1f") mm")

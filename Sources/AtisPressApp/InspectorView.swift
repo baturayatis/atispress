@@ -82,6 +82,7 @@ struct InspectorView: View {
                         measurement("Güvenli alan",guide(\.safeAreaInset,overlay: \.safeArea),range: 0...30)
                     }.padding(5)
                 }
+                SerialInspectorView(model: model)
                 generatedBleedControls
                 GroupBox("Önizleme Katmanları") {
                     VStack(alignment: .leading,spacing: 8) {

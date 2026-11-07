@@ -72,9 +72,9 @@ extension ImpositionPlanner {
                     }
                     let copy = row*grid.columns+column
                     frontSlots.append(Slot(sourcePageNumber: page,origin: origin(position),size: grid.item,
-                        rotation: rotation,signature: job,gridPosition: position,copyIndex: copy))
+                        rotation: rotation,signature: job,gridPosition: position,copyIndex: copy,itemSide: reverseHalf ? .back : .front))
                     backSlots.append(Slot(sourcePageNumber: reversePage,origin: origin(inverse),size: grid.item,
-                        rotation: reverseRotation(rotation,mirrorX: grid.mirrorX),signature: job,gridPosition: inverse,copyIndex: copy))
+                        rotation: reverseRotation(rotation,mirrorX: grid.mirrorX),signature: job,gridPosition: inverse,copyIndex: copy,itemSide: reverseHalf ? .front : .back))
                 }
             }
             // The array stays in copy order. GridPosition expresses each face's row/column order.

@@ -87,12 +87,13 @@ public enum PDFPlanRenderer {
     public static func drawSide(_ side: Side,sheet: Sheet,document: CGPDFDocument,in context: CGContext,
                                 sheetIndex: Int,kind: SideKind,repetition: Int,options: PDFRenderOptions,
                                 overlays: [any PDFSlotOverlay] = []) throws {
+        let serials: [any PDFSlotOverlay] = sheet.serialPlan.map { [SerialTextOverlay(plan: $0)] } ?? []
         for (index,slot) in side.slots.enumerated() {
             try Task.checkCancellation()
             let page = slot.sourcePageNumber.flatMap { document.page(at: $0) }
             if slot.sourcePageNumber != nil && page == nil { throw PDFExportError.missingPage(slot.sourcePageNumber!) }
             try drawSlot(slot,page: page,in: context,reference: SlotReference(sheet: sheetIndex,side: kind,slot: index),
-                         repetition: repetition,overlays: overlays)
+                         repetition: repetition,overlays: overlays+serials)
         }
         drawMarks(side.marks,sheetSize: sheet.size,in: context,options: options)
     }

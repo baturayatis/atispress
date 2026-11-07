@@ -16,6 +16,11 @@ public enum ImpositionPlanner {
     }
     /// Produces the sole geometry source for both preview and future PDF export.
     public static func plan(_ project: Project) -> ImpositionPlan {
+        var result = layoutPlan(project)
+        applySerials(project,to: &result)
+        return result
+    }
+    private static func layoutPlan(_ project: Project) -> ImpositionPlan {
         if project.binding == .stepAndRepeat { return repeatPlan(project) }
         var result = ImpositionPlan(generatedBleed: project.settings.generatedBleed)
         func error(_ code: ValidationIssue.Code, _ message: String) {

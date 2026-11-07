@@ -382,6 +382,104 @@ final class PDFExportTests: XCTestCase {
         XCTAssertTrue(PDFExportMarkRenderer.geometry(side: side,sheet: sheet,settings: .none).segments.isEmpty)
     }
 
+    func testSerialExportVectorTextAndPositionsMatchEveryPlannedPhysicalSheet() async throws {
+        let folder = try directory(), input = try fixture(in: folder)
+        let source = try await PDFSource.open(input)
+        for mode in [SerialField.Mode.sequential,.stack] {
+            var p = project(source,binding: .stepAndRepeat)
+            p.sheet.size = Size(100,100); p.sheet.gutter = 3
+            p.stepAndRepeat = StepAndRepeatSettings(columns: 2,rows: 2,allowRotation: false,quantity: 10)
+            p.serialFields = [SerialField(start: 101,digits: 4,prefix: "SER-",suffix: "-X",font: "Helvetica",size: 9,
+                sides: .both,position: Point(3,15),mode: mode)]
+            let plan = ImpositionPlanner.plan(p), sheet = try XCTUnwrap(plan.sheets.first)
+            XCTAssertTrue(plan.canExport)
+            let target = folder.appendingPathComponent("serial-\(mode).pdf")
+            _ = try PDFExporter.export(plan: plan,source: source,destination: .singlePDF(target),marks: .none)
+            let document = try XCTUnwrap(PDFDocument(url: target))
+            XCTAssertEqual(document.pageCount,6)
+            XCTAssertEqual(imageObjects(try XCTUnwrap(CGPDFDocument(target as CFURL))),0,"Numbers must remain vector text")
+            for repetition in 0..<3 {
+                for (face,side) in [(SideKind.front,sheet.front),(.back,sheet.back)] {
+                    let page = try XCTUnwrap(document.page(at: repetition*2+(face == .front ? 0 : 1)))
+                    let text = try XCTUnwrap(page.string)
+                    let placements = try XCTUnwrap(sheet.serialPlan).placements(side: side,kind: face,repetition: repetition)
+                    for serial in placements {
+                        let range = (text as NSString).range(of: serial.text)
+                        XCTAssertNotEqual(range.location,NSNotFound,"Missing \(serial.text) on sheet \(repetition+1)")
+                        guard range.location != NSNotFound else { continue }
+                        let selection = try XCTUnwrap(page.selection(for: range))
+                        let rect = selection.bounds(for: page)
+                        let slot = side.slots[serial.slotIndex]
+                        // Unrotated fixture: local baseline anchor must be placed at trim origin + position.
+                        XCTAssertEqual(rect.minX,(slot.x+serial.position.x)*unit,accuracy: 1.5)
+                        XCTAssertLessThanOrEqual(rect.minY,(slot.y+serial.position.y)*unit+1)
+                        XCTAssertGreaterThanOrEqual(rect.maxY,(slot.y+serial.position.y)*unit+2)
+                        XCTAssertGreaterThan(rect.width,5)
+                    }
+                    XCTAssertFalse(text.contains("SER-0111-X"),"Overproduced copies must not receive serials")
+                    let corePDF = try XCTUnwrap(CGPDFDocument(target as CFURL)?.page(at: repetition*2+(face == .front ? 1 : 2)))
+                    let exported = try render(corePDF)
+                    let preview = try Bitmap(width: sheet.size.width,height: sheet.size.height)
+                    try PDFPlanRenderer.drawSide(side,sheet: sheet,document: XCTUnwrap(CGPDFDocument(input as CFURL)),
+                        in: preview.context,sheetIndex: 0,kind: face,repetition: repetition,options: .artworkOnly)
+                    // Compare pixels around the real serial baseline, using the shared live-preview renderer.
+                    for serial in placements {
+                        let slot = side.slots[serial.slotIndex]
+                        for dx in stride(from: 0.0,to: 16.0,by: 0.5) {
+                            assertColor(preview.rgb(slot.x+serial.position.x+dx,slot.y+serial.position.y+1),
+                                        exported.rgb(slot.x+serial.position.x+dx,slot.y+serial.position.y+1))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testSerialRotationsMirrorsAndStyleKeepVectorTextAtPlanPositions() async throws {
+        let folder = try directory(), input = try fixture(in: folder,count: 1)
+        let source = try await PDFSource.open(input)
+        let field = SerialField(digits: 0,prefix: "R",font: "Courier",size: 8,color: .rgb(0.8,0.1,0.2),
+                                rotation: 30,sides: .both,position: Point(5,12))
+        let slots = [Slot(sourcePageNumber: 1,origin: Point(10,10),size: Size(20,30),copyIndex: 0),
+                     Slot(sourcePageNumber: 1,origin: Point(40,10),size: Size(30,20),rotation: 90,copyIndex: 1),
+                     Slot(sourcePageNumber: 1,origin: Point(10,50),size: Size(20,30),rotation: 180,mirrored: true,copyIndex: 2)]
+        var sheet = Sheet(size: Size(90,90),front: Side(slots: slots),back: Side())
+        sheet.serialPlan = SerialNumberPlan(fields: [field],quantity: 3,capacity: 3,sheetCount: 1)
+        let target = folder.appendingPathComponent("serial-rotated.pdf")
+        _ = try PDFExporter.export(plan: ImpositionPlan(sheets: [sheet]),source: source,destination: .singlePDF(target),marks: .none)
+        let page = try XCTUnwrap(PDFDocument(url: target)?.page(at: 0))
+        let text = try XCTUnwrap(page.string)
+        for serial in sheet.serialPlan!.placements(side: sheet.front,kind: .front,repetition: 0) {
+            let range = (text as NSString).range(of: serial.text)
+            XCTAssertNotEqual(range.location,NSNotFound)
+            guard range.location != NSNotFound else { continue }
+            let actual = try XCTUnwrap(page.selection(for: range)).bounds(for: page)
+            let expected = PDFSerialDrawing.bounds(serial).applying(PDFSerialDrawing.transform(serial))
+                .applying(PDFPreviewDrawing.slotTransform(slots[serial.slotIndex]))
+            if !slots[serial.slotIndex].mirrored {
+                XCTAssertEqual(actual.midX,expected.midX*unit,accuracy: 2)
+                XCTAssertEqual(actual.midY,expected.midY*unit,accuracy: 2)
+            }
+            // PDFKit selections mismeasure reflected text. Check actual colored glyph
+            // pixels against the planned glyph footprint for every transform as well.
+            let bitmap = try render(XCTUnwrap(CGPDFDocument(target as CFURL)?.page(at: 1)))
+            let slot = slots[serial.slotIndex]
+            var ink = CGRect.null
+            for y in stride(from: slot.y,to: slot.y+slot.size.height,by: 0.15) {
+                for x in stride(from: slot.x,to: slot.x+slot.size.width,by: 0.15) {
+                    let rgb = bitmap.rgb(x,y)
+                    if rgb[0] > 0.6 && rgb[1] < 0.3 && rgb[2] < 0.4 { ink = ink.union(CGRect(x: x,y: y,width: 0.15,height: 0.15)) }
+                }
+            }
+            XCTAssertFalse(ink.isNull)
+            let glyph = PDFSerialDrawing.glyphBounds(serial).applying(PDFSerialDrawing.transform(serial))
+                .applying(PDFPreviewDrawing.slotTransform(slot))
+            XCTAssertEqual(ink.midX,glyph.midX,accuracy: 0.4)
+            XCTAssertEqual(ink.midY,glyph.midY,accuracy: 0.4)
+        }
+        XCTAssertEqual(imageObjects(try XCTUnwrap(CGPDFDocument(target as CFURL))),0)
+    }
+
     private struct GeneratedBleed: PDFSlotOverlay {
         var phase: PDFOverlayPhase { .underArtwork }
         func draw(in context: CGContext,placement: PDFSlotContext) {

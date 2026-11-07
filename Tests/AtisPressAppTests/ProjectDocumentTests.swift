@@ -57,6 +57,8 @@ final class ProjectDocumentTests: XCTestCase {
         model.project.exportMarks.lineWidth = 0.35; model.project.exportMarks.color = .registration
         model.move(IndexSet(integer: 4),to: 0)
         model.setIncluded(3,false); model.setIncluded(4,false)
+        model.project.serialFields = [SerialField(start: 22,step: 3,digits: 6,prefix: "SER-",suffix: "-TR",
+            font: "Courier",size: 14,color: .rgb(0.2,0.5,0.8),rotation: 25,sides: .both,position: Point(7,9),mode: .stack)]
         model.overlays = .artworkOnly
         model.side = .back
         try await settle(model)
@@ -80,7 +82,7 @@ final class ProjectDocumentTests: XCTestCase {
         let file = ProjectDocument(state: model.state)
         let data = try file.encoded()
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String:Any])
-        XCTAssertEqual(object["version"] as? Int,1)
+        XCTAssertEqual(object["version"] as? Int,2)
         XCTAssertEqual(try ProjectDocument.decode(data),file)
         XCTAssertFalse(try XCTUnwrap(file.state.source).bookmark.isEmpty)
         var future = object; future["version"] = 999
@@ -90,6 +92,18 @@ final class ProjectDocumentTests: XCTestCase {
         XCTAssertThrowsError(try ProjectDocument.decode(Data("{}".utf8)))
         var corrupt = file; corrupt.state.order = [1,1]
         XCTAssertThrowsError(try ProjectDocument.decode(corrupt.encoded()))
+    }
+    func testVersionOneProjectWithoutSerialFieldsStillOpens() throws {
+        let model = workspace()
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: ProjectDocument(state: model.state).encoded()) as? [String:Any])
+        object["version"] = 1
+        var state = try XCTUnwrap(object["state"] as? [String:Any])
+        var project = try XCTUnwrap(state["project"] as? [String:Any])
+        project.removeValue(forKey: "serialFields"); state["project"] = project
+        state.removeValue(forKey: "repetition"); object["state"] = state
+        let file = try ProjectDocument.decode(JSONSerialization.data(withJSONObject: object))
+        XCTAssertTrue(file.state.project.serialFields.isEmpty)
+        XCTAssertNil(file.state.repetition)
     }
     func testSaveOpenRestoresSettingsSelectionAndExactPlanWithoutDefaultsOverriding() async throws {
         let (model,folder,_) = try await populated()
@@ -166,6 +180,31 @@ final class ProjectDocumentTests: XCTestCase {
         reference.fileSize += 1
         XCTAssertNil(reference.resolve())
     }
+    func testNumberedProjectRestoresLiveRecipeFieldsAndPhysicalSheetSelection() async throws {
+        let (model,folder,_) = try await populated()
+        model.setMode(.stepAndRepeat)
+        model.project.stepAndRepeat.quantity = 29
+        model.project.stepAndRepeat.columns = 2; model.project.stepAndRepeat.rows = 2
+        model.project.serialFields[0].sides = .both
+        try await settle(model)
+        model.repetition = 2
+        let file = folder.appendingPathComponent("serial.atispress")
+        try model.saveProject(as: file)
+        let restored = workspace()
+        try await restored.loadProject(at: file)
+        try await settle(restored)
+        XCTAssertEqual(restored.project.serialFields,model.project.serialFields)
+        XCTAssertEqual(restored.plan.sheets,model.plan.sheets)
+        XCTAssertEqual(restored.repetition,2)
+        XCTAssertEqual(restored.currentSheet?.serialPlan?.placements(side: restored.currentSide!,kind: restored.side,repetition: 2),
+                       model.currentSheet?.serialPlan?.placements(side: model.currentSide!,kind: model.side,repetition: 2))
+        XCTAssertFalse(restored.isModified)
+        restored.project.serialFields[0].prefix = "CHANGED-"
+        XCTAssertTrue(restored.isModified)
+        XCTAssertFalse(restored.planning)
+        XCTAssertEqual(restored.currentSheet?.serialPlan?.fields.first?.prefix,"CHANGED-")
+    }
+
     func testCloseDecisionRequiresSuccessfulSaveAndCancelPreservesEdits() {
         let model = workspace()
         model.project.settings.bleed = 8

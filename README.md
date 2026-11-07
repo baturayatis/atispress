@@ -106,10 +106,12 @@ Sources/
     Models.swift
     Planner.swift
     StepAndRepeat.swift
+    SerialNumbering.swift
   PDFEngine/
     PDFSource.swift
     PDFArtwork.swift
     PDFPlanRenderer.swift
+    SerialTextOverlay.swift
     PDFExporter.swift
     PDFEdgeSamples.swift
     PDFColorProbe.swift
@@ -119,11 +121,13 @@ Sources/
     Workspace.swift
     WorkspaceView.swift
     InspectorView.swift
+    SerialInspectorView.swift
     PreviewCanvas.swift
     ProjectDocument.swift
     ProjectWindowControl.swift
 Tests/ImpositionCoreTests/PlannerTests.swift
 Tests/ImpositionCoreTests/StepAndRepeatTests.swift
+Tests/ImpositionCoreTests/SerialNumberingTests.swift
 Tests/ImpositionCoreTests/ArtworkClipTests.swift
 Tests/ImpositionCoreTests/GeneratedBleedPlanTests.swift
 Tests/PDFEngineTests/PDFSourceTests.swift
@@ -205,8 +209,8 @@ Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/
 
 ### Verification and current limits
 
-`swift test --disable-sandbox`: **66 XCTest tests, zero failures** (26 core,
-24 PDF reading/drawing/export, 16 workspace/project persistence regression tests). GUI smoke checks
+`swift test --disable-sandbox`: **78 XCTest tests, zero failures** (32 core,
+26 PDF reading/drawing/export, 20 workspace/project persistence regression tests). GUI smoke checks
 used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
 navigation, page selection/reordering/exclusion, binding change, front/back,
 shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
@@ -423,7 +427,7 @@ existing filenames. Rendering/overlay failures and cancellation remove staged
 files instead of publishing partial PDFs. The app creates a unique per-sheet
 folder, so a normal export does not collide with earlier outputs.
 
-For later variable text or serial numbers, implement
+For additional variable text beyond the built-in serial fields, implement
 `PDFSlotOverlay` and supply an array to `PDFExporter.export(overlays:)` or the shared
 renderer's preview draw call. Hooks run **underArtwork** or **overArtwork**, in
 slot-local trim mm with isolated graphics state and the plan's bleed clip. The
@@ -431,7 +435,7 @@ context provides trim/artwork rectangles, source page, slot/copy identity,
 sheet/face/slot reference and physical repetition index. This requires no new
 fields in `ImpositionPlan` or a separate layout path. Tests demonstrate vector
 serial text with those hooks; generated bleed uses the same hooks in production.
-There is no variable-data UI yet.
+The built-in serial UI and compact numbering recipe use this same vector overlay hook.
 
 ### Export validation and remaining limits
 
@@ -517,11 +521,12 @@ Opening an existing project preserves its own mode, preset and custom dimensions
 - **Kaydet / ⌘S** saves the current project; **Farklı Kaydet… / ⇧⌘S** writes a new
   project and switches subsequent saves to it. Source PDFs cannot be overwritten.
   Project writes are atomic. Empty projects can also be saved.
-- Version 1 is readable JSON with top-level `version: 1` and `state`. `state.project`
+- Version 2 is readable JSON with top-level `version: 2` and `state`; version 1
+  projects remain readable, with serial fields defaulting to empty. `state.project`
   contains ordered selected source-page metadata, binding/layout mode, blank-page
   and cover policies, sheet size/orientation/margins/gripper/gutter, every imposition
-  setting, generated bleed settings/color, repeat grid/rotation/quantity, and export
-  mark choices. Other state fields retain all-page order, included pages, preview
+  setting, generated bleed settings/color, repeat grid/rotation/quantity, export
+  mark choices, and per-job serial fields. Other state fields retain all-page order, included pages, preview
   overlays, sheet preset, selected sheet/face, and the separately remembered booklet
   and repeat gutters. No calculated plan is persisted: the same planner regenerates it.
 - `state.source` contains the absolute PDF path, base64 security-scoped read-only
@@ -551,5 +556,75 @@ Limits: one active project/source PDF; PDFs are linked rather than embedded. The
 identity check uses filename/size and selected page geometry, not a content hash.
 Zoom/pan and transient row highlights reset on open; saved artwork placement,
 preview layers and sheet/face are restored. There is no autosave, crash recovery,
-project-version migration beyond v1, or packaged Finder file association/installer.
+project-version migration beyond v1 → v2, or packaged Finder file association/installer.
 Use the app's Open command or a command-line path with the Swift package build.
+
+## Serial numbering — Seri Numara
+
+Run `swift run --disable-sandbox AtisPressApp` (optionally followed by a PDF or
+`.atispress` path), or run the **AtisPressApp / My Mac** scheme in Xcode.
+In **Tekrarlı (kartvizit/düz iş)** mode, select a job and choose **Seri Numara →
+Alan Ekle**. Multiple independent fields belong to each page-pair job; numbering
+restarts for each job. Existing projects start with no fields.
+
+The inspector edits start, signed increment, zero-padding width, prefix/suffix,
+installed font name, size in **points**, RGB/CMYK channels, clockwise rotation,
+front/back/both item faces, and X/Y in **mm from the local bottom-left trim corner**.
+X/Y identify the **left end of the text baseline**, before item rotation/reflection.
+Select a field by its sample number, or click a number on the preview. Drag it to
+move every occurrence of that field, snapping to 1 mm; dragging elsewhere still
+pans. **Çoğalt** assigns a fresh field ID and offsets its position by 3 mm.
+Serial edits update the existing plan immediately without repacking the artwork.
+
+Enable **Tekrarlı Yerleşim → Adet hesapla** to set total finished quantity `Q`.
+Without a quantity, one full sheet is numbered. Let `C` be grid capacity, `S =
+ceil(Q/C)` the physical sheet count, `r` the zero-based physical sheet index, and
+`c` the zero-based copy/grid index (columns left to right, rows bottom to top as
+viewed from the front). Back copies retain the same physical copy identity.
+
+- **Sıralı:** ordinal `r*C+c`. Each sheet gets the next group of numbers.
+- **İstif (kes ve istifle):** ordinal `c*S+r`. Cut each grid position into a pile
+  with physical sheet 1 at the top, then concatenate piles in grid order.
+- The printed value is `start + ordinal*step`. Ordinals `>= Q` receive no number;
+  their existing artwork remains printed. Both modes therefore use exactly `Q`
+  numbers per field on each selected item face, without numbering overproduction.
+
+For a 2×2 grid, quantity 10, start 1 and step 1:
+
+| Physical sheet | Sıralı (grid/copy order) | İstif (grid/copy order) |
+| --- | --- | --- |
+| 1 | 1, 2, 3, 4 | 1, 4, 7, 10 |
+| 2 | 5, 6, 7, 8 | 2, 5, 8, — |
+| 3 | 9, 10, —, — | 3, 6, 9, — |
+
+The sheet list shows first/last formatted numbers for every field on each physical
+sheet. Click a physical-sheet row or use **Baskı tabakası** to preview its real
+numbers. Large lists show 100 sheets at a time with previous/next controls.
+
+`Project.serialFields` is saved in version 2 `.atispress` files with stable UUIDs
+and zero-based job indices. `Sheet.serialPlan` holds a compact pure-core numbering
+recipe, evaluated for each slot and physical repetition; it does not allocate a
+quantity-sized array. Preview and PDF export use this same recipe and the same
+`SerialTextOverlay`. Serials are **vector artwork**, independent of preview guide
+switches and export-mark checkboxes. They are clipped to each item's trim to
+protect neighboring items. An unprinted reverse may contain a serial if Back/Both
+is selected. Colors and font metrics are shared by preview and export.
+
+Validation blocks invalid fields and Int64 number overflow. Up to 100 fields,
+32 padding digits and 1–500 pt fonts are supported. Unknown font names use the
+system fallback; the inspector reports an unavailable selected font. Cut-and-stack
+assumes the pile order above, with no automatic reversal for a particular cutter
+or sheet-delivery direction. Same-plate work styles require **distinct numbered
+front/back plates**; a warning explains that the numbered output cannot be run as
+one unchanged shared plate. Serial fields are retained but inactive in booklet
+modes. Long/rotated text extending outside trim is clipped rather than auto-fitted.
+
+Verification adds small-grid sequential/stack and partial-quantity examples,
+front/back/copy identity (including repeated PDF pages and blank reverses), per-job
+fields, formatting/overflow, immediate edits/duplication, rotated drag hit testing
+and mm snapping, v1 compatibility and numbered v2 project roundtrips. PDF tests
+inspect real exported text, its planned positions, vector resources, rotated and
+reflected glyph footprints, and matching preview/export pixels across repetitions.
+A native launch showed the new inspector. Further interactive serial smoke checks
+were blocked by an unresponsive macOS file picker and subsequent ScreenCaptureKit
+errors in the desktop automation service; automated AppKit drag tests passed.

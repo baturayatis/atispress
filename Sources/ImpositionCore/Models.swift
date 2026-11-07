@@ -164,6 +164,7 @@ public struct ExportMarks: Equatable, Sendable, Codable {
     public static var none: ExportMarks { var value = ExportMarks(); value.crop = false; return value }
 }
 public struct Project: Equatable, Sendable, Codable {
+    public var serialFields: [SerialField] = []
     public var exportMarks = ExportMarks()
     public var pages: [SourcePage]
     public var blankPagePolicy: BlankPagePolicy
@@ -178,6 +179,21 @@ public struct Project: Equatable, Sendable, Codable {
         self.pages = pages; self.binding = binding; self.sheet = sheet
         self.blankPagePolicy = blankPagePolicy; self.coverMode = coverMode; self.settings = settings
         self.stepAndRepeat = stepAndRepeat
+    }
+    private enum CodingKeys: String, CodingKey {
+        case serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+    }
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        serialFields = try c.decodeIfPresent([SerialField].self,forKey: .serialFields) ?? []
+        exportMarks = try c.decode(ExportMarks.self,forKey: .exportMarks)
+        pages = try c.decode([SourcePage].self,forKey: .pages)
+        blankPagePolicy = try c.decode(BlankPagePolicy.self,forKey: .blankPagePolicy)
+        binding = try c.decode(BindingMethod.self,forKey: .binding)
+        coverMode = try c.decode(CoverMode.self,forKey: .coverMode)
+        sheet = try c.decode(SheetSpec.self,forKey: .sheet)
+        settings = try c.decode(ImpositionSettings.self,forKey: .settings)
+        stepAndRepeat = try c.decode(StepAndRepeatSettings.self,forKey: .stepAndRepeat)
     }
 }
 public enum SideKind: String, Codable, Sendable { case front, back }
@@ -200,11 +216,13 @@ public struct Slot: Equatable, Sendable {
     public var artworkClip: Rect?
     /// Identifies the same physical cut piece on both faces of a repeat sheet.
     public var copyIndex: Int?
+    /// Logical item face, independent of PDF page identity and press-face turning.
+    public var itemSide: SideKind?
     public init(sourcePageNumber: Int?, origin: Point, size: Size, rotation: Int = 0,
-                mirrored: Bool = false, signature: Int = 0, gridPosition: GridPosition? = nil, copyIndex: Int? = nil, artworkClip: Rect? = nil) {
+                mirrored: Bool = false, signature: Int = 0, gridPosition: GridPosition? = nil, copyIndex: Int? = nil, artworkClip: Rect? = nil, itemSide: SideKind? = nil) {
         self.sourcePageNumber = sourcePageNumber; self.origin = origin; self.size = size
         self.rotation = rotation; self.mirrored = mirrored; self.signature = signature
-        self.gridPosition = gridPosition; self.copyIndex = copyIndex; self.artworkClip = artworkClip
+        self.gridPosition = gridPosition; self.copyIndex = copyIndex; self.artworkClip = artworkClip; self.itemSide = itemSide
     }
     public var x: Double { origin.x }
     public var y: Double { origin.y }
@@ -231,6 +249,7 @@ public struct Sheet: Equatable, Sendable {
     /// Identical physical press sheets; a run is represented once instead of duplicating its geometry.
     public var repeatCount: Int
     public var repeatLayout: RepeatLayout?
+    public var serialPlan: SerialNumberPlan? = nil
     public init(size: Size, front: Side, back: Side, repeatCount: Int = 1, repeatLayout: RepeatLayout? = nil) {
         self.size = size; self.front = front; self.back = back
         self.repeatCount = repeatCount; self.repeatLayout = repeatLayout
@@ -239,7 +258,7 @@ public struct Sheet: Equatable, Sendable {
 public struct ValidationIssue: Equatable, Sendable {
     public enum Severity: Sendable { case error, warning }
     public enum Code: Sendable {
-        case invalidInput, missingBleed, mixedPageSizes, pageCountPadding, exceedsSheet, unsupportedBinding, unsupportedCover, sharedCutBleed, insufficientGutter
+        case invalidInput, missingBleed, mixedPageSizes, pageCountPadding, exceedsSheet, unsupportedBinding, unsupportedCover, sharedCutBleed, insufficientGutter, serialNumbering
     }
     public var severity: Severity
     public var code: Code

@@ -55,7 +55,7 @@ struct ProjectSource: Codable, Equatable {
     }
 }
 
-/// Version 1 stores intent, not a cached plan; the same planner reconstructs preview/export.
+/// Stores project intent, not a cached plan; the same planner reconstructs preview/export.
 struct ProjectState: Codable, Equatable {
     var project: Project
     var source: ProjectSource?
@@ -66,6 +66,7 @@ struct ProjectState: Codable, Equatable {
     var sheetIndex: Int
     var side: SideKind
     var bookletGutter: Double?
+    var repetition: Int? = nil
     var repeatGutter: Double
 
     func validateSelection(pageCount: Int) throws {
@@ -78,14 +79,14 @@ struct ProjectState: Codable, Equatable {
     }
 }
 struct ProjectDocument: Codable, Equatable {
-    static let currentVersion = 1
+    static let currentVersion = 2
     var version: Int = currentVersion
     var state: ProjectState
     static func decode(_ data: Data) throws -> ProjectDocument {
         struct Header: Decodable { let version: Int }
         let decoder = JSONDecoder()
         let header = try decoder.decode(Header.self,from: data)
-        guard header.version == currentVersion else { throw ProjectFileError.unsupportedVersion(header.version) }
+        guard (1...currentVersion).contains(header.version) else { throw ProjectFileError.unsupportedVersion(header.version) }
         let file = try decoder.decode(ProjectDocument.self,from: data)
         guard file.state.source != nil || file.state.order.isEmpty else { throw ProjectFileError.invalidSelection }
         try file.state.validateSelection(pageCount: file.state.order.count)

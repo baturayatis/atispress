@@ -2,6 +2,7 @@ import XCTest
 import AppKit
 import UniformTypeIdentifiers
 import ImpositionCore
+import PDFEngine
 @testable import AtisPressApp
 
 @MainActor
@@ -80,6 +81,49 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertFalse(model.planning)
         XCTAssertEqual(model.overlays,overlays)
         XCTAssertEqual(model.currentSide?.slots,slots)
+    }
+
+    func testSerialEditingAndDuplicationUpdatePlanWithoutDebounce() async throws {
+        let model = Workspace()
+        model.project.pages = [1,2].map { SourcePage(number: $0,trimSize: Size(85,55)) }
+        try await settle(model)
+        let slots = model.currentSide?.slots
+        let id = model.addSerialField()
+        XCTAssertFalse(model.planning)
+        XCTAssertEqual(model.currentSheet?.serialPlan?.fields.first?.id,id)
+        model.moveSerialField(id,to: Point(12.4,18.6))
+        XCTAssertEqual(model.currentSheet?.serialPlan?.fields.first?.position,Point(12,19))
+        XCTAssertEqual(model.currentSide?.slots,slots)
+        model.duplicateSerialField(id)
+        XCTAssertEqual(model.project.serialFields.count,2)
+        XCTAssertNotEqual(model.project.serialFields[0].id,model.project.serialFields[1].id)
+        XCTAssertEqual(model.project.serialFields[1].position,Point(15,22))
+        XCTAssertEqual(model.project.serialFields[1].font,model.project.serialFields[0].font)
+        XCTAssertEqual(model.currentSheet?.serialPlan?.fields.count,2)
+        XCTAssertTrue(model.isModified)
+    }
+    func testPreviewNumberHitAndDragConvertsRotatedTrimCoordinatesAndSnaps() throws {
+        let field = SerialField(position: Point(5,5))
+        let slot = Slot(sourcePageNumber: 1,origin: Point(10,15),size: Size(30,20),rotation: 90,
+                        copyIndex: 0,artworkClip: Rect(x: 10,y: 15,width: 30,height: 20))
+        var sheet = Sheet(size: Size(80,70),front: Side(slots: [slot]),back: Side())
+        sheet.serialPlan = SerialNumberPlan(fields: [field],quantity: 1,capacity: 1,sheetCount: 1)
+        let canvas = SheetCanvasView()
+        canvas.configure(sheet: sheet,side: sheet.front,source: nil,overlays: .artworkOnly,highlighted: [])
+        var selected: UUID?, moved: Point?
+        canvas.selectSerial = { selected = $0 }
+        canvas.moveSerial = { _,point in moved = point }
+        func event(_ type: NSEvent.EventType,_ local: CGPoint) throws -> NSEvent {
+            let p = local.applying(PDFPreviewDrawing.slotTransform(slot))
+            return try XCTUnwrap(NSEvent.mouseEvent(with: type,
+                location: CGPoint(x: 32+p.x*PDFPreviewDrawing.pointsPerMM,y: 32+p.y*PDFPreviewDrawing.pointsPerMM),
+                modifierFlags: [],timestamp: 0,windowNumber: 0,context: nil,eventNumber: 1,clickCount: 1,pressure: 1))
+        }
+        canvas.mouseDown(with: try event(.leftMouseDown,CGPoint(x: 5.5,y: 5.5)))
+        XCTAssertEqual(selected,field.id)
+        canvas.mouseDragged(with: try event(.leftMouseDragged,CGPoint(x: 10.2,y: 11.8)))
+        XCTAssertEqual(moved,Point(10,11))
+        canvas.mouseUp(with: try event(.leftMouseUp,CGPoint(x: 10.2,y: 11.8)))
     }
 
     func testInitialFitWaitsForUsableScrollViewSize() {
