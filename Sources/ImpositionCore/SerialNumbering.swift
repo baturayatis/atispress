@@ -9,6 +9,9 @@ public struct SerialField: Identifiable, Equatable, Codable, Sendable {
     public var start: Int64
     public var step: Int64
     public var digits: Int
+    public var fixedDigits: Bool? = nil
+    public var endNumberEnabled: Bool? = nil
+    public var autoIncreasedDigits: Int? = nil
     public var prefix: String
     public var suffix: String
     public var font: String
@@ -24,13 +27,27 @@ public struct SerialField: Identifiable, Equatable, Codable, Sendable {
                 color: BleedColor = .cmyk(0,0,0,1),rotation: Double = 0,sides: Sides = .front,
                 position: Point = Point(5,5),mode: Mode = .sequential) {
         self.id = id; self.jobIndex = jobIndex; self.start = start; self.step = step; self.digits = digits
+        self.fixedDigits = false
         self.prefix = prefix; self.suffix = suffix; self.font = font; self.size = size; self.color = color
         self.rotation = rotation; self.sides = sides; self.position = position; self.mode = mode
     }
     public func value(at index: Int) -> Int64? {
-        let product = step.multipliedReportingOverflow(by: Int64(index))
-        let sum = start.addingReportingOverflow(product.partialValue)
-        return product.overflow || sum.overflow ? nil : sum.partialValue
+        guard index >= 0 else { return nil }
+        let product = step.magnitude.multipliedReportingOverflow(by: UInt64(index))
+        guard !product.overflow else { return nil }
+        let sign: Bool, magnitude: UInt64
+        if (start < 0) == (step < 0) {
+            let sum = start.magnitude.addingReportingOverflow(product.partialValue)
+            guard !sum.overflow else { return nil }
+            magnitude = sum.partialValue; sign = start < 0
+        } else if start.magnitude >= product.partialValue {
+            magnitude = start.magnitude-product.partialValue; sign = start < 0
+        } else {
+            magnitude = product.partialValue-start.magnitude; sign = step < 0
+        }
+        if sign,magnitude == UInt64(Int64.max)+1 { return Int64.min }
+        guard magnitude <= UInt64(Int64.max) else { return nil }
+        return sign ? -Int64(magnitude) : Int64(magnitude)
     }
     public func text(at index: Int) -> String? {
         guard let value = value(at: index) else { return nil }
@@ -60,13 +77,15 @@ public struct SerialNumberPlan: Equatable, Sendable {
     public var capacity: Int
     public var sheetCount: Int
     public init(fields: [SerialField],quantity: Int,capacity: Int,sheetCount: Int) {
-        self.fields = fields; self.quantity = quantity; self.capacity = capacity
+        self.fields = fields.map { $0.adjustedDigits(quantity: quantity) }; self.quantity = quantity; self.capacity = capacity
         self.sheetCount = sheetCount
     }
     public func ordinal(copy: Int,repetition: Int,mode: SerialField.Mode) -> Int? {
         guard copy >= 0,copy < capacity,repetition >= 0,repetition < sheetCount else { return nil }
-        let index = mode == .sequential ? repetition*capacity+copy : copy*sheetCount+repetition
-        return index < quantity ? index : nil
+        let product = mode == .sequential ? repetition.multipliedReportingOverflow(by: capacity) : copy.multipliedReportingOverflow(by: sheetCount)
+        let sum = product.partialValue.addingReportingOverflow(mode == .sequential ? copy : repetition)
+        guard !product.overflow,!sum.overflow,sum.partialValue < quantity else { return nil }
+        return sum.partialValue
     }
     public func placements(slot: Slot,slotIndex: Int,kind: SideKind,repetition: Int) -> [SerialPlacement] {
         guard let copy = slot.copyIndex else { return [] }
@@ -84,9 +103,8 @@ public struct SerialNumberPlan: Equatable, Sendable {
     }
     public func range(field: SerialField,repetition: Int) -> String? {
         guard repetition >= 0,repetition < sheetCount,capacity > 0 else { return nil }
-        let first = field.mode == .sequential ? repetition*capacity : repetition
-        guard first < quantity else { return nil }
-        let last = field.mode == .sequential ? min(quantity-1,first+capacity-1) :
+        guard let first = ordinal(copy: 0,repetition: repetition,mode: field.mode) else { return nil }
+        let last = field.mode == .sequential ? first+min(capacity-1,quantity-1-first) :
             first+min(capacity-1,(quantity-1-first)/sheetCount)*sheetCount
         guard let a = field.text(at: first), let b = field.text(at: last) else { return nil }
         return a+" – "+b
@@ -100,6 +118,7 @@ extension ImpositionPlanner {
         next.issues.removeAll { $0.code == .serialNumbering }
         for index in next.sheets.indices { next.sheets[index].serialPlan = nil }
         applySerials(project,to: &next)
+        next.refreshWarningSummary(project: project)
         return next
     }
     static func applySerials(_ project: Project,to plan: inout ImpositionPlan) {
@@ -113,7 +132,7 @@ extension ImpositionPlanner {
         }
         for index in plan.sheets.indices {
             guard let layout = plan.sheets[index].repeatLayout else { continue }
-            let fields = project.serialFields.filter { $0.jobIndex == layout.jobIndex }
+            let fields = project.serialFields.filter { $0.jobIndex == layout.jobIndex }.map { $0.adjustedDigits(quantity: layout.requestedQuantity ?? layout.copiesPerSheet) }
             guard !fields.isEmpty else { continue }
             let count = layout.requestedQuantity ?? layout.copiesPerSheet
             guard fields.allSatisfy({ $0.value(at: count-1) != nil }) else {
@@ -122,6 +141,9 @@ extension ImpositionPlanner {
             plan.sheets[index].serialPlan = SerialNumberPlan(fields: fields,quantity: count,capacity: layout.copiesPerSheet,
                 sheetCount: plan.sheets[index].repeatCount)
             for field in fields {
+                if field.digitsAreManual,let required = field.requiredDigits(quantity: count),required > field.digits {
+                    plan.issues.append(ValidationIssue(.warning,.serialNumbering,field.digitNote(quantity: count)!))
+                }
                 if let slot = plan.sheets[index].front.slots.first {
                     let width = slot.rotation%180 == 0 ? slot.size.width : slot.size.height
                     let height = slot.rotation%180 == 0 ? slot.size.height : slot.size.width

@@ -99,7 +99,7 @@ struct WorkspaceView: View {
     private func serialSheetRows(_ sheet: Sheet,index: Int) -> some View {
         let first = (model.repetition/100)*100
         if first > 0 { Button("Önceki 100 tabaka") { model.repetition = first-1 } }
-        ForEach(first..<min(first+100,sheet.repeatCount),id: \.self) { repetition in
+        ForEach(first..<(first+min(100,sheet.repeatCount-first)),id: \.self) { repetition in
             Button {
                 model.sheetIndex = index; model.repetition = repetition
             } label: {
@@ -113,7 +113,7 @@ struct WorkspaceView: View {
                 }
             }.buttonStyle(.plain).padding(.leading,8)
         }
-        if first+100 < sheet.repeatCount { Button("Sonraki 100 tabaka") { model.repetition = first+100 } }
+        if sheet.repeatCount-first > 100 { Button("Sonraki 100 tabaka") { model.repetition = first+100 } }
     }
     private var generatedBleedLabel: String? {
         let settings = model.plan.generatedBleed
@@ -180,12 +180,12 @@ struct WorkspaceView: View {
                     } else { Text("Eklenen boş: \(model.plan.addedBlankPages)") }
                     if model.project.binding == .perfectBound { Text("Forma: \(model.plan.signaturePageCount) sayfa") }
                 }
-                if model.plan.issues.isEmpty {
+                if model.plan.displayIssues.isEmpty {
                     Label(model.source == nil ? "Henüz PDF yüklenmedi" : "Sorun bulunamadı",systemImage: "checkmark.circle").foregroundStyle(.secondary)
                 } else {
                     ScrollView {
                         LazyVStack(alignment: .leading,spacing: 7) {
-                            ForEach(Array(model.plan.issues.enumerated()),id: \.offset) { _,issue in
+                            ForEach(Array(model.plan.displayIssues.enumerated()),id: \.offset) { _,issue in
                                 Button { model.reveal(issue) } label: {
                                     HStack(alignment: .top) {
                                         Image(systemName: issue.severity == .error ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")

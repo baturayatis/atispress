@@ -27,8 +27,8 @@ extension ImpositionPlanner {
                   ($0.availableBleed == nil || ($0.availableBleed!.isFinite && $0.availableBleed! >= 0)) }),
               options.columns.map({ (1...200).contains($0) }) ?? true,
               options.rows.map({ (1...200).contains($0) }) ?? true,
-              options.quantity.map({ (1...1_000_000_000).contains($0) }) ?? true else {
-            issue(.invalidInput,"Ölçüler, ızgara (1–200) veya adet (1–1.000.000.000) geçersiz."); return plan
+              options.quantity.map({ $0 > 0 }) ?? true else {
+            issue(.invalidInput,"Ölçüler, ızgara (1–200) veya adet (en az 1) geçersiz."); return plan
         }
         guard project.coverMode == .included else {
             issue(.unsupportedCover,"Düz işlerde kapak ayrımı desteklenmiyor."); return plan
@@ -97,7 +97,7 @@ extension ImpositionPlanner {
                 repeatLayout: RepeatLayout(jobIndex: job,frontPageNumber: front.number,backPageNumber: back?.number,
                     columns: grid.columns,rows: grid.rows,requestedQuantity: quantity)))
             let missing = Set([front,back].compactMap { $0 }.filter { ($0.availableBleed ?? -1) < settings.bleed }.map(\.number))
-            if settings.bleed > 0 {
+            if settings.bleed > 0 && !settings.generatedBleed.enabled {
                 for (kind,side) in [(SideKind.front,frontSide),(.back,backSide)] {
                     for (slotIndex,slot) in side.slots.enumerated() {
                         if let number = slot.sourcePageNumber, missing.contains(number) {

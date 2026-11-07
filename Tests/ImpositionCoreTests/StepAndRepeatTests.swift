@@ -162,10 +162,12 @@ final class StepAndRepeatTests: XCTestCase {
         XCTAssertEqual(ImpositionPlanner.plan(p).issues.first?.code,.invalidInput)
         p = project(method: .workAndTumble); p.stepAndRepeat.rows = 3
         XCTAssertEqual(ImpositionPlanner.plan(p).issues.first?.code,.invalidInput)
-        for value in [0,-1,Int.max] {
+        for value in [0,-1] {
             p = project(); p.stepAndRepeat.quantity = value
             XCTAssertFalse(ImpositionPlanner.plan(p).canExport)
         }
+        p = project(); p.stepAndRepeat.quantity = Int.max
+        XCTAssertTrue(ImpositionPlanner.plan(p).canExport)
         p = project(); p.sheet.size = Size(1,1)
         XCTAssertEqual(ImpositionPlanner.plan(p).issues.first?.code,.exceedsSheet)
         p = project(); p.sheet.gutter = .nan

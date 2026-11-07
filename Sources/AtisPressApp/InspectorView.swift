@@ -7,6 +7,7 @@ struct InspectorView: View {
         "35×50":.cm35x50,"50×70":.cm50x70,"70×100":.cm70x100]
     private var presetBinding: Binding<String> {
         Binding(get: { model.sheetPreset },set: { value in
+            if value == Workspace.automaticSheetTitle { model.returnToAutomaticSheet(); return }
             model.markManual(.sheetSize)
             model.sheetPreset = value
             if let selected = presets[value] { model.project.sheet.size = selected.size }
@@ -59,9 +60,20 @@ struct InspectorView: View {
                 if model.project.binding == .stepAndRepeat { repeatControls }
                 GroupBox("Baskı Tabakası") {
                     VStack(spacing: 10) {
+                        Picker("Tabaka seçimi",selection: Binding(get: { model.project.autoLayout?.sheetSelection ?? .fixed },set: model.setSheetSelection)) {
+                            Text("Sabit").tag(SheetSelection.fixed)
+                            Text("En verimli").tag(SheetSelection.efficient)
+                            Text("Otomatik").tag(SheetSelection.automatic)
+                        }
                         Picker(model.autoLabel("Boyut",.sheetSize),selection: presetBinding) {
+                            Text(Workspace.automaticSheetTitle).tag(Workspace.automaticSheetTitle)
                             ForEach(["A5","A4","A3","SRA3","33×48","35×50","50×70","70×100","Özel"],id: \.self) { Text($0) }
                         }
+                        if (model.project.autoLayout?.sheetSelection ?? .fixed) == .fixed || model.project.autoLayout?.manualFields.contains(.sheetSize) == true {
+                            Button("Otomatik'e dön",action: model.returnToAutomaticSheet)
+                        }
+                        Text("Kullanılan: \(SmartAutoLayout.presetName(for: model.project.sheet.size)) · \(model.project.sheet.size.width,specifier: "%.0f")×\(model.project.sheet.size.height,specifier: "%.0f") mm")
+                            .font(.caption).foregroundStyle(.secondary)
                         if model.sheetPreset == "Özel" {
                             measurement("Genişlik",$model.project.sheet.size.width,autoField: .sheetSize,range: 20...3000)
                             measurement("Yükseklik",$model.project.sheet.size.height,autoField: .sheetSize,range: 20...3000)
@@ -189,7 +201,7 @@ struct InspectorView: View {
                     if model.project.autoLayout?.automaticFields.contains(.allowRotation) == true {
                         Text("Ürün dönüşü: \(sheet.front.slots.first?.rotation ?? 0)° · Otomatik").font(.caption)
                     }
-                    Text("Bu iş: \(sheet.repeatCount) tabaka · Üretim: \(sheet.repeatCount*layout.copiesPerSheet) adet")
+                    Text("Bu iş: \(sheet.repeatCount) tabaka · Üretim: \(sheet.producedQuantityDescription) adet")
                     Text("Tüm işler: \(model.plan.totalPressSheets) tabaka")
                 }
                 Text(model.project.sheet.gutter == 0 ? "Ortak kesim: iç taşmalar sınırda kırpılır." : "Ara boşluk, komşu taşma kutuları arasında ölçülür.")

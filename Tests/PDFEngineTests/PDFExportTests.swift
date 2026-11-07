@@ -231,7 +231,7 @@ final class PDFExportTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
         plan.issues = []; plan.sheets[0].front.slots[0].sourcePageNumber = 999
         XCTAssertThrowsError(try PDFExporter.export(plan: plan,source: source,destination: .singlePDF(output),options: .artworkOnly))
-        plan = ImpositionPlanner.plan(project(source)); plan.sheets[0].repeatCount = 10_001
+        plan = ImpositionPlanner.plan(project(source)); plan.sheets[0].repeatCount = Int.max
         XCTAssertThrowsError(try PDFExporter.export(plan: plan,source: source,destination: .singlePDF(output),options: .artworkOnly))
         plan.sheets[0].repeatCount = 1
         let before = try Data(contentsOf: input)
@@ -510,6 +510,21 @@ final class PDFExportTests: XCTestCase {
                 XCTAssertFalse(geometry.segments.isEmpty)
             }
         }
+    }
+
+    func testHugeExportHasNoPageCapAndDoesNotExpandRepetitionArrays() async throws {
+        let folder = try directory(), input = try fixture(in: folder)
+        let source = try await PDFSource.open(input)
+        var plan = ImpositionPlanner.plan(project(source))
+        plan.sheets[0].repeatCount = Int.max/4
+        let target = folder.appendingPathComponent("huge.pdf")
+        // Reach the very first slot immediately, then intentionally stop. A quantity-sized
+        // repetitions array or the old 20,000-page cap would fail before this hook.
+        XCTAssertThrowsError(try PDFExporter.export(plan: plan,source: source,destination: .singlePDF(target),marks: .none,overlays: [FailingOverlay()])) { error in
+            guard case FailingOverlay.Failure.intentional = error else { return XCTFail("Wrong error: \(error)") }
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: target.path))
+        XCTAssertFalse(try FileManager.default.contentsOfDirectory(atPath: folder.path).contains { $0.hasPrefix(".atispress-") })
     }
 
     private struct GeneratedBleed: PDFSlotOverlay {

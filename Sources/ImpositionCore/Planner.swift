@@ -22,6 +22,7 @@ public enum ImpositionPlanner {
         var result = layoutPlan(project)
         addFitDiagnostics(project,to: &result)
         applySerials(project,to: &result)
+        result.refreshWarningSummary(project: project)
         return result
     }
     private static func layoutPlan(_ project: Project) -> ImpositionPlan {
@@ -55,7 +56,7 @@ public enum ImpositionPlanner {
         guard s.safeAreaInset * 2 < min(trim.width, trim.height) else {
             error(.invalidInput, "Güvenli alan payı sayfa boyutunu aşıyor."); return result
         }
-        if s.bleed > 0 && project.pages.contains(where: { ($0.availableBleed ?? -1) < s.bleed }) {
+        if s.bleed > 0 && !s.generatedBleed.enabled && project.pages.contains(where: { ($0.availableBleed ?? -1) < s.bleed }) {
             result.issues.append(ValidationIssue(.warning, .missingBleed, "Bazı sayfalarda taşma payı eksik veya bilinmiyor."))
         }
         let signature: Int

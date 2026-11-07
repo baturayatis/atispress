@@ -24,13 +24,13 @@ public enum PDFExportError: LocalizedError {
         case .cannotCreatePDF: return "PDF çıktısı oluşturulamadı."
         case .sourceOverwrite: return "Kaynak PDF dosyasının üzerine yazılamaz. Farklı bir ad seçin."
         case .destinationExists(let name): return "Çıktı zaten var: \(name). Boş bir klasör seçin."
-        case .tooManyPages: return "Tek işlemde en fazla 20.000 çıktı sayfası destekleniyor."
+        case .tooManyPages: return "Toplam PDF sayfa sayısı bu sistemin tam sayı kapasitesini aşıyor."
         }
     }
 }
 
 public enum PDFExporter {
-    public static let maximumPageCount = 20_000
+    public static let maximumPageCount = Int.max
     /// Call off the main actor. Source/plan/options are an immutable export snapshot.
     /// Physical repeats are expanded, in sheet-front/back order, without rasterizing artwork.
     /// Compatibility entry point: preview styles are never used in production.
@@ -64,40 +64,49 @@ public enum PDFExporter {
         let accessed = scope.startAccessingSecurityScopedResource()
         defer { if accessed { scope.stopAccessingSecurityScopedResource() } }
         let manager = FileManager.default
-        let files: [URL]
         let directory: URL
+        let outputCount: Int
         switch destination {
-        case .singlePDF(let url): files = [url]; directory = url.deletingLastPathComponent()
-        case .perSheet(let folder,let baseName):
-            directory = folder
-            let base = sanitized(baseName)
-            files = (1...sheetCount).map { folder.appendingPathComponent(String(format: "%@-tabaka-%04d.pdf",base,$0)) }
+        case .singlePDF(let url): directory = url.deletingLastPathComponent(); outputCount = 1
+        case .perSheet(let folder,_): directory = folder; outputCount = sheetCount
         }
-        for file in files {
+        func target(_ index: Int) -> URL {
+            switch destination {
+            case .singlePDF(let url): return url
+            case .perSheet(let folder,let base):
+                return folder.appendingPathComponent(String(format: "%@-tabaka-%04lld.pdf",sanitized(base),Int64(index+1)))
+            }
+        }
+        // Check destinations without allocating a quantity-sized array of paths.
+        for index in 0..<outputCount {
+            try Task.checkCancellation()
+            let file = target(index)
             guard file.standardizedFileURL.resolvingSymlinksInPath() != source.url.standardizedFileURL.resolvingSymlinksInPath() else {
                 throw PDFExportError.sourceOverwrite
             }
-            if case .perSheet = destination, manager.fileExists(atPath: file.path) {
+            if case .perSheet = destination,manager.fileExists(atPath: file.path) {
                 throw PDFExportError.destinationExists(file.lastPathComponent)
             }
         }
         let stage = directory.appendingPathComponent(".atispress-\(UUID().uuidString)",isDirectory: true)
         try manager.createDirectory(at: stage,withIntermediateDirectories: false)
         defer { try? manager.removeItem(at: stage) }
-        var staged: [URL] = []
+        func stagedFile(_ index: Int) -> URL {
+            switch destination {
+            case .singlePDF: return stage.appendingPathComponent("job.pdf")
+            case .perSheet: return stage.appendingPathComponent(target(index).lastPathComponent)
+            }
+        }
         switch destination {
         case .singlePDF:
-            let file = stage.appendingPathComponent("job.pdf")
-            try write(file,document: document,plan: plan,marks: marks,jobName: jobName,overlays: effectiveOverlays,only: nil)
-            staged = [file]
+            try write(stagedFile(0),document: document,plan: plan,marks: marks,jobName: jobName,overlays: effectiveOverlays,only: nil)
         case .perSheet:
             var physical = 0
             for (index,sheet) in plan.sheets.enumerated() {
                 for repetition in 0..<sheet.repeatCount {
                     try Task.checkCancellation()
-                    let file = stage.appendingPathComponent(files[physical].lastPathComponent)
-                    try write(file,document: document,plan: plan,marks: marks,jobName: jobName,overlays: effectiveOverlays,only: (index,repetition))
-                    staged.append(file); physical += 1
+                    try write(stagedFile(physical),document: document,plan: plan,marks: marks,jobName: jobName,overlays: effectiveOverlays,only: (index,repetition))
+                    physical += 1
                 }
             }
         }
@@ -105,17 +114,19 @@ public enum PDFExporter {
         // Publish only complete PDFs. Per-sheet files never replace existing files.
         var published: [URL] = []
         do {
-            for (temporary,target) in zip(staged,files) {
-                if case .singlePDF = destination, manager.fileExists(atPath: target.path) {
-                    _ = try manager.replaceItemAt(target,withItemAt: temporary)
-                } else { try manager.moveItem(at: temporary,to: target) }
-                published.append(target)
+            for index in 0..<outputCount {
+                try Task.checkCancellation()
+                let temporary = stagedFile(index),file = target(index)
+                if case .singlePDF = destination,manager.fileExists(atPath: file.path) {
+                    _ = try manager.replaceItemAt(file,withItemAt: temporary)
+                } else { try manager.moveItem(at: temporary,to: file) }
+                published.append(file)
             }
         } catch {
             if case .perSheet = destination { for file in published { try? manager.removeItem(at: file) } }
             throw error
         }
-        return PDFExportResult(files: files,pageCount: sheetCount*2,sheetCount: sheetCount)
+        return PDFExportResult(files: published,pageCount: sheetCount*2,sheetCount: sheetCount)
     }
     private static func write(_ url: URL,document: CGPDFDocument,plan: ImpositionPlan,marks: ExportMarks,jobName: String,
                               overlays: [any PDFSlotOverlay],only: (Int,Int)?) throws {
@@ -124,10 +135,10 @@ public enum PDFExporter {
             throw PDFExportError.cannotCreatePDF
         }
         defer { context.closePDF() }
-        let indices = only.map { [$0.0] } ?? Array(plan.sheets.indices)
+        let indices = only.map { $0.0..<($0.0+1) } ?? plan.sheets.indices
         for index in indices {
             let sheet = plan.sheets[index]
-            let repetitions = only.map { [$0.1] } ?? Array(0..<sheet.repeatCount)
+            let repetitions = only.map { $0.1..<($0.1+1) } ?? 0..<sheet.repeatCount
             for repetition in repetitions {
                 for (kind,side) in [(SideKind.front,sheet.front),(.back,sheet.back)] {
                     try Task.checkCancellation()
@@ -156,7 +167,7 @@ public enum PDFExporter {
             throw PDFExportError.invalidGeometry
         }
         if let serials = sheet.serialPlan {
-            guard (1...1_000_000_000).contains(serials.quantity),(1...20_000).contains(serials.capacity),
+            guard serials.quantity > 0,(1...20_000).contains(serials.capacity),
                   serials.sheetCount == sheet.repeatCount,serials.fields.count <= 100,
                   serials.fields.allSatisfy({ $0.isValid && $0.value(at: serials.quantity-1) != nil }) else {
                 throw PDFExportError.invalidGeometry

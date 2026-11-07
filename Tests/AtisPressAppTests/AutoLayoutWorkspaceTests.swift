@@ -32,7 +32,7 @@ final class AutoLayoutWorkspaceTests: XCTestCase {
         model.open(url)
         try await settle(model)
         XCTAssertNil(model.error)
-        XCTAssertEqual(model.sheetPreset,"A4")
+        XCTAssertEqual(model.sheetPreset,Workspace.automaticSheetTitle)
         XCTAssertEqual(model.project.sheet.margins,Insets())
         XCTAssertEqual(model.currentSheet?.repeatLayout?.copiesPerSheet,1)
         XCTAssertEqual(model.project.autoLayout?.level,.fullSheet)
@@ -41,7 +41,9 @@ final class AutoLayoutWorkspaceTests: XCTestCase {
     }
     func testManualEditSurvivesReimportAndExplicitAutoClearsOverrides() async throws {
         let model = workspace()
-        model.markManual(.sheetSize) // Choosing the existing 33×48 preset is still an explicit choice.
+        model.project.sheet.size = SheetPreset.cm33x48.size
+        model.sheetPreset = "33×48"
+        model.markManual(.sheetSize)
         model.open(try fixture(),confirmChanges: false)
         try await settle(model)
         XCTAssertEqual(model.project.autoLayout?.level,.full)
@@ -57,7 +59,7 @@ final class AutoLayoutWorkspaceTests: XCTestCase {
         try await settle(model)
         XCTAssertEqual(model.project.sheet.margins.left,10)
         XCTAssertTrue(model.project.autoLayout?.manualFields.isEmpty == true)
-        XCTAssertEqual(model.project.sheet.size,SheetPreset.cm70x100.size)
+        XCTAssertEqual(model.project.sheet.size,SheetPreset.sra3.size)
         XCTAssertTrue(model.project.autoLayout?.summary?.contains("adet/tabaka") == true)
     }
     func testAutomaticChoicesProductionAndManualFlagsRoundtripWithoutRearranging() async throws {
@@ -81,7 +83,7 @@ final class AutoLayoutWorkspaceTests: XCTestCase {
         XCTAssertTrue(restored.project.autoLayout?.manualFields.contains(.marginRight) == true)
         XCTAssertFalse(restored.isModified)
         let file = try ProjectDocument.decode(Data(contentsOf: url))
-        XCTAssertEqual(file.version,3)
+        XCTAssertEqual(file.version,ProjectDocument.currentVersion)
     }
     func testVersionTwoWithoutAutoMetadataRetainsGeometry() throws {
         let model = workspace()

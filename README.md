@@ -214,8 +214,8 @@ Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/
 
 ### Verification and current limits
 
-`swift test --disable-sandbox`: **93 XCTest tests, zero failures** (40 core,
-28 PDF reading/drawing/export, 25 workspace/project persistence regression tests). GUI smoke checks
+`swift test --disable-sandbox`: **107 XCTest tests, zero failures** (49 core,
+29 PDF reading/drawing/export, 29 workspace/project persistence regression tests). GUI smoke checks
 used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
 navigation, page selection/reordering/exclusion, binding change, front/back,
 shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
@@ -333,8 +333,9 @@ Geometry is stored once per job, with `Sheet.repeatCount` recording identical
 physical sheets; large quantities do not allocate duplicate slots. The existing
 booklet sheets default to `repeatCount == 1` and `repeatLayout == nil`.
 
-Manual dimensions are limited to 1–200 per axis, quantity to 1–1,000,000,000 per
-job, and rendered capacity to 20,000 items per sheet. Larger values report errors.
+Manual dimensions are limited to 1–200 per axis and rendered capacity to 20,000
+items per sheet. Quantity has no artificial upper limit; checked native 64-bit
+integer capacity applies. Larger grid dimensions report errors.
 There is no gang mixing of different jobs on one sheet, per-job quantity override,
 partial final sheet, registration calibration, mixed-rotation packing or printing.
 Existing omitted-annotation and color-proofing limitations still apply.
@@ -454,8 +455,8 @@ PDF replacement, extension hooks and UI export gating during recalculation.
 Rendered PDFs were inspected using Apple Quartz, including both GUI save flows.
 The existing booklet/fold/grid tests remain unchanged and pass.
 
-- Up to **20,000 PDF pages (10,000 physical sheets)** per export operation. Larger
-  quantity runs are rejected explicitly; their plan remains available for preview.
+- Export has no artificial page-count cap. Output is streamed by sheet/repetition;
+  numeric overflow is rejected. Actual export time and disk space grow with output.
 - Standard PDF output only: no PDF/X certification, output intents, separation or
   overprint preflight, CMYK/spot-color conversion, trapping or press color proof.
 - Source annotations, forms, links, bookmarks and document structure are not copied;
@@ -526,7 +527,7 @@ Opening an existing project preserves its own mode, preset and custom dimensions
 - **Kaydet / ⌘S** saves the current project; **Farklı Kaydet… / ⇧⌘S** writes a new
   project and switches subsequent saves to it. Source PDFs cannot be overwritten.
   Project writes are atomic. Empty projects can also be saved.
-- Version 3 is readable JSON with top-level `version: 3` and `state`; version 1/2
+- Version 4 is readable JSON with top-level `version: 4` and `state`; version 1–3
   projects remain readable. Missing serial fields default to empty; old projects
   retain their saved layout values when opened. `state.project`
   contains ordered selected source-page metadata, binding/layout mode, blank-page
@@ -563,7 +564,7 @@ Limits: one active project/source PDF; PDFs are linked rather than embedded. The
 identity check uses filename/size and selected page geometry, not a content hash.
 Zoom/pan and transient row highlights reset on open; saved artwork placement,
 preview layers and sheet/face are restored. There is no autosave, crash recovery,
-project-version migration beyond v1/v2 → v3, or packaged Finder file association/installer.
+project-version migration beyond v1–3 → v4, or packaged Finder file association/installer.
 Use the app's Open command or a command-line path with the Swift package build.
 
 ## Serial numbering — Seri Numara
@@ -583,7 +584,8 @@ move every occurrence of that field, snapping to 1 mm; dragging elsewhere still
 pans. **Çoğalt** assigns a fresh field ID and offsets its position by 3 mm.
 Serial edits update the existing plan immediately without repacking the artwork.
 
-Enable **Tekrarlı Yerleşim → Adet hesapla** to set total finished quantity `Q`.
+Set total finished quantity `Q` in **Seri Numara → Adet** or enable
+**Tekrarlı Yerleşim → Adet hesapla**; both edit the same quantity.
 Without a quantity, one full sheet is numbered. Let `C` be grid capacity, `S =
 ceil(Q/C)` the physical sheet count, `r` the zero-based physical sheet index, and
 `c` the zero-based copy/grid index (columns left to right, rows bottom to top as
@@ -640,7 +642,8 @@ errors in the desktop automation service; automated AppKit drag tests passed.
 
 Run `swift run --disable-sandbox AtisPressApp`, optionally followed by a PDF or
 project path, or use Xcode's **AtisPressApp / My Mac** scheme. New workspaces still
-start with Tekrarlı and 33×48 before a source is known. **Importing a PDF now runs
+start with Tekrarlı and **Otomatik (ürüne göre)** sheet selection, backed by
+SRA3 for Dijital or 33×48 for Ofset before a source is known. **Importing a PDF now runs
 Otomatik düzen for its actual trim dimensions.** The inspector and toolbar also
 provide **Otomatik düzenle**. Opening a saved `.atispress` restores it exactly and
 does not rearrange it.
@@ -651,12 +654,14 @@ layout while retaining manual fields. The solver uses these decisions:
 1. A5, A4, A3, SRA3, 33×48, 35×50, 50×70 and 70×100 are recognized within ±1 mm,
    including swapped orientation. A matching flat item uses the same paper one-up,
    without marks/bleed/margins. Slight excess trim is clipped without scaling.
-2. An explicitly chosen sheet is retained. Otherwise, a nonstandard small item
-   chooses the preset with the most comfortable copies; ties prefer smaller stock,
-   unrotated items, then portrait. Thus an **unpinned card can select 70×100**; to
-   use 33×48, choose that preset explicitly. Large items (area at least A3 or a side
-   longer than 500 mm) use the smallest fitting stock. If no preset fits, a custom
-   sheet is computed. Every page-pair job must fit the shared stock.
+2. **Tabaka seçimi → Otomatik** (default) retains the production default stock
+   for a nonstandard item whenever at least one copy fits at any comfort level.
+   Otherwise it chooses the smallest fitting preset, then a custom sheet if none
+   fits. **En verimli** explicitly opts into maximum-copy stock selection.
+   **Sabit** retains the chosen stock. Selecting a concrete size pins it; beside
+   its **Manuel** label, **Otomatik'e dön** releases only the sheet-size override.
+   Saved projects retain their selection and size. Legacy automatic projects
+   without a selection policy retain their previous maximum-copy behavior.
 3. On each candidate stock, the first fitting comfort level wins:
 
 | Level | Margins | Gripper | Marks / bleed |
@@ -690,7 +695,7 @@ button calculations run off the main actor; duplicate page-pair dimensions are
 probed once. Visible generated-bleed samples are prepared before publishing the
 new import. Serial numbering and PDF export consume the resulting plan normally.
 
-`Project.autoLayout` is saved in schema v3 with each field's ownership, production,
+`Project.autoLayout` is saved in schema v4 (including sheet-selection policy) with each field's ownership, production,
 level, summary, sheet-clipping policy and standard-paper tolerance. v1/v2 projects
 without this metadata are restored as saved, and their existing settings are
 preserved on PDF replacement until the explicit Auto button is used. The version
@@ -715,3 +720,31 @@ capability discovery or cost/stock-waste optimization. Manual settings take
 precedence and can still cause a fit error. Full-sheet tolerance trims up to 1 mm
 rather than rescaling artwork. Native interactive UI smoke testing has not been
 rerun for this change; the AppKit diagnostic rendering test runs automatically.
+
+## Serial range controls and grouped warnings
+
+**Seri Numara** shows the shared **Adet**, every field's formatted first/last
+number and sheet count, plus **Fazla N kopya numarasız** for overproduction.
+Enable **Bitiş no göster** to edit an inclusive end number: a valid end derives
+`Adet = (end − start) / step + 1`; quantity edits update the displayed end.
+Wrong direction, zero step, incomplete increments and overflow produce Turkish
+inline errors without changing quantity. Quantity still applies to every job.
+
+Padding grows automatically when the range needs more digits, with
+**Basamak 5'e çıkarıldı** feedback. Editing padding fixes it manually; an
+insufficient fixed width gives a warning and preserves the complete number.
+These controls and ownership flags survive project save/open. Numbers support
+signed 64-bit values and positive native 64-bit quantities, including 9,999,999
+and larger; arbitrary-precision integers are not implemented.
+
+Preview calculates only visible slots and the current 100-row sheet-list window.
+Stack ranges use constant-time arithmetic rather than expanding the quantity.
+Tests check first/last ranges for 100,000 copies in a 2×2 grid and huge export
+iteration reaching its first sheet without allocating repetition arrays.
+
+Generated bleed suppresses missing-bleed warnings when enabled and needed.
+Displayed identical warnings are grouped with counts and compressed source-page
+ranges, e.g. **12 sayfada taşma payı eksik: 1-12**; detailed slot references remain
+available internally. Existing preview/export alignment and project roundtrip
+regressions remain active. Run `swift test --disable-sandbox` for all 107 tests.
+Native interactive smoke testing has not been rerun for these controls.

@@ -53,8 +53,8 @@ final class WorkspaceTests: XCTestCase {
         let model = Workspace()
         XCTAssertEqual(model.project.binding,.stepAndRepeat)
         XCTAssertEqual(model.project.sheet.gutter,0)
-        XCTAssertEqual(model.project.sheet.size,SheetPreset.cm33x48.size)
-        XCTAssertEqual(model.sheetPreset,"33×48")
+        XCTAssertEqual(model.project.sheet.size,SheetPreset.sra3.size)
+        XCTAssertEqual(model.sheetPreset,Workspace.automaticSheetTitle)
         XCTAssertTrue(model.project.exportMarks.crop)
         XCTAssertEqual(model.project.exportMarks.lineWidth,0.25)
         model.project.exportMarks.sheetInfo = true

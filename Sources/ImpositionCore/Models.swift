@@ -282,6 +282,9 @@ public struct ValidationIssue: Equatable, Sendable {
     /// User-facing messages are Turkish.
     public var message: String
     public var slot: SlotReference?
+    public var affectedPages: [Int] = []
+    public var affectedSlots: [SlotReference] = []
+    public var occurrenceCount: Int = 1
     public init(_ severity: Severity, _ code: Code, _ message: String, slot: SlotReference? = nil) {
         self.severity = severity; self.code = code; self.message = message; self.slot = slot
     }
@@ -289,11 +292,17 @@ public struct ValidationIssue: Equatable, Sendable {
 public struct ImpositionPlan: Sendable {
     public var sheets: [Sheet]
     public var diagnosticSheets: [Sheet] = []
-    public var issues: [ValidationIssue]
+    public var issues: [ValidationIssue] { didSet { groupedIssues = nil } }
+    public var groupedIssues: [ValidationIssue]? = nil
     public var addedBlankPages: Int
     public var signaturePageCount: Int
     public var generatedBleed: GeneratedBleedSettings
-    public var totalPressSheets: Int { sheets.reduce(0) { $0 + $1.repeatCount } }
+    public var totalPressSheets: Int {
+        sheets.reduce(0) { total,sheet in
+            let sum = total.addingReportingOverflow(sheet.repeatCount)
+            return sum.overflow ? Int.max : sum.partialValue
+        }
+    }
     public var canExport: Bool { !issues.contains { $0.severity == .error } }
     public init(sheets: [Sheet] = [], issues: [ValidationIssue] = [], addedBlankPages: Int = 0, signaturePageCount: Int = 0,generatedBleed: GeneratedBleedSettings = GeneratedBleedSettings()) {
         self.sheets = sheets; self.issues = issues; self.addedBlankPages = addedBlankPages

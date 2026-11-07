@@ -231,12 +231,40 @@ final class ProjectDocumentTests: XCTestCase {
         XCTAssertTrue(model.isModified)
     }
 
+    func testSerialDigitPolicyEndControlAndSheetSelectionPersist() async throws {
+        let (model,folder,_) = try await populated()
+        model.setMode(.stepAndRepeat)
+        model.project.settings.turnMethod = .sheetwise
+        model.project.stepAndRepeat.columns = 2; model.project.stepAndRepeat.rows = 2
+        model.project.stepAndRepeat.quantity = 100_000
+        model.project.serialFields[0].showsEndNumber = true
+        model.project.serialFields[0].digitsAreManual = true
+        model.setSheetSelection(.efficient)
+        try await settle(model)
+        for _ in 0..<500 {
+            if !model.autoArranging { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let url = folder.appendingPathComponent("controls.atispress")
+        try model.saveProject(as: url)
+        let restored = workspace()
+        try await restored.loadProject(at: url)
+        try await settle(restored)
+        XCTAssertEqual(restored.project,model.project)
+        XCTAssertTrue(restored.project.serialFields[0].showsEndNumber)
+        XCTAssertTrue(restored.project.serialFields[0].digitsAreManual)
+        XCTAssertEqual(restored.project.autoLayout?.sheetSelection,.efficient)
+        XCTAssertEqual(restored.project.stepAndRepeat.quantity,100_000)
+        XCTAssertEqual(restored.plan.sheets,model.plan.sheets)
+        XCTAssertFalse(restored.isModified)
+    }
+
     func testEmptyProjectAndNewProjectDefaults() async throws {
         let (folder,_) = try fixture()
         let model = workspace()
         XCTAssertFalse(model.isModified)
         XCTAssertEqual(model.project.binding,.stepAndRepeat)
-        XCTAssertEqual(model.project.sheet.size,Size(330,480)); XCTAssertEqual(model.sheetPreset,"33×48")
+        XCTAssertEqual(model.project.sheet.size,Size(320,450)); XCTAssertEqual(model.sheetPreset,Workspace.automaticSheetTitle)
         let url = folder.appendingPathComponent("bos.atispress")
         try model.saveProject(as: url)
         let restored = workspace()

@@ -1,5 +1,6 @@
 import Foundation
 
+public enum SheetSelection: String, Codable, Sendable, CaseIterable { case fixed, efficient, automatic }
 public enum ProductionType: String, Codable, Sendable, CaseIterable { case digital, offset }
 public enum AutoLayoutField: String, Codable, Sendable, CaseIterable {
     case sheetSize, orientation, allowRotation, marginLeft, marginRight, marginTop, marginBottom, gripperEdge, gripperWidth, gutter, cropLength, cropOffset, bleed, safeArea, generatedEnabled, generatedMethod, generatedTolerance, generatedColor, columns, rows, exportCrop, exportFold, exportBleed, exportSafeArea, exportPageNumbers, exportSheetInfo, exportFullCut, exportLineWidth, exportColor
@@ -40,6 +41,11 @@ public enum AutoLayoutField: String, Codable, Sendable, CaseIterable {
 public struct AutoLayoutSettings: Equatable, Codable, Sendable {
     public enum Level: String, Codable, Sendable { case full = "L1", reduced = "L2", clipped = "L3", fullSheet = "L4" }
     public var production: ProductionType = .digital
+    public var selectionPolicy: SheetSelection? = .automatic
+    public var sheetSelection: SheetSelection {
+        get { selectionPolicy ?? (manualFields.contains(.sheetSize) ? .fixed : .efficient) }
+        set { selectionPolicy = newValue }
+    }
     public var manualFields = Set<AutoLayoutField>()
     public var automaticFields = Set<AutoLayoutField>()
     public var level: Level?
@@ -49,7 +55,7 @@ public struct AutoLayoutSettings: Equatable, Codable, Sendable {
     public var trimTolerance: Double = 0
     public init() {}
     public static var legacy: AutoLayoutSettings {
-        var state = AutoLayoutSettings(); state.manualFields = Set(AutoLayoutField.allCases); return state
+        var state = AutoLayoutSettings(); state.manualFields = Set(AutoLayoutField.allCases); state.sheetSelection = .fixed; return state
     }
 }
 public struct AutoLayoutResult: Sendable {
@@ -72,13 +78,16 @@ public enum SmartAutoLayout {
     }
     public static func arrange(_ original: Project,resetOverrides: Bool = false) -> AutoLayoutResult {
         var state = original.autoLayout ?? AutoLayoutSettings()
-        if resetOverrides { state.manualFields = []; state.automaticFields = [] }
+        if resetOverrides {
+            if state.sheetSelection == .fixed { state.sheetSelection = .automatic }
+            state.manualFields = []; state.automaticFields = []
+        }
         guard !original.pages.isEmpty,original.pages.allSatisfy({
             $0.trimSize.width.isFinite && $0.trimSize.height.isFinite &&
             $0.trimSize.width > 0 && $0.trimSize.height > 0 && max($0.trimSize.width,$0.trimSize.height) <= 1_000_000
         }) else { return AutoLayoutResult(project: original,presetName: presetName(for: original.sheet.size),summary: "Otomatik düzen için geçerli PDF ölçüleri gerekli.",plan: ImpositionPlanner.plan(original)) }
         var base = original; base.autoLayout = state
-        let fixedSheet = state.manualFields.contains(.sheetSize)
+        let fixedSheet = state.manualFields.contains(.sheetSize) || state.sheetSelection == .fixed
         let match = original.binding == .stepAndRepeat ? presets.first { paper in
             original.pages.allSatisfy { matches($0.trimSize,paper.size) }
         } : nil
@@ -112,13 +121,16 @@ public enum SmartAutoLayout {
                 if chosen != nil { break }
             }
         } else {
-            if let match {
-                // A standard item is an intentional one-up full-sheet job, before capacity optimization.
-                chosen = best(candidates(match.size,match.title,.fullSheet,1))
-            }
-            if chosen == nil {
-                let large = original.pages.contains { $0.trimSize.width*$0.trimSize.height >= 297*420 || max($0.trimSize.width,$0.trimSize.height) > 500 }
-                if large || match != nil {
+            if state.sheetSelection == .automatic {
+                if let match { chosen = best(candidates(match.size,match.title,.fullSheet,1)) }
+                if chosen == nil {
+                    let paper: SheetPreset = state.production == .digital ? .sra3 : .cm33x48
+                    for level in levels {
+                        chosen = best(candidates(paper.size,paper.title,level))
+                        if chosen != nil { break }
+                    }
+                }
+                if chosen == nil {
                     for paper in presets {
                         for level in levels {
                             chosen = best(candidates(paper.size,paper.title,level))
@@ -126,12 +138,11 @@ public enum SmartAutoLayout {
                         }
                         if chosen != nil { break }
                     }
-                } else {
-                    // Prefer full comfort over squeezing additional copies using a lower level.
-                    for level in levels {
-                        chosen = best(presets.flatMap { candidates($0.size,$0.title,level) })
-                        if chosen != nil { break }
-                    }
+                }
+            } else {
+                for level in levels {
+                    chosen = best(presets.flatMap { candidates($0.size,$0.title,level) })
+                    if chosen != nil { break }
                 }
             }
             if chosen == nil {
@@ -150,7 +161,7 @@ public enum SmartAutoLayout {
         let margin = chosen.project.sheet.margins
         let margins = Set([margin.left,margin.right,margin.top,margin.bottom]).count == 1 ? String(format: "%.0f",margin.left) :
             String(format: "%.0f/%.0f/%.0f/%.0f",margin.left,margin.right,margin.top,margin.bottom)
-        let fullSheet = chosen.project.autoLayout?.level == .fullSheet && match != nil && (plan.sheets.first?.repeatLayout?.copiesPerSheet == 1)
+        let fullSheet = chosen.project.autoLayout?.level == .fullSheet && match.map({ matches(chosen.project.sheet.size,$0.size) }) == true && (plan.sheets.first?.repeatLayout?.copiesPerSheet == 1)
         let capacity = plan.sheets.first?.repeatLayout?.copiesPerSheet ?? plan.sheets.first?.front.slots.count ?? 0
         let marks = chosen.project.exportMarks.crop ? "kesim işareti var" : "kesim işareti yok"
         var summary = fullSheet ? "\(itemName) ürün → \(chosen.name) tabaka, tam sayfa. Kenar boşluğu \(margins) mm, \(marks)." :
@@ -169,7 +180,7 @@ public enum SmartAutoLayout {
         var state = p.autoLayout ?? AutoLayoutSettings()
         state.automaticFields = []
         func set<T>(_ field: AutoLayoutField,_ key: WritableKeyPath<Project,T>,_ value: T) {
-            guard !state.manualFields.contains(field) else { return }
+            guard !state.manualFields.contains(field),field != .sheetSize || state.sheetSelection != .fixed else { return }
             p[keyPath: key] = value; state.automaticFields.insert(field)
         }
         let margin: Double = level == .full ? 10 : level == .reduced ? 5 : level == .clipped ? (state.production == .digital ? 3 : 5) : 0

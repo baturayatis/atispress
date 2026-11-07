@@ -7,10 +7,11 @@ typealias PreviewOverlays = PDFRenderOptions
 
 @MainActor
 final class Workspace: ObservableObject {
+    static let automaticSheetTitle = "Otomatik (ürüne göre)"
     static func newProject() -> Project {
         var p = Project(pages: [],binding: .stepAndRepeat,
-            sheet: SheetSpec(preset: .cm33x48,margins: Insets(left: 10,right: 10,top: 10,bottom: 10),
-                             gripperWidth: 10,gutter: 0))
+            sheet: SheetSpec(preset: .sra3,margins: Insets(left: 10,right: 10,top: 10,bottom: 10),
+                             gripperWidth: 0,gutter: 0))
         p.autoLayout = AutoLayoutSettings()
         return p
     }
@@ -20,10 +21,13 @@ final class Workspace: ObservableObject {
                 let changed = AutoLayoutField.changes(from: oldValue,to: project)
                 if !changed.isEmpty {
                     var state = project.autoLayout ?? .legacy
+                    if changed.contains(.sheetSize) { state.sheetSelection = .fixed }
                     state.manualFields.formUnion(changed); state.automaticFields.subtract(changed); state.summary = nil
                     trackingManual = true; project.autoLayout = state; trackingManual = false
                 }
             }
+            if oldValue.stepAndRepeat.quantity != project.stepAndRepeat.quantity { serialInputErrors = [:] }
+            if !restoring && !applyingAutomatic && !normalizingDigits { normalizeSerialDigits() }
             refreshModified()
             if applyingAutomatic { return }
             var previous = oldValue
@@ -49,7 +53,7 @@ final class Workspace: ObservableObject {
     @Published var selectedSerialID: UUID?
     @Published var side: SideKind = .front { didSet { warmGeneratedBleed() } }
     @Published var overlays = PreviewOverlays() { didSet { refreshModified() } }
-    @Published var sheetPreset = "33×48" { didSet { refreshModified() } }
+    @Published var sheetPreset = Workspace.automaticSheetTitle { didSet { refreshModified() } }
     @Published private(set) var isModified = false
     @Published private(set) var projectURL: URL?
     private var sourceReference: ProjectSource?
@@ -57,6 +61,8 @@ final class Workspace: ObservableObject {
     private var restoring = false
     private var applyingAutomatic = false
     private var trackingManual = false
+    private var normalizingDigits = false
+    @Published var serialInputErrors: [UUID:String] = [:]
     @Published private(set) var autoArranging = false
     private var autoTask: Task<Void,Never>?
     private var projectAccess: ProjectFileAccess?
@@ -323,6 +329,7 @@ final class Workspace: ObservableObject {
             }.value
             guard !Task.isCancelled, revision == token else { return }
             plan = next; planning = false
+            normalizeSerialDigits()
             sheetIndex = max(0,min(sheetIndex,max(0,displaySheets.count-1)))
             repetition = max(0,min(repetition,(currentSheet?.repeatCount ?? 1)-1))
         }
@@ -365,7 +372,7 @@ extension Workspace {
         importTask?.cancel(); autoTask?.cancel(); autoArranging = false; planTask?.cancel(); bleedTask?.cancel()
         restoring = true
         source = nil; sourceReference = nil; projectURL = nil; projectAccess = nil
-        order = []; included = []; selectedPages = []; overlays = PreviewOverlays(); sheetPreset = "33×48"
+        order = []; included = []; selectedPages = []; overlays = PreviewOverlays(); sheetPreset = Self.automaticSheetTitle
         bookletGutter = nil; repeatGutter = 0
         project = Self.newProject()
         planTask?.cancel(); revision = UUID()
@@ -498,6 +505,7 @@ extension Workspace {
 
 extension Workspace {
     func autoLabel(_ label: String,_ field: AutoLayoutField) -> String {
+        if field == .sheetSize,(project.autoLayout?.sheetSelection ?? .fixed) == .fixed { return label+" · Manuel" }
         if project.autoLayout?.automaticFields.contains(field) == true { return label+" · Otomatik" }
         if project.autoLayout?.manualFields.contains(field) == true { return label+" · Manuel" }
         return label
@@ -505,8 +513,10 @@ extension Workspace {
     func markManual(_ field: AutoLayoutField) {
         guard !restoring,!applyingAutomatic else { return }
         var state = project.autoLayout ?? .legacy
+        if field == .sheetSize { state.sheetSelection = .fixed }
         state.manualFields.insert(field); state.automaticFields.remove(field); state.summary = nil
         project.autoLayout = state
+        if field == .sheetSize,sheetPreset == Self.automaticSheetTitle { sheetPreset = SmartAutoLayout.presetName(for: project.sheet.size) }
     }
     func autoBinding<T>(_ binding: Binding<T>,_ field: AutoLayoutField) -> Binding<T> {
         Binding(get: { binding.wrappedValue },set: { self.markManual(field); binding.wrappedValue = $0 })
@@ -515,6 +525,12 @@ extension Workspace {
         var state = project.autoLayout ?? .legacy; state.production = production
         project.autoLayout = state
         if !project.pages.isEmpty { autoArrange(resetOverrides: false) }
+        else if state.sheetSelection == .automatic {
+            applyingAutomatic = true
+            project.sheet.size = production == .digital ? SheetPreset.sra3.size : SheetPreset.cm33x48.size
+            if !state.manualFields.contains(.gripperWidth) { project.sheet.gripperWidth = production == .digital ? 0 : 10 }
+            applyingAutomatic = false; refreshModified()
+        }
     }
     func autoArrange(resetOverrides: Bool = true) {
         guard !loading,!exporting,!autoArranging,!project.pages.isEmpty else { return }
@@ -539,12 +555,65 @@ extension Workspace {
     private func applyAutomatic(_ result: AutoLayoutResult) {
         applyingAutomatic = true
         project = result.project
-        if project.autoLayout?.manualFields.contains(.sheetSize) != true { sheetPreset = result.presetName }
+        if project.autoLayout?.sheetSelection == .automatic { sheetPreset = Self.automaticSheetTitle }
+        else if project.autoLayout?.manualFields.contains(.sheetSize) != true { sheetPreset = result.presetName }
         plan = result.plan; planning = false
         sheetIndex = max(0,min(sheetIndex,max(0,displaySheets.count-1)))
         repetition = max(0,min(repetition,(currentSheet?.repeatCount ?? 1)-1))
         applyingAutomatic = false
+        normalizeSerialDigits()
         warmGeneratedBleed(); refreshModified()
         zoomFactor = 0; zoomAction += 1
+    }
+}
+
+extension Workspace {
+    func setSheetSelection(_ selection: SheetSelection) {
+        var state = project.autoLayout ?? .legacy
+        state.sheetSelection = selection
+        state.summary = nil
+        if selection == .fixed { state.manualFields.insert(.sheetSize); state.automaticFields.remove(.sheetSize) }
+        else { state.manualFields.remove(.sheetSize) }
+        project.autoLayout = state
+        sheetPreset = selection == .automatic ? Self.automaticSheetTitle : SmartAutoLayout.presetName(for: project.sheet.size)
+        if !project.pages.isEmpty { autoArrange(resetOverrides: false) }
+        else if selection == .automatic {
+            applyingAutomatic = true
+            project.sheet.size = state.production == .digital ? SheetPreset.sra3.size : SheetPreset.cm33x48.size
+            applyingAutomatic = false; refreshModified()
+        }
+    }
+    func returnToAutomaticSheet() { setSheetSelection(.automatic) }
+    func serialQuantity(job: Int) -> Int {
+        project.stepAndRepeat.quantity ?? plan.sheets.first(where: { $0.repeatLayout?.jobIndex == job })?.repeatLayout?.copiesPerSheet ?? 1
+    }
+    func serialSheetCount(job: Int) -> Int {
+        guard let capacity = plan.sheets.first(where: { $0.repeatLayout?.jobIndex == job })?.repeatLayout?.copiesPerSheet,capacity > 0 else { return 0 }
+        let quantity = serialQuantity(job: job)
+        guard quantity > 0 else { return 0 }
+        return quantity/capacity+(quantity%capacity == 0 ? 0 : 1)
+    }
+    func setSerialEnd(_ text: String,id: UUID) {
+        guard let field = project.serialFields.first(where: { $0.id == id }) else { return }
+        guard let end = Int64(text.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            serialInputErrors[id] = "Bitiş no geçerli bir 64 bit tam sayı olmalıdır."; return
+        }
+        do {
+            let quantity = try field.quantity(endingAt: end)
+            serialInputErrors[id] = nil
+            project.stepAndRepeat.quantity = quantity
+        } catch { serialInputErrors[id] = error.localizedDescription }
+    }
+    func setSerialDigits(_ digits: Int,id: UUID) {
+        guard let index = project.serialFields.firstIndex(where: { $0.id == id }) else { return }
+        var fields = project.serialFields
+        fields[index].digits = digits; fields[index].digitsAreManual = true; fields[index].autoIncreasedDigits = nil
+        project.serialFields = fields
+    }
+    private func normalizeSerialDigits() {
+        guard !normalizingDigits else { return }
+        let fields = project.serialFields.map { $0.adjustedDigits(quantity: serialQuantity(job: $0.jobIndex)) }
+        guard fields != project.serialFields else { return }
+        normalizingDigits = true; project.serialFields = fields; normalizingDigits = false
     }
 }

@@ -51,7 +51,8 @@ final class SmartAutoLayoutTests: XCTestCase {
         XCTAssertGreaterThan(try XCTUnwrap(result.plan.sheets.first?.repeatLayout?.copiesPerSheet),1)
     }
     func testUnpinnedSmallItemMaximizesComfortableCapacityAndLargeItemUsesSmallestStock() {
-        let card = SmartAutoLayout.arrange(project(Size(85,55)))
+        var efficient = project(Size(85,55)); efficient.autoLayout?.sheetSelection = .efficient
+        let card = SmartAutoLayout.arrange(efficient)
         XCTAssertEqual(card.project.sheet.size,SheetPreset.cm70x100.size)
         XCTAssertEqual(card.project.autoLayout?.level,.full)
         let large = SmartAutoLayout.arrange(project(Size(360,520)))
