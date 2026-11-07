@@ -87,6 +87,7 @@ public enum SmartAutoLayout {
             $0.trimSize.width > 0 && $0.trimSize.height > 0 && max($0.trimSize.width,$0.trimSize.height) <= 1_000_000
         }) else { return AutoLayoutResult(project: original,presetName: presetName(for: original.sheet.size),summary: "Otomatik düzen için geçerli PDF ölçüleri gerekli.",plan: ImpositionPlanner.plan(original)) }
         var base = original; base.autoLayout = state
+        if resetOverrides { base.stepAndRepeat.arrangement = .adjacent }
         let fixedSheet = state.manualFields.contains(.sheetSize) || state.sheetSelection == .fixed
         let match = original.binding == .stepAndRepeat ? presets.first { paper in
             original.pages.allSatisfy { matches($0.trimSize,paper.size) }
@@ -198,7 +199,16 @@ public enum SmartAutoLayout {
         set(.exportCrop,\.exportMarks.crop,marks)
         set(.cropLength,\.settings.cropMarkLength,marks ? 5 : 0)
         set(.cropOffset,\.settings.cropMarkOffset,marks ? p.settings.bleed+0.5 : 0)
-        set(.gutter,\.sheet.gutter,p.binding == .stepAndRepeat ? (p.exportMarks.crop ? 2*p.settings.bleed : 0) : 2*p.settings.bleed)
+        if p.binding != .stepAndRepeat {
+            set(.gutter,\.sheet.gutter,2*p.settings.bleed)
+        } else {
+            switch p.stepAndRepeat.arrangement {
+            case .adjacent: set(.gutter,\.sheet.gutter,0)
+            case .spaced: set(.gutter,\.sheet.gutter,2*p.settings.bleed)
+            case .custom: break
+            case nil: set(.gutter,\.sheet.gutter,p.exportMarks.crop ? 2*p.settings.bleed : 0)
+            }
+        }
         set(.safeArea,\.settings.safeAreaInset,min(5,(base.pages.map { min($0.trimSize.width,$0.trimSize.height) }.min() ?? 20)/4))
         set(.exportFold,\.exportMarks.fold,false); set(.exportBleed,\.exportMarks.bleed,false)
         set(.exportSafeArea,\.exportMarks.safeArea,false); set(.exportPageNumbers,\.exportMarks.pageNumbers,false)

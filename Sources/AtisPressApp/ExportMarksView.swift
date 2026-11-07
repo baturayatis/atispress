@@ -6,6 +6,15 @@ struct ExportMarksView: View {
     @ObservedObject var model: Workspace
     var body: some View {
         VStack(alignment: .leading,spacing: 8) {
+            if model.plan.hasBlankBacks {
+                if model.plan.hasBackContent {
+                    Toggle("Boş arka yüzleri çıktıya ekle",isOn: Binding(get: { model.project.includeBlankBacks ?? true },set: { model.project.includeBlankBacks = $0 }))
+                    Text("Çift yönlü baskı hizalaması için açık bırakın.").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("Arka yüz boş: çıktıya eklenmedi.").font(.caption).foregroundStyle(.secondary)
+                }
+                Divider()
+            }
             Text("Çıktı İşaretleri").font(.headline)
             Toggle(model.autoLabel("Kesim işaretleri / crop marks",.exportCrop),isOn: model.autoBinding($model.project.exportMarks.crop,.exportCrop))
             Toggle(model.autoLabel("Katlama işaretleri",.exportFold),isOn: model.autoBinding($model.project.exportMarks.fold,.exportFold))

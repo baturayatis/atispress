@@ -39,7 +39,9 @@ final class SmartAutoLayoutTests: XCTestCase {
         }
     }
     func testCardOnChosen33x48KeepsFullComfortAndMarksOutsideBleed() throws {
-        let result = SmartAutoLayout.arrange(project(Size(85,55),stock: .cm33x48))
+        var p = project(Size(85,55),stock: .cm33x48)
+        p.stepAndRepeat.arrangement = .spaced
+        let result = SmartAutoLayout.arrange(p)
         XCTAssertEqual(result.project.sheet.size,SheetPreset.cm33x48.size)
         XCTAssertEqual(result.project.autoLayout?.level,.full)
         XCTAssertEqual(result.project.sheet.margins,Insets(left: 10,right: 10,top: 10,bottom: 10))

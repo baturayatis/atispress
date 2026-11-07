@@ -131,14 +131,18 @@ public struct ImpositionSettings: Equatable, Sendable, Codable {
         self.generatedBleed = generatedBleed
     }
 }
+public enum RepeatArrangement: String, Codable, Sendable { case adjacent, spaced, custom }
 /// Optional dimensions override the automatically fitted grid independently.
 public struct StepAndRepeatSettings: Equatable, Sendable, Codable {
+    /// Nil in legacy files preserves their existing gutter behavior.
+    public var arrangement: RepeatArrangement? = nil
     public var columns: Int?
     public var rows: Int?
     public var allowRotation: Bool
     /// Finished pieces per page pair, not impressions. Nil means one full press sheet.
     public var quantity: Int?
-    public init(columns: Int? = nil, rows: Int? = nil, allowRotation: Bool = true, quantity: Int? = nil) {
+    public init(columns: Int? = nil, rows: Int? = nil, allowRotation: Bool = true, quantity: Int? = nil, arrangement: RepeatArrangement = .adjacent) {
+        self.arrangement = arrangement
         self.columns = columns; self.rows = rows; self.allowRotation = allowRotation; self.quantity = quantity
     }
 }
@@ -177,6 +181,7 @@ public struct ExportMarks: Equatable, Sendable, Codable {
     public static var none: ExportMarks { var value = ExportMarks(); value.crop = false; return value }
 }
 public struct Project: Equatable, Sendable, Codable {
+    public var includeBlankBacks: Bool? = nil
     public var autoLayout: AutoLayoutSettings? = nil
     public var serialFields: [SerialField] = []
     public var exportMarks = ExportMarks()
@@ -195,10 +200,11 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        includeBlankBacks = try c.decodeIfPresent(Bool.self,forKey: .includeBlankBacks)
         autoLayout = try c.decodeIfPresent(AutoLayoutSettings.self,forKey: .autoLayout)
         serialFields = try c.decodeIfPresent([SerialField].self,forKey: .serialFields) ?? []
         exportMarks = try c.decode(ExportMarks.self,forKey: .exportMarks)

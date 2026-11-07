@@ -138,7 +138,10 @@ struct WorkspaceView: View {
                 Button("Sığdır") { model.zoomFactor = 0; model.zoomAction += 1 }
                 Button { model.zoomFactor = 1.25; model.zoomAction += 1 } label: { Image(systemName: "plus.magnifyingglass") }.help("Yakınlaştır")
             }.padding(10)
-            if let sheet = model.currentSheet, let side = model.currentSide {
+            if let sheet = model.currentSheet,model.side == .back,!sheet.hasContent(on: .back),sheet.diagnosticBounds == nil {
+                ContentUnavailableView("Arka yüz yok",systemImage: "doc",description: Text("Bu işin arka yüzünde içerik yok."))
+                    .frame(maxWidth: .infinity,maxHeight: .infinity)
+            } else if let sheet = model.currentSheet, let side = model.currentSide {
                 PreviewCanvas(sheet: sheet,side: side,sheetIndex: model.sheetIndex,sideKind: model.side,source: model.source,overlays: model.overlays,generatedBleed: model.plan.generatedBleed,
                               highlighted: model.highlightedSlots,zoomAction: model.zoomAction,zoomFactor: model.zoomFactor,
                               repetition: model.repetition,selectedSerial: model.selectedSerialID,

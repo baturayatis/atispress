@@ -13,12 +13,21 @@ final class Workspace: ObservableObject {
             sheet: SheetSpec(preset: .sra3,margins: Insets(left: 10,right: 10,top: 10,bottom: 10),
                              gripperWidth: 0,gutter: 0))
         p.autoLayout = AutoLayoutSettings()
+        p.autoLayout?.automaticFields.insert(.gutter)
         return p
     }
     @Published var project = Workspace.newProject() {
         didSet {
             if !restoring && !applyingAutomatic && !trackingManual {
                 let changed = AutoLayoutField.changes(from: oldValue,to: project)
+                if project.binding == .stepAndRepeat && oldValue.binding == .stepAndRepeat {
+                    if changed.contains(.gutter) {
+                        trackingManual = true; project.stepAndRepeat.arrangement = .custom; trackingManual = false
+                    } else if changed.contains(.bleed), project.stepAndRepeat.arrangement == .spaced,
+                              project.autoLayout?.manualFields.contains(.gutter) != true {
+                        trackingManual = true; project.sheet.gutter = 2*project.settings.bleed; trackingManual = false
+                    }
+                }
                 if !changed.isEmpty {
                     var state = project.autoLayout ?? .legacy
                     if changed.contains(.sheetSize) { state.sheetSelection = .fixed }
@@ -32,6 +41,7 @@ final class Workspace: ObservableObject {
             if applyingAutomatic { return }
             var previous = oldValue
             previous.exportMarks = project.exportMarks
+            previous.includeBlankBacks = project.includeBlankBacks
             let clipChanged = previous.autoLayout?.clipBleedToSheet != project.autoLayout?.clipBleedToSheet || previous.autoLayout?.trimTolerance != project.autoLayout?.trimTolerance
             previous.autoLayout = project.autoLayout
             let serialChanged = previous.serialFields != project.serialFields
@@ -195,10 +205,11 @@ final class Workspace: ObservableObject {
             error = PDFExportError.invalidPlan.localizedDescription; return
         }
         let snapshot = plan, options = project.exportMarks
+        let includeBlankBacks = project.includeBlankBacks ?? true
         exporting = true; exportSummary = nil; exportedFiles = []
         let worker = Task.detached(priority: .userInitiated) {
             defer { scopedParent?.stopAccessingSecurityScopedResource() }
-            do { return try PDFExporter.export(plan: snapshot,source: source,destination: destination,marks: options,jobName: source.url.deletingPathExtension().lastPathComponent) }
+            do { return try PDFExporter.export(plan: snapshot,source: source,destination: destination,marks: options,jobName: source.url.deletingPathExtension().lastPathComponent,includeBlankBacks: includeBlankBacks) }
             catch {
                 if let cleanupOnFailure { try? FileManager.default.removeItem(at: cleanupOnFailure) }
                 throw error
@@ -208,7 +219,7 @@ final class Workspace: ObservableObject {
             do {
                 let result = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
                 exportedFiles = result.files
-                exportSummary = "Son çıktı hazır: \(result.sheetCount) tabaka · \(result.pageCount) sayfa · \(result.files.count) dosya"
+                exportSummary = "Son çıktı hazır: \(result.sheetCount) tabaka · \(result.pageCount) sayfa · \(result.files.count) dosya" + (result.notes.isEmpty ? "" : " · "+result.notes.joined(separator: " "))
             } catch is CancellationError { exportSummary = "Dışa aktarma iptal edildi." }
             catch { self.error = error.localizedDescription }
             exporting = false
@@ -516,6 +527,7 @@ extension Workspace {
         if field == .sheetSize { state.sheetSelection = .fixed }
         state.manualFields.insert(field); state.automaticFields.remove(field); state.summary = nil
         project.autoLayout = state
+        if field == .gutter,project.binding == .stepAndRepeat { project.stepAndRepeat.arrangement = .custom }
         if field == .sheetSize,sheetPreset == Self.automaticSheetTitle { sheetPreset = SmartAutoLayout.presetName(for: project.sheet.size) }
     }
     func autoBinding<T>(_ binding: Binding<T>,_ field: AutoLayoutField) -> Binding<T> {
@@ -615,5 +627,25 @@ extension Workspace {
         let fields = project.serialFields.map { $0.adjustedDigits(quantity: serialQuantity(job: $0.jobIndex)) }
         guard fields != project.serialFields else { return }
         normalizingDigits = true; project.serialFields = fields; normalizingDigits = false
+    }
+}
+
+extension Workspace {
+    var repeatArrangement: RepeatArrangement {
+        project.stepAndRepeat.arrangement ?? (project.sheet.gutter == 0 ? .adjacent : .custom)
+    }
+    func setRepeatArrangement(_ arrangement: RepeatArrangement) {
+        var next = project
+        next.stepAndRepeat.arrangement = arrangement
+        var state = next.autoLayout ?? .legacy
+        state.summary = nil
+        if arrangement == .custom {
+            state.manualFields.insert(.gutter); state.automaticFields.remove(.gutter)
+        } else {
+            state.manualFields.remove(.gutter); state.automaticFields.insert(.gutter)
+            next.sheet.gutter = arrangement == .adjacent ? 0 : 2*next.settings.bleed
+        }
+        next.autoLayout = state
+        trackingManual = true; project = next; trackingManual = false
     }
 }

@@ -122,4 +122,50 @@ final class AutoLayoutWorkspaceTests: XCTestCase {
         XCTAssertGreaterThan(color.redComponent,0.65)
         XCTAssertLessThan(color.greenComponent,0.55)
     }
+    func testArrangementDefaultsManualGutterBleedSyncAndProjectRestoration() async throws {
+        let model = workspace()
+        XCTAssertEqual(model.repeatArrangement,.adjacent)
+        XCTAssertEqual(model.project.sheet.gutter,0)
+        XCTAssertEqual(model.autoLabel("Dizilim",.gutter),"Dizilim · Otomatik")
+        model.open(try fixture(),confirmChanges: false)
+        try await settle(model)
+        XCTAssertEqual(model.repeatArrangement,.adjacent)
+        XCTAssertEqual(model.project.sheet.gutter,0)
+        model.setRepeatArrangement(.spaced)
+        XCTAssertEqual(model.project.sheet.gutter,2*model.project.settings.bleed)
+        model.project.settings.bleed = 4
+        XCTAssertEqual(model.project.sheet.gutter,8)
+        XCTAssertFalse(model.project.autoLayout!.manualFields.contains(.gutter))
+        XCTAssertEqual(model.repeatArrangement,.spaced)
+        model.project.sheet.gutter = 7
+        XCTAssertEqual(model.repeatArrangement,.custom)
+        model.project.settings.bleed = 5
+        XCTAssertEqual(model.project.sheet.gutter,7)
+        model.markManual(.gutter)
+        XCTAssertEqual(model.autoLabel("Dizilim",.gutter),"Dizilim · Manuel")
+        model.setRepeatArrangement(.adjacent)
+        XCTAssertEqual(model.project.sheet.gutter,0)
+        XCTAssertEqual(model.autoLabel("Dizilim",.gutter),"Dizilim · Otomatik")
+        // Even an unchanged manual gutter edit takes ownership.
+        model.markManual(.gutter)
+        XCTAssertEqual(model.repeatArrangement,.custom)
+        model.setRepeatArrangement(.spaced)
+        try await settle(model)
+        XCTAssertNil(model.project.includeBlankBacks)
+        XCTAssertTrue(model.canExportNow)
+        model.project.includeBlankBacks = false
+        XCTAssertTrue(model.canExportNow,"Export-only choices must not queue a new geometry plan")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString+".atispress")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try model.saveProject(as: url)
+        let restored = workspace()
+        try await restored.loadProject(at: url)
+        try await settle(restored)
+        XCTAssertEqual(restored.project,model.project)
+        XCTAssertEqual(restored.plan.sheets,model.plan.sheets)
+        XCTAssertEqual(restored.repeatArrangement,.spaced)
+        XCTAssertEqual(restored.project.includeBlankBacks,false)
+        XCTAssertFalse(restored.isModified)
+    }
+
 }

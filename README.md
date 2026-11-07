@@ -214,8 +214,8 @@ Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/
 
 ### Verification and current limits
 
-`swift test --disable-sandbox`: **107 XCTest tests, zero failures** (49 core,
-29 PDF reading/drawing/export, 29 workspace/project persistence regression tests). GUI smoke checks
+`swift test --disable-sandbox`: **114 XCTest tests, zero failures** (52 core,
+32 PDF reading/drawing/export, 30 workspace/project persistence regression tests). GUI smoke checks
 used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
 navigation, page selection/reordering/exclusion, binding change, front/back,
 shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
@@ -355,9 +355,9 @@ Xcode, choose **AtisPressApp / My Mac**, and Run. Import the source and select
 
 - **Bütün iş — tek PDF:** a Save panel selects the output file. Pages are ordered
   sheet 1 front, sheet 1 back, sheet 2 front, sheet 2 back, including every physical
-  `repeatCount` in flat work. Blank reverse faces are retained.
+  `repeatCount` in flat work. Empty reverses follow the content policy below.
 - **Her tabaka — ayrı PDF:** choose a parent folder. A new unique AtisPress folder
-  receives one two-page PDF per physical sheet, with front then back. Files are
+  receives one PDF per physical sheet, with front then back when included. Files are
   numbered continuously across jobs and repetitions.
 - Export requires a source, a nonempty plan and `plan.canExport == true`. It is also
   disabled during import, recalculation and another export. Warnings still permit
@@ -527,7 +527,7 @@ Opening an existing project preserves its own mode, preset and custom dimensions
 - **Kaydet / ⌘S** saves the current project; **Farklı Kaydet… / ⇧⌘S** writes a new
   project and switches subsequent saves to it. Source PDFs cannot be overwritten.
   Project writes are atomic. Empty projects can also be saved.
-- Version 4 is readable JSON with top-level `version: 4` and `state`; version 1–3
+- Version 5 is readable JSON with top-level `version: 5` and `state`; version 1–4
   projects remain readable. Missing serial fields default to empty; old projects
   retain their saved layout values when opened. `state.project`
   contains ordered selected source-page metadata, binding/layout mode, blank-page
@@ -564,7 +564,7 @@ Limits: one active project/source PDF; PDFs are linked rather than embedded. The
 identity check uses filename/size and selected page geometry, not a content hash.
 Zoom/pan and transient row highlights reset on open; saved artwork placement,
 preview layers and sheet/face are restored. There is no autosave, crash recovery,
-project-version migration beyond v1–3 → v4, or packaged Finder file association/installer.
+project-version migration beyond v1–4 → v5, or packaged Finder file association/installer.
 Use the app's Open command or a command-line path with the Swift package build.
 
 ## Serial numbering — Seri Numara
@@ -676,7 +676,8 @@ paper from fitting, automatic stock selection tries a larger sheet; pinned stock
 keeps the fit error. The full-sheet digital L4 explicitly allows zero margins.
 Source bleed that is missing/unknown/insufficient enables generated bleed, unless
 that setting was manually chosen. A full-sheet job with zero bleed does not need
-it. For flat work, auto gutter is **2 × bleed with crop marks on, otherwise zero**.
+it. Flat work defaults to **Bitişik**, with automatic gutter **0**;
+**Aralıklı** sets automatic gutter to **2 × bleed**, independently of crop marks.
 The existing gutter contract remains: positive gutter is the clear distance
 between bleed boxes, with trim pitch = trim + 2×bleed + gutter.
 
@@ -695,7 +696,7 @@ button calculations run off the main actor; duplicate page-pair dimensions are
 probed once. Visible generated-bleed samples are prepared before publishing the
 new import. Serial numbering and PDF export consume the resulting plan normally.
 
-`Project.autoLayout` is saved in schema v4 (including sheet-selection policy) with each field's ownership, production,
+`Project.autoLayout` is saved in schema v5 (including sheet-selection policy) with each field's ownership, production,
 level, summary, sheet-clipping policy and standard-paper tolerance. v1/v2 projects
 without this metadata are restored as saved, and their existing settings are
 preserved on PDF replacement until the explicit Auto button is used. The version
@@ -746,5 +747,36 @@ Generated bleed suppresses missing-bleed warnings when enabled and needed.
 Displayed identical warnings are grouped with counts and compressed source-page
 ranges, e.g. **12 sayfada taşma payı eksik: 1-12**; detailed slot references remain
 available internally. Existing preview/export alignment and project roundtrip
-regressions remain active. Run `swift test --disable-sandbox` for all 107 tests.
+regressions remain active. Run `swift test --disable-sandbox` for all 114 tests.
 Native interactive smoke testing has not been rerun for these controls.
+
+## Empty reverse export and repeat arrangement
+
+When the entire plan has no back artwork, both export destinations omit empty
+reverses and show **Arka yüz boş: çıktıya eklenmedi.** A 10-copy serial form in a
+2×2 grid exports three front pages, with unchanged serial text and placement.
+In mixed jobs, **Boş arka yüzleri çıktıya ekle** defaults ON to preserve duplex
+alignment; switching it OFF omits just the empty reverses. The choice is saved
+per project and does not trigger geometry recalculation. Marks/guides alone do
+not count as artwork. Serial-only backs and same-plate fronts printed on the
+reverse do count as content and remain in the PDF. An empty **Arka** preview
+shows **Arka yüz yok**. Physical sheet counts and per-sheet filenames stay stable.
+
+**Tekrarlı Yerleşim → Dizilim** offers **Bitişik (ara boşluk 0)** and
+**Aralıklı (ara boşluk = 2 × taşma)**, with an **Otomatik** label for calculated
+gutters. Bitişik is the new-project and explicit automatic-reset default:
+common trim cuts, generated/source bleed clipped to the block perimeter, and
+the existing shared-cut warning. Aralıklı tracks changes to bleed. Editing
+**Ara boşluk**, including re-entering its value, selects **Özel / Manuel**;
+imports preserve that manual gutter until automatic layout is explicitly reset.
+The existing positive-gutter geometry and insufficient-gutter warnings remain.
+Version 5 saves the arrangement; old files without it keep their saved gutter.
+
+Verification adds front-only serial text/position tests, mixed duplex output with
+the checkbox ON/OFF in both destinations, serial-only/same-plate reverse retention,
+default perimeter clips, spaced/custom behavior, and exact saved-plan restoration.
+All previous tests remain, with the former spacing-specific tests explicitly
+choosing Aralıklı and the front-only extension test expecting the new page count.
+Run `swift run --disable-sandbox AtisPressApp`; verify with
+`swift test --disable-sandbox`. Native interactive UI smoke testing has not been
+rerun; the existing single-source, consecutive page-pair job model is unchanged.

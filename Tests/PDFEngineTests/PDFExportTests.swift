@@ -501,6 +501,7 @@ final class PDFExportTests: XCTestCase {
     func testAutomaticComfortMarksFitWithoutClippingAnyBleed() throws {
         var p = Project(pages: [SourcePage(number: 1,trimSize: Size(85,55),availableBleed: 0)],sheet: SheetSpec(preset: .cm33x48))
         p.autoLayout = AutoLayoutSettings(); p.autoLayout?.manualFields = [.sheetSize]
+        p.stepAndRepeat.arrangement = .spaced
         let result = SmartAutoLayout.arrange(p)
         XCTAssertEqual(result.project.autoLayout?.level,.full)
         for sheet in result.plan.sheets {
@@ -554,7 +555,7 @@ final class PDFExportTests: XCTestCase {
         let target = folder.appendingPathComponent("extensions.pdf")
         let result = try PDFExporter.export(plan: plan,source: source,destination: .singlePDF(target),options: .artworkOnly,
                                            overlays: [GeneratedBleed(),SerialOverlay()])
-        XCTAssertEqual(result.pageCount,6)
+        XCTAssertEqual(result.pageCount,3)
         let document = try XCTUnwrap(CGPDFDocument(target as CFURL))
         let first = try render(XCTUnwrap(document.page(at: 1)))
         assertColor(first.rgb(8,25),[0,1,1])
@@ -563,6 +564,94 @@ final class PDFExportTests: XCTestCase {
         XCTAssertEqual(imageObjects(document),0)
         try saveQA(target,name: "extensions")
     }
+    func testSinglePageSerialJobExportsOnlyFrontsInBothDestinations() async throws {
+        let folder = try directory(), input = try fixture(in: folder,count: 1)
+        let source = try await PDFSource.open(input)
+        var p = project(source,binding: .stepAndRepeat)
+        p.sheet.size = Size(100,100)
+        p.stepAndRepeat = StepAndRepeatSettings(columns: 2,rows: 2,allowRotation: false,quantity: 10)
+        p.serialFields = [SerialField(prefix: "FORM-",size: 9,position: Point(3,15))]
+        let plan = ImpositionPlanner.plan(p), sheet = try XCTUnwrap(plan.sheets.first)
+        XCTAssertTrue(plan.canExport); XCTAssertFalse(plan.hasBackContent)
+        for perSheet in [false,true] {
+            let output = folder.appendingPathComponent("fronts.pdf")
+            let destination: PDFExportDestination = perSheet ? .perSheet(directory: folder,baseName: "fronts") : .singlePDF(output)
+            // Even explicitly requesting blank backs cannot add them to a wholly simplex job.
+            let result = try PDFExporter.export(plan: plan,source: source,destination: destination,marks: .none,includeBlankBacks: true)
+            XCTAssertEqual(result.pageCount,3); XCTAssertEqual(result.sheetCount,3)
+            XCTAssertEqual(result.notes,["Arka yüz boş: çıktıya eklenmedi."])
+            XCTAssertEqual(result.files.count,perSheet ? 3 : 1)
+            for repetition in 0..<3 {
+                let document = try XCTUnwrap(PDFDocument(url: perSheet ? result.files[repetition] : output))
+                XCTAssertEqual(document.pageCount,perSheet ? 1 : 3)
+                let page = try XCTUnwrap(document.page(at: perSheet ? 0 : repetition))
+                let text = page.string ?? ""
+                for serial in sheet.serialPlan!.placements(side: sheet.front,kind: .front,repetition: repetition) {
+                    XCTAssertTrue(text.contains(serial.text),"Missing \(serial.text)")
+                    let bounds = try XCTUnwrap(page.selection(for: (text as NSString).range(of: serial.text))).bounds(for: page)
+                    let slot = sheet.front.slots[serial.slotIndex]
+                    XCTAssertEqual(bounds.minX,(slot.x+serial.position.x)*unit,accuracy: 1.5)
+                }
+                XCTAssertFalse(text.contains("FORM-0011"))
+            }
+        }
+    }
+    func testMixedJobsRetainBlankBacksByDefaultAndCanOmitThemInBothDestinations() async throws {
+        let folder = try directory(), input = try fixture(in: folder,count: 3)
+        let source = try await PDFSource.open(input)
+        var p = project(source,binding: .stepAndRepeat)
+        p.sheet.size = Size(100,100)
+        p.stepAndRepeat = StepAndRepeatSettings(columns: 1,rows: 1,allowRotation: false,quantity: 2)
+        let plan = ImpositionPlanner.plan(p)
+        XCTAssertTrue(plan.hasBackContent); XCTAssertTrue(plan.hasBlankBacks)
+        for include in [true,false] {
+            for perSheet in [false,true] {
+                let base = "mixed-\(include)-\(perSheet)"
+                let destination: PDFExportDestination = perSheet ? .perSheet(directory: folder,baseName: base) : .singlePDF(folder.appendingPathComponent(base+".pdf"))
+                let result: PDFExportResult
+                if include {
+                    result = try PDFExporter.export(plan: plan,source: source,destination: destination,marks: .none)
+                } else {
+                    result = try PDFExporter.export(plan: plan,source: source,destination: destination,marks: .none,includeBlankBacks: false)
+                }
+                XCTAssertEqual(result.pageCount,include ? 8 : 6)
+                XCTAssertEqual(result.sheetCount,4)
+                if perSheet {
+                    for (index,file) in result.files.enumerated() {
+                        let pdf = try XCTUnwrap(CGPDFDocument(file as CFURL))
+                        XCTAssertEqual(pdf.numberOfPages,index < 2 || include ? 2 : 1)
+                        try checkSlots(plan.sheets[index/2].front.slots,on: XCTUnwrap(pdf.page(at: 1)))
+                        if index >= 2 && include {
+                            assertColor(try render(XCTUnwrap(pdf.page(at: 2))).rgb(50,50),[1,1,1])
+                        }
+                    }
+                } else {
+                    let pdf = try XCTUnwrap(CGPDFDocument(result.files[0] as CFURL))
+                    XCTAssertEqual(pdf.numberOfPages,result.pageCount)
+                    try checkSlots(plan.sheets[0].back.slots,on: XCTUnwrap(pdf.page(at: 2)))
+                    try checkSlots(plan.sheets[1].front.slots,on: XCTUnwrap(pdf.page(at: 5)))
+                    if include { assertColor(try render(XCTUnwrap(pdf.page(at: 6))).rgb(50,50),[1,1,1]) }
+                }
+            }
+        }
+    }
+    func testSerialOnlyBacksAndSamePlateContentAreNotDropped() async throws {
+        let folder = try directory(), input = try fixture(in: folder,count: 1)
+        let source = try await PDFSource.open(input)
+        for method in [TurnMethod.sheetwise,.workAndTurn,.workAndTumble] {
+            var p = project(source,binding: .stepAndRepeat)
+            p.sheet.size = Size(100,100); p.settings.turnMethod = method
+            p.stepAndRepeat = StepAndRepeatSettings(columns: 2,rows: 2,allowRotation: false,quantity: 10)
+            if method == .sheetwise { p.serialFields = [SerialField(prefix: "BACK-",sides: .back,position: Point(3,15))] }
+            let plan = ImpositionPlanner.plan(p)
+            XCTAssertTrue(plan.hasBackContent)
+            let result = try PDFExporter.export(plan: plan,source: source,destination: .singlePDF(folder.appendingPathComponent("backs-\(method).pdf")),marks: .none,includeBlankBacks: false)
+            XCTAssertEqual(result.pageCount,6); XCTAssertTrue(result.notes.isEmpty)
+            let pdf = try XCTUnwrap(PDFDocument(url: result.files[0]))
+            if method == .sheetwise { XCTAssertTrue(pdf.page(at: 1)?.string?.contains("BACK-0001") == true) }
+        }
+    }
+
     private struct FailingOverlay: PDFSlotOverlay {
         enum Failure: Error { case intentional }
         func draw(in context: CGContext,placement: PDFSlotContext) throws { throw Failure.intentional }

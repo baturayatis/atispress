@@ -13,6 +13,7 @@ public struct PDFExportResult: Sendable {
     public let files: [URL]
     public let pageCount: Int
     public let sheetCount: Int
+    public let notes: [String]
 }
 public enum PDFExportError: LocalizedError {
     case invalidPlan, invalidGeometry, missingPage(Int), cannotCreatePDF, sourceOverwrite, destinationExists(String), tooManyPages
@@ -35,20 +36,26 @@ public enum PDFExporter {
     /// Physical repeats are expanded, in sheet-front/back order, without rasterizing artwork.
     /// Compatibility entry point: preview styles are never used in production.
     public static func export(plan: ImpositionPlan,source: PDFSource,destination: PDFExportDestination,
-                              options: PDFRenderOptions,overlays: [any PDFSlotOverlay] = []) throws -> PDFExportResult {
+                              options: PDFRenderOptions,includeBlankBacks: Bool = true,overlays: [any PDFSlotOverlay] = []) throws -> PDFExportResult {
         var marks = ExportMarks.none
         marks.crop = options.crop; marks.fold = options.fold; marks.bleed = options.bleed
         marks.safeArea = options.safeArea; marks.pageNumbers = options.pageNumbers
-        return try export(plan: plan,source: source,destination: destination,marks: marks,overlays: overlays)
+        return try export(plan: plan,source: source,destination: destination,marks: marks,includeBlankBacks: includeBlankBacks,overlays: overlays)
     }
     public static func export(plan: ImpositionPlan,source: PDFSource,destination: PDFExportDestination,
-                              marks: ExportMarks = ExportMarks(),jobName: String = "",overlays: [any PDFSlotOverlay] = []) throws -> PDFExportResult {
+                              marks: ExportMarks = ExportMarks(),jobName: String = "",includeBlankBacks: Bool = true,overlays: [any PDFSlotOverlay] = []) throws -> PDFExportResult {
         guard plan.canExport, plan.diagnosticSheets.isEmpty, plan.generatedBleed.isValid, !plan.sheets.isEmpty else { throw PDFExportError.invalidPlan }
-        var sheetCount = 0
+        for sheet in plan.sheets { try validate(sheet) }
+        let keepBlankBacks = plan.hasBackContent && includeBlankBacks
+        var sheetCount = 0, pageCount = 0
+        var omittedBacks = false
         for sheet in plan.sheets {
-            guard sheet.repeatCount > 0, sheet.repeatCount <= maximumPageCount/2-sheetCount else { throw PDFExportError.tooManyPages }
+            let hasBack = sheet.hasContent(on: .back) || keepBlankBacks
+            let faces = hasBack ? 2 : 1
+            guard sheet.repeatCount > 0, sheet.repeatCount <= (maximumPageCount-pageCount)/faces else { throw PDFExportError.tooManyPages }
+            pageCount += sheet.repeatCount*faces
             sheetCount += sheet.repeatCount
-            try validate(sheet)
+            omittedBacks = omittedBacks || !hasBack
         }
         guard let document = CGPDFDocument(source.url as CFURL) else { throw PDFReadError.unreadable }
         if !document.isUnlocked && !document.unlockWithPassword("") { throw PDFReadError.locked }
@@ -99,13 +106,13 @@ public enum PDFExporter {
         }
         switch destination {
         case .singlePDF:
-            try write(stagedFile(0),document: document,plan: plan,marks: marks,jobName: jobName,overlays: effectiveOverlays,only: nil)
+            try write(stagedFile(0),document: document,plan: plan,marks: marks,jobName: jobName,keepBlankBacks: keepBlankBacks,overlays: effectiveOverlays,only: nil)
         case .perSheet:
             var physical = 0
             for (index,sheet) in plan.sheets.enumerated() {
                 for repetition in 0..<sheet.repeatCount {
                     try Task.checkCancellation()
-                    try write(stagedFile(physical),document: document,plan: plan,marks: marks,jobName: jobName,overlays: effectiveOverlays,only: (index,repetition))
+                    try write(stagedFile(physical),document: document,plan: plan,marks: marks,jobName: jobName,keepBlankBacks: keepBlankBacks,overlays: effectiveOverlays,only: (index,repetition))
                     physical += 1
                 }
             }
@@ -126,9 +133,9 @@ public enum PDFExporter {
             if case .perSheet = destination { for file in published { try? manager.removeItem(at: file) } }
             throw error
         }
-        return PDFExportResult(files: published,pageCount: sheetCount*2,sheetCount: sheetCount)
+        return PDFExportResult(files: published,pageCount: pageCount,sheetCount: sheetCount,notes: omittedBacks ? ["Arka yüz boş: çıktıya eklenmedi."] : [])
     }
-    private static func write(_ url: URL,document: CGPDFDocument,plan: ImpositionPlan,marks: ExportMarks,jobName: String,
+    private static func write(_ url: URL,document: CGPDFDocument,plan: ImpositionPlan,marks: ExportMarks,jobName: String,keepBlankBacks: Bool,
                               overlays: [any PDFSlotOverlay],only: (Int,Int)?) throws {
         guard let consumer = CGDataConsumer(url: url as CFURL),
               let context = CGContext(consumer: consumer,mediaBox: nil,[kCGPDFContextCreator:"AtışPress"] as CFDictionary) else {
@@ -139,8 +146,9 @@ public enum PDFExporter {
         for index in indices {
             let sheet = plan.sheets[index]
             let repetitions = only.map { $0.1..<($0.1+1) } ?? 0..<sheet.repeatCount
+            let faces: [(SideKind,Side)] = sheet.hasContent(on: .back) || keepBlankBacks ? [(.front,sheet.front),(.back,sheet.back)] : [(.front,sheet.front)]
             for repetition in repetitions {
-                for (kind,side) in [(SideKind.front,sheet.front),(.back,sheet.back)] {
+                for (kind,side) in faces {
                     try Task.checkCancellation()
                     var media = CGRect(x: 0,y: 0,width: sheet.size.width*PDFPreviewDrawing.pointsPerMM,
                                        height: sheet.size.height*PDFPreviewDrawing.pointsPerMM)

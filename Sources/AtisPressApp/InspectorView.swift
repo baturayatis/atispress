@@ -180,6 +180,13 @@ struct InspectorView: View {
             VStack(alignment: .leading,spacing: 10) {
                 Text("Seçili sırada 1–2 ön/arka, 3–4 ayrı iş… Tek kalan sayfanın arkası boş.")
                     .font(.caption).foregroundStyle(.secondary)
+                Picker(model.autoLabel("Dizilim",.gutter),selection: Binding(get: { model.repeatArrangement },set: model.setRepeatArrangement)) {
+                    Text("Bitişik (ara boşluk 0)").tag(RepeatArrangement.adjacent)
+                    Text("Aralıklı (ara boşluk = 2 × taşma)").tag(RepeatArrangement.spaced)
+                    Text("Özel (elle ara boşluk)").tag(RepeatArrangement.custom)
+                }
+                Text(model.repeatArrangement == .adjacent ? "Ortak kesim; taşma sadece blok çevresinde." : model.repeatArrangement == .spaced ? "Otomatik ara boşluk taşmanın iki katıdır." : "Elle belirlenen ara boşluk korunur.")
+                    .font(.caption).foregroundStyle(.secondary)
                 Toggle(model.autoLabel("90° döndürmeye izin ver",.allowRotation),isOn: model.autoBinding($model.project.stepAndRepeat.allowRotation,.allowRotation))
                 gridOverride("Sütun",value: $model.project.stepAndRepeat.columns,
                              automatic: model.currentSheet?.repeatLayout?.columns ?? 1,field: .columns)
