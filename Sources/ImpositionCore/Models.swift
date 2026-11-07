@@ -52,7 +52,7 @@ public enum SheetPreset: Sendable {
         }
     }
 }
-public struct SheetSpec: Sendable {
+public struct SheetSpec: Equatable, Sendable {
     public var size: Size
     public var margins: Insets
     public var gripperEdge: Edge
@@ -102,7 +102,7 @@ public struct GeneratedBleedSettings: Equatable, Sendable {
         tolerance.isFinite && (0...1).contains(tolerance) && color.components.allSatisfy { $0.isFinite && (0...1).contains($0) }
     }
 }
-public struct ImpositionSettings: Sendable {
+public struct ImpositionSettings: Equatable, Sendable {
     public var bleed: Double
     public var cropMarkLength: Double
     public var cropMarkOffset: Double
@@ -119,7 +119,7 @@ public struct ImpositionSettings: Sendable {
     }
 }
 /// Optional dimensions override the automatically fitted grid independently.
-public struct StepAndRepeatSettings: Sendable {
+public struct StepAndRepeatSettings: Equatable, Sendable {
     public var columns: Int?
     public var rows: Int?
     public var allowRotation: Bool
@@ -148,7 +148,23 @@ public struct RepeatLayout: Equatable, Sendable {
         self.columns = columns; self.rows = rows; self.requestedQuantity = requestedQuantity
     }
 }
-public struct Project: Sendable {
+/// Production marks are independent of preview overlays. Stored with the project.
+public struct ExportMarks: Equatable, Sendable, Codable {
+    public enum Color: String, Codable, Sendable { case black, registration }
+    public var crop = true
+    public var fold = false
+    public var bleed = false
+    public var safeArea = false
+    public var pageNumbers = false
+    public var sheetInfo = false
+    public var fullCut = false
+    public var lineWidth: Double = 0.25 // points
+    public var color: Color = .black
+    public init() {}
+    public static var none: ExportMarks { var value = ExportMarks(); value.crop = false; return value }
+}
+public struct Project: Equatable, Sendable {
+    public var exportMarks = ExportMarks()
     public var pages: [SourcePage]
     public var blankPagePolicy: BlankPagePolicy
     public var binding: BindingMethod
@@ -156,7 +172,7 @@ public struct Project: Sendable {
     public var sheet: SheetSpec
     public var settings: ImpositionSettings
     public var stepAndRepeat: StepAndRepeatSettings
-    public init(pages: [SourcePage], binding: BindingMethod, sheet: SheetSpec,
+    public init(pages: [SourcePage], binding: BindingMethod = .stepAndRepeat, sheet: SheetSpec,
                 blankPagePolicy: BlankPagePolicy = .append, coverMode: CoverMode = .included,
                 settings: ImpositionSettings = ImpositionSettings(), stepAndRepeat: StepAndRepeatSettings = StepAndRepeatSettings()) {
         self.pages = pages; self.binding = binding; self.sheet = sheet

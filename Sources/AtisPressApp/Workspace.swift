@@ -7,10 +7,14 @@ typealias PreviewOverlays = PDFRenderOptions
 
 @MainActor
 final class Workspace: ObservableObject {
-    @Published var project = Project(pages: [], binding: .saddleStitch,
+    @Published var project = Project(pages: [], binding: .stepAndRepeat,
         sheet: SheetSpec(preset: .cm50x70, margins: Insets(left: 10,right: 10,top: 10,bottom: 10),
-                         gripperWidth: 10, gutter: 6)) {
-        didSet { schedulePlan() }
+                         gripperWidth: 10, gutter: 0)) {
+        didSet {
+            var previous = oldValue
+            previous.exportMarks = project.exportMarks
+            if previous != project { schedulePlan() }
+        }
     }
     @Published private(set) var source: PDFSource?
     @Published private(set) var plan = ImpositionPlan()
@@ -80,6 +84,11 @@ final class Workspace: ObservableObject {
             samplingBleed = false
         }
     }
+    private func exportAccessory() -> NSView {
+        let view = NSHostingView(rootView: ExportMarksView(model: self))
+        view.frame = NSRect(x: 0,y: 0,width: 540,height: 390)
+        return view
+    }
     func chooseExport(perSheet: Bool) {
         guard canExportNow, let source else { return }
         if let exportPanel { exportPanel.makeKeyAndOrderFront(nil); return }
@@ -88,7 +97,8 @@ final class Workspace: ObservableObject {
             exportPanel = panel
             panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
             panel.title = "Her tabaka için PDF"; panel.prompt = "Klasörü Seç"
-            panel.message = "Yeni bir çıktı klasörü oluşturulacak. Açık önizleme katmanları PDF’ye aktarılır."
+            panel.message = "Yeni bir çıktı klasörü oluşturulacak."
+            panel.accessoryView = exportAccessory()
             panel.begin { [weak self] response in
                 guard let self else { return }
                 self.exportPanel = nil
@@ -110,7 +120,8 @@ final class Workspace: ObservableObject {
             exportPanel = panel
             panel.allowedContentTypes = [.pdf]; panel.canCreateDirectories = true
             panel.title = "Bütün işi PDF olarak dışa aktar"; panel.prompt = "Dışa Aktar"
-            panel.message = "Açık önizleme işaretleri ve kılavuzları PDF’ye aktarılır."
+            panel.message = "Çıktı işaretleri önizleme katmanlarından bağımsızdır."
+            panel.accessoryView = exportAccessory()
             panel.nameFieldStringValue = source.url.deletingPathExtension().lastPathComponent+"-baski.pdf"
             panel.begin { [weak self] response in
                 self?.exportPanel = nil
@@ -126,11 +137,11 @@ final class Workspace: ObservableObject {
             if let cleanupOnFailure { try? FileManager.default.removeItem(at: cleanupOnFailure) }
             error = PDFExportError.invalidPlan.localizedDescription; return
         }
-        let snapshot = plan, options = overlays
+        let snapshot = plan, options = project.exportMarks
         exporting = true; exportSummary = nil; exportedFiles = []
         let worker = Task.detached(priority: .userInitiated) {
             defer { scopedParent?.stopAccessingSecurityScopedResource() }
-            do { return try PDFExporter.export(plan: snapshot,source: source,destination: destination,options: options) }
+            do { return try PDFExporter.export(plan: snapshot,source: source,destination: destination,marks: options,jobName: source.url.deletingPathExtension().lastPathComponent) }
             catch {
                 if let cleanupOnFailure { try? FileManager.default.removeItem(at: cleanupOnFailure) }
                 throw error

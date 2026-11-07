@@ -238,7 +238,7 @@ final class PDFExportTests: XCTestCase {
         XCTAssertThrowsError(try PDFExporter.export(plan: plan,source: source,destination: .singlePDF(input),options: .artworkOnly))
         XCTAssertEqual(try Data(contentsOf: input),before)
     }
-    func testAllOverlaySwitchesUseSharedRenderer() async throws {
+    func testLegacyExportOptionsUseProductionMarksWithoutPreviewGuides() async throws {
         let folder = try directory(), input = try fixture(in: folder,count: 1)
         let source = try await PDFSource.open(input)
         let kinds: [MarkKind] = [.crop,.fold,.bleed,.safeArea,.margin]
@@ -257,19 +257,131 @@ final class PDFExportTests: XCTestCase {
             let preview = try Bitmap(width: 45,height: 55)
             PDFPlanRenderer.drawMarks(marks,sheetSize: sheet.size,in: preview.context,options: options)
             for y in 3...7 {
-                if enabled { XCTAssertLessThan(output.rgb(2,Double(y)).min()!,0.8) }
+                if enabled && y < 7 { XCTAssertLessThan(output.rgb(2,Double(y)).min()!,0.8) }
                 else { assertColor(output.rgb(2,Double(y)),[1,1,1]) }
-                assertColor(output.rgb(2,Double(y)),preview.rgb(2,Double(y)))
+                // Preview remains colored/dashed; production is solid CMYK.
             }
-            if enabled { XCTAssertLessThan(output.rgb(0.05,25).min()!,0.8) }
-            else { assertColor(output.rgb(0.05,25),[1,1,1]) }
-            XCTAssertEqual(PDFDocument(url: target)?.string?.contains("TEST-42") ?? false,enabled)
+            assertColor(output.rgb(0.05,25),[1,1,1])
+            XCTAssertFalse(PDFDocument(url: target)?.string?.contains("TEST-42") ?? false,"Preview label anchors are not exported")
             try saveQA(target,name: "marks-\(enabled)")
         }
         for kind in [.crop,.fold,.bleed,.safeArea,.pageLabel,.margin,.gripper] as [MarkKind] {
             XCTAssertFalse(PDFRenderOptions.artworkOnly.shows(kind))
         }
     }
+    func testProductionCropStrokesAvoidEveryBleedBoxAndWarnWhenClipped() async throws {
+        let folder = try directory(), input = try fixture(in: folder)
+        let source = try await PDFSource.open(input)
+        for gutter in [0.0,1,10] {
+            var p = project(source,binding: .stepAndRepeat)
+            p.sheet.size = Size(130,110); p.sheet.gutter = gutter
+            p.settings.cropMarkLength = 5; p.settings.cropMarkOffset = 3
+            p.stepAndRepeat = StepAndRepeatSettings(columns: 2,rows: 2,allowRotation: false)
+            let plan = ImpositionPlanner.plan(p)
+            XCTAssertTrue(plan.canExport)
+            for sheet in plan.sheets {
+                for side in [sheet.front,sheet.back] {
+                    let result = PDFExportMarkRenderer.geometry(side: side,sheet: sheet,settings: ExportMarks())
+                    XCTAssertFalse(result.segments.isEmpty)
+                    let radius = 0.25/unit/2
+                    for mark in result.segments {
+                        let stroke = CGRect(x: min(mark.start.x,mark.end.x)-radius,
+                            y: min(mark.start.y,mark.end.y)-radius,
+                            width: abs(mark.end.x-mark.start.x)+2*radius,
+                            height: abs(mark.end.y-mark.start.y)+2*radius)
+                        for slot in side.slots {
+                            let r = try XCTUnwrap(slot.artworkClip)
+                            let box = CGRect(x: r.origin.x+0.00001,y: r.origin.y+0.00001,
+                                width: r.size.width-0.00002,height: r.size.height-0.00002)
+                            XCTAssertFalse(stroke.intersects(box))
+                        }
+                    }
+                }
+            }
+        }
+        let marks = [Mark(kind: .crop,start: Point(-5,10),end: Point(30,10))]
+        let side = Side(slots: [Slot(sourcePageNumber: nil,origin: Point(5,5),size: Size(10,10),
+                                    artworkClip: Rect(x: 2,y: 2,width: 16,height: 16))],marks: marks)
+        let result = PDFExportMarkRenderer.geometry(side: side,sheet: Sheet(size: Size(25,25),front: side,back: Side()),settings: ExportMarks())
+        XCTAssertEqual(result.warnings.count,2)
+    }
+
+    private final class MarkOperators {
+        var strokes = 0
+        var rgb = 0
+        var cmyk: [[Double]] = []
+        var nonSolid = false
+        func scan(_ page: CGPDFPage) {
+            let table = CGPDFOperatorTableCreate()!
+            CGPDFOperatorTableSetCallback(table,"S") { _,info in
+                Unmanaged<MarkOperators>.fromOpaque(info!).takeUnretainedValue().strokes += 1
+            }
+            for op in ["RG","rg"] {
+                CGPDFOperatorTableSetCallback(table,op) { _,info in
+                    Unmanaged<MarkOperators>.fromOpaque(info!).takeUnretainedValue().rgb += 1
+                }
+            }
+            CGPDFOperatorTableSetCallback(table,"K") { scanner,info in
+                var components: [Double] = []
+                for _ in 0..<4 {
+                    var value: CGPDFReal = 0
+                    if CGPDFScannerPopNumber(scanner,&value) { components.insert(value,at: 0) }
+                }
+                Unmanaged<MarkOperators>.fromOpaque(info!).takeUnretainedValue().cmyk.append(components)
+            }
+            CGPDFOperatorTableSetCallback(table,"d") { scanner,info in
+                var phase: CGPDFReal = 0, array: CGPDFArrayRef?
+                _ = CGPDFScannerPopNumber(scanner,&phase)
+                if CGPDFScannerPopArray(scanner,&array),let array,CGPDFArrayGetCount(array) > 0 {
+                    Unmanaged<MarkOperators>.fromOpaque(info!).takeUnretainedValue().nonSolid = true
+                }
+            }
+            let content = CGPDFContentStreamCreateWithPage(page)
+            let scanner = CGPDFScannerCreate(content,table,Unmanaged.passUnretained(self).toOpaque())
+            XCTAssertTrue(CGPDFScannerScan(scanner))
+        }
+    }
+    func testProductionPDFUsesSolidCMYKMarksForBothColors() async throws {
+        let folder = try directory(), input = try fixture(in: folder)
+        let source = try await PDFSource.open(input)
+        let side = Side(marks: [Mark(kind: .crop,start: Point(2,5),end: Point(20,5)),
+                               Mark(kind: .fold,start: Point(2,10),end: Point(20,10))])
+        let plan = ImpositionPlan(sheets: [Sheet(size: Size(30,30),front: side,back: Side())])
+        for color in [ExportMarks.Color.black,.registration] {
+            var settings = ExportMarks(); settings.color = color; settings.fold = true
+            let target = folder.appendingPathComponent("solid-\(color).pdf")
+            _ = try PDFExporter.export(plan: plan,source: source,destination: .singlePDF(target),marks: settings)
+            let ops = MarkOperators()
+            ops.scan(try XCTUnwrap(CGPDFDocument(target as CFURL)?.page(at: 1)))
+            XCTAssertEqual(ops.strokes,2)
+            XCTAssertEqual(ops.rgb,0)
+            XCTAssertFalse(ops.nonSolid)
+            XCTAssertTrue(ops.cmyk.contains(color == .black ? [0,0,0,1] : [1,1,1,1]))
+        }
+    }
+
+    func testAllProductionMarksOffExportsNoMarkContent() async throws {
+        let folder = try directory(), input = try fixture(in: folder)
+        let source = try await PDFSource.open(input)
+        let marks: [MarkKind] = [.crop,.fold,.bleed,.safeArea,.pageLabel,.margin,.gripper,.sharedCut]
+        let side = Side(marks: marks.map { Mark(kind: $0,start: Point(2,5),end: Point(20,5),label: "NO-MARK") })
+        let sheet = Sheet(size: Size(30,30),front: side,back: side)
+        let target = folder.appendingPathComponent("no-marks.pdf")
+        _ = try PDFExporter.export(plan: ImpositionPlan(sheets: [sheet]),source: source,
+            destination: .singlePDF(target),marks: .none)
+        let doc = try XCTUnwrap(CGPDFDocument(target as CFURL))
+        let page = try XCTUnwrap(doc.page(at: 1))
+        let ops = MarkOperators(); ops.scan(page)
+        XCTAssertEqual(ops.strokes,0)
+        XCTAssertTrue(ops.cmyk.isEmpty)
+        let output = try render(page)
+        for y in stride(from: 0.5,to: 30.0,by: 0.5) {
+            for x in stride(from: 0.5,to: 30.0,by: 0.5) { assertColor(output.rgb(x,y),[1,1,1]) }
+        }
+        XCTAssertFalse(PDFDocument(url: target)?.string?.contains("NO-MARK") ?? false)
+        XCTAssertTrue(PDFExportMarkRenderer.geometry(side: side,sheet: sheet,settings: .none).segments.isEmpty)
+    }
+
     private struct GeneratedBleed: PDFSlotOverlay {
         var phase: PDFOverlayPhase { .underArtwork }
         func draw(in context: CGContext,placement: PDFSlotContext) {

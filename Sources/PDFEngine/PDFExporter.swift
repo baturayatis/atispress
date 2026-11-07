@@ -33,8 +33,16 @@ public enum PDFExporter {
     public static let maximumPageCount = 20_000
     /// Call off the main actor. Source/plan/options are an immutable export snapshot.
     /// Physical repeats are expanded, in sheet-front/back order, without rasterizing artwork.
+    /// Compatibility entry point: preview styles are never used in production.
     public static func export(plan: ImpositionPlan,source: PDFSource,destination: PDFExportDestination,
                               options: PDFRenderOptions,overlays: [any PDFSlotOverlay] = []) throws -> PDFExportResult {
+        var marks = ExportMarks.none
+        marks.crop = options.crop; marks.fold = options.fold; marks.bleed = options.bleed
+        marks.safeArea = options.safeArea; marks.pageNumbers = options.pageNumbers
+        return try export(plan: plan,source: source,destination: destination,marks: marks,overlays: overlays)
+    }
+    public static func export(plan: ImpositionPlan,source: PDFSource,destination: PDFExportDestination,
+                              marks: ExportMarks = ExportMarks(),jobName: String = "",overlays: [any PDFSlotOverlay] = []) throws -> PDFExportResult {
         guard plan.canExport, plan.generatedBleed.isValid, !plan.sheets.isEmpty else { throw PDFExportError.invalidPlan }
         var sheetCount = 0
         for sheet in plan.sheets {
@@ -80,7 +88,7 @@ public enum PDFExporter {
         switch destination {
         case .singlePDF:
             let file = stage.appendingPathComponent("job.pdf")
-            try write(file,document: document,plan: plan,options: options,overlays: effectiveOverlays,only: nil)
+            try write(file,document: document,plan: plan,marks: marks,jobName: jobName,overlays: effectiveOverlays,only: nil)
             staged = [file]
         case .perSheet:
             var physical = 0
@@ -88,7 +96,7 @@ public enum PDFExporter {
                 for repetition in 0..<sheet.repeatCount {
                     try Task.checkCancellation()
                     let file = stage.appendingPathComponent(files[physical].lastPathComponent)
-                    try write(file,document: document,plan: plan,options: options,overlays: effectiveOverlays,only: (index,repetition))
+                    try write(file,document: document,plan: plan,marks: marks,jobName: jobName,overlays: effectiveOverlays,only: (index,repetition))
                     staged.append(file); physical += 1
                 }
             }
@@ -109,7 +117,7 @@ public enum PDFExporter {
         }
         return PDFExportResult(files: files,pageCount: sheetCount*2,sheetCount: sheetCount)
     }
-    private static func write(_ url: URL,document: CGPDFDocument,plan: ImpositionPlan,options: PDFRenderOptions,
+    private static func write(_ url: URL,document: CGPDFDocument,plan: ImpositionPlan,marks: ExportMarks,jobName: String,
                               overlays: [any PDFSlotOverlay],only: (Int,Int)?) throws {
         guard let consumer = CGDataConsumer(url: url as CFURL),
               let context = CGContext(consumer: consumer,mediaBox: nil,[kCGPDFContextCreator:"AtışPress"] as CFDictionary) else {
@@ -132,7 +140,9 @@ public enum PDFExporter {
                         context.scaleBy(x: PDFPreviewDrawing.pointsPerMM,y: PDFPreviewDrawing.pointsPerMM)
                         context.clip(to: CGRect(x: 0,y: 0,width: sheet.size.width,height: sheet.size.height))
                         try PDFPlanRenderer.drawSide(side,sheet: sheet,document: document,in: context,sheetIndex: index,
-                                                     kind: kind,repetition: repetition,options: options,overlays: overlays)
+                                                     kind: kind,repetition: repetition,options: .artworkOnly,overlays: overlays)
+                        PDFExportMarkRenderer.draw(side: side,sheet: sheet,in: context,settings: marks,
+                            info: "\(jobName) · Tabaka \(plan.sheets.prefix(index).reduce(0) { $0+$1.repeatCount }+repetition+1) · \(kind == .front ? "Ön" : "Arka")")
                         context.restoreGState(); context.endPDFPage()
                     } catch {
                         context.restoreGState(); context.endPDFPage(); throw error

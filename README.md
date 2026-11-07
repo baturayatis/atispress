@@ -349,14 +349,28 @@ Xcode, choose **AtisPressApp / My Mac**, and Run. Import the source and select
 - Export requires a source, a nonempty plan and `plan.canExport == true`. It is also
   disabled during import, recalculation and another export. Warnings still permit
   export. The engine independently enforces the same error gate.
-- The current plan, source and overlay options are frozen when the destination is
+- The current plan, source and export mark settings are frozen when the destination is
   accepted. Export runs off the main actor while preview/settings remain usable.
   **İptal** cancels rendering between slots/pages. Completion reports files/pages
   and offers **Finder’da Göster**. The completion banner describes the last output.
-- Open overlay layers are printed: crop, fold, bleed, safe area, page numbers,
-  sheet boundary and margin/gripper guides. Turn off proof guides or numbers before
-  exporting if they are not wanted on the print sheet. Gray blank crosses, rotation
-  badges, trim-selection outlines and validation highlights remain editor decorations.
+- **Çıktı İşaretleri** in both destination dialogs is independent of preview.
+  Crop marks default ON; fold, bleed, safe area, slot labels, sheet info and full
+  cut lines default OFF. Choices belong to `Project.exportMarks` and survive
+  repeated exports and mode changes within that project. New workspaces start in
+  **Tekrarlı (kartvizit/düz iş)** with zero gutter; assigning an existing project
+  preserves its binding and export choices.
+- Production strokes are solid, default **0.25 pt**, in DeviceCMYK black
+  (0/0/0/100) or registration (100/100/100/100). Preview colors, dashes, sheet
+  boundary, margins and gripper guides never print. Original source colors remain.
+- Mark segments are clipped against every planned artwork/bleed rectangle with
+  half-stroke clearance and against the sheet boundary. Existing crop offsets and
+  anchors are retained. Warnings in the dialog explain removed portions.
+- Artwork protection takes precedence over internal guides and full-length cuts:
+  safe-area lines within artwork and full-cut portions crossing artwork are omitted.
+  Labels and sheet info are also clipped to free space and can be partially hidden
+  when margins/gutters are too small. Full cuts therefore do not print over artwork.
+- There is still no project file save/load feature. Project-owned choices and mode
+  are retained in memory; cross-launch persistence awaits project serialization.
 
 ### Bleed-aware drawing
 
@@ -378,9 +392,9 @@ original `CGPDFPage` through the same `PDFPreviewDrawing` transform. The raster 
 is never consulted during export. Output MediaBox is each plan sheet's exact mm
 size converted to PDF points (`72/25.4`), with no content scaling to another stock.
 
-`PDFPlanRenderer` handles artwork and CoreText/vector marks for both consumers.
-On-screen minimum text/stroke sizes keep guides legible at low zoom; exported
-marks use physical mm sizes and the same plan anchors. Export writes drawing
+`PDFPlanRenderer` handles shared artwork and preview guides.
+`PDFExportMarkRenderer` handles protected production geometry and CMYK marks.
+On-screen minimum text/stroke sizes keep preview guides legible at low zoom. Export writes drawing
 operators through a Quartz PDF context. Vector paths/text remain vector, and
 existing bitmap assets inside source PDFs remain images; no page-sized raster
 flattening or bitmap-to-vector conversion is performed.
@@ -392,14 +406,15 @@ let result = try PDFExporter.export(
     plan: plan,
     source: source, // PDFSource opened by the reader
     destination: .singlePDF(outputURL),
-    options: PDFRenderOptions.artworkOnly
+    marks: ExportMarks.none
 )
 // Alternative: .perSheet(directory: folderURL, baseName: "book")
 // result.files, result.pageCount, result.sheetCount
 ```
 
-Call the synchronous engine API on a worker task. `PDFRenderOptions` is also the
-app's preview overlay state. The source file is protected from overwrite; whole-job
+Call the synchronous engine API on a worker task. `PDFRenderOptions` belongs to
+preview; production uses `ExportMarks`. The legacy `options:` overload maps flags
+to production settings without exporting preview styles or press guides. The source file is protected from overwrite; whole-job
 replacement is staged and atomically published. Per-sheet destinations reject
 existing filenames. Rendering/overlay failures and cancellation remove staged
 files instead of publishing partial PDFs. The app creates a unique per-sheet
@@ -475,3 +490,14 @@ Tests cover a 3×2 touching grid, independent spaced items, uniform/varied/depth
 sampling, caching, clipping, rotated/mirrored slots, native CMYK and matching
 preview/export rendering. Run `swift test` on your Mac; if the host blocks nested
 SwiftPM sandboxing, use `swift test --disable-sandbox`.
+
+## Preview/export separation verification
+
+`swift test --disable-sandbox` covers production-only flags, empty output with all
+marks off (including PDF stroke-operator inspection), solid CMYK black/registration
+operators, crop stroke clearance against every slot's bleed clip at 0/1/10 mm
+gutters, sheet-boundary/gutter warnings, default repeat mode, project mode/settings
+retention, and export settings changing without replanning or changing preview.
+The existing artwork, generated bleed, vector export, ordering, cancellation and
+workspace regression tests remain in the suite. The native dialog layout has not
+received an interactive GUI smoke check for this change.

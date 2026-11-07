@@ -15,6 +15,7 @@ final class WorkspaceTests: XCTestCase {
     }
     func testDebouncePublishesOnlyLatestProjectAndClearsInvalidPlan() async throws {
         let model = Workspace()
+        model.setMode(.saddleStitch)
         for count in 1...40 {
             model.project.pages = (1...count).map { SourcePage(number: $0,trimSize: Size(100,140),availableBleed: 3) }
         }
@@ -29,6 +30,7 @@ final class WorkspaceTests: XCTestCase {
     }
     func testSettingsReplanAndValidationNavigatesToSlot() async throws {
         let model = Workspace()
+        model.setMode(.saddleStitch)
         model.project.pages = (1...10).map { SourcePage(number: $0,trimSize: Size(100,140),availableBleed: 0) }
         try await settle(model)
         let oldSlots = model.plan.sheets[0].front.slots
@@ -45,6 +47,39 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertEqual(model.plan.signaturePageCount,8)
         XCTAssertEqual(model.plan.addedBlankPages,6)
     }
+    func testNewWorkspaceDefaultsToRepeatAndProjectKeepsModeAndExportChoices() {
+        XCTAssertEqual(Project(pages: [],sheet: SheetSpec(preset: .a3)).binding,.stepAndRepeat)
+        let model = Workspace()
+        XCTAssertEqual(model.project.binding,.stepAndRepeat)
+        XCTAssertEqual(model.project.sheet.gutter,0)
+        XCTAssertTrue(model.project.exportMarks.crop)
+        XCTAssertEqual(model.project.exportMarks.lineWidth,0.25)
+        model.project.exportMarks.sheetInfo = true
+        model.overlays = .artworkOnly
+        XCTAssertTrue(model.project.exportMarks.crop)
+        XCTAssertTrue(model.project.exportMarks.sheetInfo)
+        model.setMode(.perfectBound)
+        let saved = model.project
+        let restored = Workspace()
+        restored.project = saved
+        XCTAssertEqual(restored.project.binding,.perfectBound)
+        XCTAssertEqual(restored.project.exportMarks,saved.exportMarks)
+        XCTAssertEqual(Workspace().project.binding,.stepAndRepeat)
+    }
+
+    func testExportSettingsDoNotReplanOrChangePreview() async throws {
+        let model = Workspace()
+        model.project.pages = [SourcePage(number: 1,trimSize: Size(85,55))]
+        try await settle(model)
+        let overlays = model.overlays
+        let slots = model.currentSide?.slots
+        model.project.exportMarks.crop = false
+        model.project.exportMarks.color = .registration
+        XCTAssertFalse(model.planning)
+        XCTAssertEqual(model.overlays,overlays)
+        XCTAssertEqual(model.currentSide?.slots,slots)
+    }
+
     func testInitialFitWaitsForUsableScrollViewSize() {
         let scroll = PreviewScrollView(frame: .zero)
         scroll.allowsMagnification = true
@@ -91,6 +126,7 @@ final class WorkspaceTests: XCTestCase {
 
     func testRepeatModeLiveGridQuantityAndBookletGutterAreIndependent() async throws {
         let model = Workspace()
+        model.setMode(.saddleStitch)
         model.project.sheet = SheetSpec(size: Size(100,80),gutter: 6,orientation: .landscape)
         model.project.settings = ImpositionSettings(bleed: 0,cropMarkLength: 0,cropMarkOffset: 0,safeAreaInset: 1)
         model.project.pages = [1,2].map { SourcePage(number: $0,trimSize: Size(30,20)) }
