@@ -1,10 +1,10 @@
 /// All distances are millimetres. Coordinates originate at the sheet's bottom left.
-public struct Size: Equatable, Sendable {
+public struct Size: Equatable, Sendable, Codable {
     public var width: Double
     public var height: Double
     public init(_ width: Double, _ height: Double) { self.width = width; self.height = height }
 }
-public struct Point: Equatable, Sendable {
+public struct Point: Equatable, Sendable, Codable {
     public var x: Double
     public var y: Double
     public init(_ x: Double, _ y: Double) { self.x = x; self.y = y }
@@ -17,7 +17,7 @@ public struct Rect: Equatable, Sendable {
         origin = Point(x,y); size = Size(width,height)
     }
 }
-public struct Insets: Equatable, Sendable {
+public struct Insets: Equatable, Sendable, Codable {
     public var left: Double
     public var right: Double
     public var top: Double
@@ -26,13 +26,13 @@ public struct Insets: Equatable, Sendable {
         self.left = left; self.right = right; self.top = top; self.bottom = bottom
     }
 }
-public enum BindingMethod: Sendable { case saddleStitch, perfectBound, stepAndRepeat, sewn, spiral, wireO }
-public enum CoverMode: Sendable { case included, excluded, separate }
-public enum BlankPagePolicy: Sendable { case append, reject }
-public enum Orientation: Sendable { case auto, portrait, landscape }
-public enum Edge: Sendable { case left, right, top, bottom }
-public enum TurnMethod: Sendable { case sheetwise, workAndTurn, workAndTumble }
-public enum SignatureSize: Sendable {
+public enum BindingMethod: String, Codable, Sendable { case saddleStitch, perfectBound, stepAndRepeat, sewn, spiral, wireO }
+public enum CoverMode: String, Codable, Sendable { case included, excluded, separate }
+public enum BlankPagePolicy: String, Codable, Sendable { case append, reject }
+public enum Orientation: String, Codable, Sendable { case auto, portrait, landscape }
+public enum Edge: String, Codable, Sendable { case left, right, top, bottom }
+public enum TurnMethod: String, Codable, Sendable { case sheetwise, workAndTurn, workAndTumble }
+public enum SignatureSize: String, Codable, Sendable {
     case automatic, eight, sixteen, thirtyTwo
     public var pageCount: Int? {
         switch self { case .automatic: return nil; case .eight: return 8; case .sixteen: return 16; case .thirtyTwo: return 32 }
@@ -52,7 +52,7 @@ public enum SheetPreset: Sendable {
         }
     }
 }
-public struct SheetSpec: Equatable, Sendable {
+public struct SheetSpec: Equatable, Sendable, Codable {
     public var size: Size
     public var margins: Insets
     public var gripperEdge: Edge
@@ -70,7 +70,7 @@ public struct SheetSpec: Equatable, Sendable {
                   gripperWidth: gripperWidth, gutter: gutter, orientation: orientation)
     }
 }
-public struct SourcePage: Equatable, Sendable {
+public struct SourcePage: Equatable, Sendable, Codable {
     /// One-based identifier in the source document. Array order is the reading order.
     public var number: Int
     public var trimSize: Size
@@ -80,15 +80,15 @@ public struct SourcePage: Equatable, Sendable {
         self.number = number; self.trimSize = trimSize; self.availableBleed = availableBleed
     }
 }
-public enum GeneratedBleedMethod: Sendable { case automatic, mirror, solidColor }
-public enum BleedColor: Equatable, Sendable {
+public enum GeneratedBleedMethod: String, Codable, Sendable { case automatic, mirror, solidColor }
+public enum BleedColor: Equatable, Sendable, Codable {
     case rgb(Double,Double,Double)
     case cmyk(Double,Double,Double,Double)
     public var components: [Double] {
         switch self { case .rgb(let r,let g,let b): return [r,g,b]; case .cmyk(let c,let m,let y,let k): return [c,m,y,k] }
     }
 }
-public struct GeneratedBleedSettings: Equatable, Sendable {
+public struct GeneratedBleedSettings: Equatable, Sendable, Codable {
     public var enabled: Bool
     public var method: GeneratedBleedMethod
     /// Maximum per-channel range in a 0.5 mm edge strip, normalized to 0...1.
@@ -102,7 +102,7 @@ public struct GeneratedBleedSettings: Equatable, Sendable {
         tolerance.isFinite && (0...1).contains(tolerance) && color.components.allSatisfy { $0.isFinite && (0...1).contains($0) }
     }
 }
-public struct ImpositionSettings: Equatable, Sendable {
+public struct ImpositionSettings: Equatable, Sendable, Codable {
     public var bleed: Double
     public var cropMarkLength: Double
     public var cropMarkOffset: Double
@@ -119,7 +119,7 @@ public struct ImpositionSettings: Equatable, Sendable {
     }
 }
 /// Optional dimensions override the automatically fitted grid independently.
-public struct StepAndRepeatSettings: Equatable, Sendable {
+public struct StepAndRepeatSettings: Equatable, Sendable, Codable {
     public var columns: Int?
     public var rows: Int?
     public var allowRotation: Bool
@@ -163,7 +163,7 @@ public struct ExportMarks: Equatable, Sendable, Codable {
     public init() {}
     public static var none: ExportMarks { var value = ExportMarks(); value.crop = false; return value }
 }
-public struct Project: Equatable, Sendable {
+public struct Project: Equatable, Sendable, Codable {
     public var exportMarks = ExportMarks()
     public var pages: [SourcePage]
     public var blankPagePolicy: BlankPagePolicy
@@ -180,7 +180,7 @@ public struct Project: Equatable, Sendable {
         self.stepAndRepeat = stepAndRepeat
     }
 }
-public enum SideKind: Sendable { case front, back }
+public enum SideKind: String, Codable, Sendable { case front, back }
 public struct SlotReference: Equatable, Sendable {
     public var sheet: Int
     public var side: SideKind

@@ -3,7 +3,14 @@ import ImpositionCore
 
 struct InspectorView: View {
     @ObservedObject var model: Workspace
-    @State private var preset = "50×70"
+    private let presets: [String:SheetPreset] = ["A4":.a4,"A3":.a3,"SRA3":.sra3,"33×48":.cm33x48,
+        "35×50":.cm35x50,"50×70":.cm50x70,"70×100":.cm70x100]
+    private var presetBinding: Binding<String> {
+        Binding(get: { model.sheetPreset },set: { value in
+            model.sheetPreset = value
+            if let selected = presets[value] { model.project.sheet.size = selected.size }
+        })
+    }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading,spacing: 16) {
@@ -37,14 +44,10 @@ struct InspectorView: View {
                 if model.project.binding == .stepAndRepeat { repeatControls }
                 GroupBox("Baskı Tabakası") {
                     VStack(spacing: 10) {
-                        Picker("Boyut",selection: $preset) {
+                        Picker("Boyut",selection: presetBinding) {
                             ForEach(["A4","A3","SRA3","33×48","35×50","50×70","70×100","Özel"],id: \.self) { Text($0) }
-                        }.onChange(of: preset) { _,value in
-                            let presets: [String:SheetPreset] = ["A4":.a4,"A3":.a3,"SRA3":.sra3,"33×48":.cm33x48,
-                                "35×50":.cm35x50,"50×70":.cm50x70,"70×100":.cm70x100]
-                            if let selected = presets[value] { model.project.sheet.size = selected.size }
                         }
-                        if preset == "Özel" {
+                        if model.sheetPreset == "Özel" {
                             measurement("Genişlik",$model.project.sheet.size.width,range: 20...3000)
                             measurement("Yükseklik",$model.project.sheet.size.height,range: 20...3000)
                         }
@@ -71,12 +74,12 @@ struct InspectorView: View {
                 }
                 GroupBox("Taşma ve İşaretler") {
                     VStack(spacing: 10) {
-                        measurement("Taşma",$model.project.settings.bleed,range: 0...30)
-                        measurement("Kesim uzunluğu",$model.project.settings.cropMarkLength,range: 0...30)
+                        measurement("Taşma",guide(\.bleed,overlay: \.bleed),range: 0...30)
+                        measurement("Kesim uzunluğu",guide(\.cropMarkLength,overlay: \.crop),range: 0...30)
                         if model.project.settings.cropMarkLength > 0 {
-                            measurement("Kesim uzaklığı",$model.project.settings.cropMarkOffset,range: 0...30)
+                            measurement("Kesim uzaklığı",guide(\.cropMarkOffset,overlay: \.crop),range: 0...30)
                         }
-                        measurement("Güvenli alan",$model.project.settings.safeAreaInset,range: 0...30)
+                        measurement("Güvenli alan",guide(\.safeAreaInset,overlay: \.safeArea),range: 0...30)
                     }.padding(5)
                 }
                 generatedBleedControls
@@ -93,10 +96,12 @@ struct InspectorView: View {
                 }
             }.padding(14)
         }
-        .onChange(of: model.project.settings.bleed) { _,_ in model.overlays.bleed = true }
-        .onChange(of: model.project.settings.cropMarkLength) { _,_ in model.overlays.crop = true }
-        .onChange(of: model.project.settings.cropMarkOffset) { _,_ in model.overlays.crop = true }
-        .onChange(of: model.project.settings.safeAreaInset) { _,_ in model.overlays.safeArea = true }
+    }
+    private func guide(_ key: WritableKeyPath<ImpositionSettings,Double>,overlay: WritableKeyPath<PreviewOverlays,Bool>) -> Binding<Double> {
+        Binding(get: { model.project.settings[keyPath: key] },set: {
+            model.project.settings[keyPath: key] = $0
+            model.overlays[keyPath: overlay] = true
+        })
     }
     private var generatedBleedControls: some View {
         GroupBox("Üretilmiş Taşma") {

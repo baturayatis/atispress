@@ -3,7 +3,7 @@ import CoreText
 import Foundation
 import ImpositionCore
 
-public struct PDFRenderOptions: Equatable, Sendable {
+public struct PDFRenderOptions: Equatable, Sendable, Codable {
     public var crop: Bool
     public var fold: Bool
     public var bleed: Bool

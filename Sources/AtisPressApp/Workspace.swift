@@ -7,10 +7,14 @@ typealias PreviewOverlays = PDFRenderOptions
 
 @MainActor
 final class Workspace: ObservableObject {
-    @Published var project = Project(pages: [], binding: .stepAndRepeat,
-        sheet: SheetSpec(preset: .cm50x70, margins: Insets(left: 10,right: 10,top: 10,bottom: 10),
-                         gripperWidth: 10, gutter: 0)) {
+    static func newProject() -> Project {
+        Project(pages: [],binding: .stepAndRepeat,
+            sheet: SheetSpec(preset: .cm33x48,margins: Insets(left: 10,right: 10,top: 10,bottom: 10),
+                             gripperWidth: 10,gutter: 0))
+    }
+    @Published var project = Workspace.newProject() {
         didSet {
+            refreshModified()
             var previous = oldValue
             previous.exportMarks = project.exportMarks
             if previous != project { schedulePlan() }
@@ -18,12 +22,27 @@ final class Workspace: ObservableObject {
     }
     @Published private(set) var source: PDFSource?
     @Published private(set) var plan = ImpositionPlan()
-    @Published private(set) var order: [Int] = []
-    @Published var included = Set<Int>()
+    @Published private(set) var order: [Int] = [] { didSet { refreshModified() } }
+    @Published var included = Set<Int>() { didSet { refreshModified() } }
     @Published var selectedPages = Set<Int>()
     @Published var sheetIndex = 0 { didSet { warmGeneratedBleed() } }
     @Published var side: SideKind = .front { didSet { warmGeneratedBleed() } }
-    @Published var overlays = PreviewOverlays()
+    @Published var overlays = PreviewOverlays() { didSet { refreshModified() } }
+    @Published var sheetPreset = "33×48" { didSet { refreshModified() } }
+    @Published private(set) var isModified = false
+    @Published private(set) var projectURL: URL?
+    private var sourceReference: ProjectSource?
+    private var savedState: ProjectState?
+    private var restoring = false
+    private var projectAccess: ProjectFileAccess?
+    private var savePanel: NSSavePanel?
+    var closeApproved = false
+
+    private let bookmarkCreator: (URL) throws -> Data
+    init(bookmarkCreator: @escaping (URL) throws -> Data = ProjectSource.securityBookmark) {
+        self.bookmarkCreator = bookmarkCreator
+        savedState = state
+    }
     @Published var loading = false
     @Published var planning = false
     @Published var error: String?
@@ -174,15 +193,26 @@ final class Workspace: ObservableObject {
         if let filePanel { filePanel.makeKeyAndOrderFront(nil); return }
         let panel = NSOpenPanel()
         filePanel = panel
-        panel.allowedContentTypes = [.pdf]; panel.allowsMultipleSelection = false
-        panel.title = "PDF Aç"; panel.prompt = "Aç"
-        panel.message = "Önizleme için bir PDF seçin"
+        panel.allowedContentTypes = [.pdf,.projectFile]; panel.allowsMultipleSelection = false
+        panel.title = "Aç"; panel.prompt = "Aç"
+        panel.message = "AtışPress projesi (.atispress) veya PDF seçin"
         panel.begin { [weak self] response in
             self?.filePanel = nil
             if response == .OK, let url = panel.url { self?.open(url) }
         }
     }
-    func open(_ url: URL) {
+    func open(_ url: URL,confirmChanges: Bool = true) {
+        guard !loading, !exporting, (!confirmChanges || confirmDiscard()) else { return }
+        if url.pathExtension.lowercased() == "atispress" {
+            loading = true; error = nil
+            importTask = Task {
+                do { try await loadProject(at: url,relink: chooseRelink) }
+                catch is CancellationError { }
+                catch { self.error = error.localizedDescription }
+                loading = false
+            }
+            return
+        }
         importTask?.cancel()
         let token = UUID(); importRevision = token
         loading = true; error = nil
@@ -191,11 +221,14 @@ final class Workspace: ObservableObject {
                 let source = try await PDFSource.open(url)
                 guard !Task.isCancelled, importRevision == token else { return }
                 plan = ImpositionPlan()
+                projectURL = nil; projectAccess = nil
+                sourceReference = try? ProjectSource.capture(source.url,createBookmark: bookmarkCreator)
                 self.source = source
                 order = source.pages.map(\.number); included = Set(order); selectedPages = []
                 sheetIndex = 0
                 project.pages = source.pages.map(\.sourcePage)
                 loading = false
+                refreshModified()
             } catch {
                 guard !Task.isCancelled, importRevision == token else { return }
                 loading = false; self.error = error.localizedDescription
@@ -242,7 +275,7 @@ final class Workspace: ObservableObject {
             }.value
             guard !Task.isCancelled, revision == token else { return }
             plan = next; planning = false
-            sheetIndex = min(sheetIndex,max(0,next.sheets.count-1))
+            sheetIndex = max(0,min(sheetIndex,max(0,next.sheets.count-1)))
         }
     }
     func reveal(_ issue: ValidationIssue) {
@@ -261,5 +294,135 @@ final class Workspace: ObservableObject {
             }
         }
         return true
+    }
+}
+
+extension Workspace {
+    var state: ProjectState {
+        ProjectState(project: project,source: sourceReference,order: order,included: included,
+                     overlays: overlays,sheetPreset: sheetPreset,sheetIndex: sheetIndex,side: side,
+                     bookletGutter: bookletGutter,repeatGutter: repeatGutter)
+    }
+    private func refreshModified() {
+        guard !restoring else { return }
+        // Navigation is saved but does not make a project dirty by itself.
+        var current = state
+        current.sheetIndex = savedState?.sheetIndex ?? 0; current.side = savedState?.side ?? .front
+        isModified = current != savedState
+    }
+    func createNewProject() {
+        guard !loading,!exporting,confirmDiscard() else { return }
+        importTask?.cancel(); planTask?.cancel(); bleedTask?.cancel()
+        restoring = true
+        source = nil; sourceReference = nil; projectURL = nil; projectAccess = nil
+        order = []; included = []; selectedPages = []; overlays = PreviewOverlays(); sheetPreset = "33×48"
+        bookletGutter = nil; repeatGutter = 0
+        project = Self.newProject()
+        planTask?.cancel(); revision = UUID()
+        plan = ImpositionPlan(); sheetIndex = 0; side = .front
+        planning = false; exportSummary = nil; exportedFiles = []; error = nil
+        restoring = false; savedState = state; isModified = false
+        zoomFactor = 0; zoomAction += 1
+    }
+    @discardableResult
+    func saveProject(as newURL: URL? = nil) throws -> URL {
+        guard let url = newURL ?? projectURL else { throw CocoaError(.fileNoSuchFile) }
+        if let source, url.standardizedFileURL.resolvingSymlinksInPath() == source.url.standardizedFileURL.resolvingSymlinksInPath() {
+            throw ProjectFileError.sourceOverwrite
+        }
+        let access = ProjectFileAccess(url)
+        var snapshot = state
+        if let source { snapshot.source = try ProjectSource.capture(source.url,createBookmark: bookmarkCreator) }
+        try snapshot.validateSelection(pageCount: source?.pages.count ?? 0)
+        try ProjectDocument(state: snapshot).encoded().write(to: url,options: .atomic)
+        sourceReference = snapshot.source; projectURL = url; projectAccess = access
+        savedState = snapshot; refreshModified()
+        NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        return url
+    }
+    @discardableResult
+    func chooseSave(asNew: Bool = false) -> Bool {
+        NSApp?.keyWindow?.makeFirstResponder(nil)
+        guard !loading else { return false }
+        if !asNew,projectURL != nil {
+            do { try saveProject(); return true } catch { self.error = error.localizedDescription; return false }
+        }
+        guard savePanel == nil else { return false }
+        let panel = NSSavePanel(); savePanel = panel
+        defer { savePanel = nil }
+        panel.title = asNew ? "Farklı Kaydet" : "Kaydet"
+        panel.prompt = "Kaydet"; panel.allowedContentTypes = [.projectFile]
+        panel.allowsOtherFileTypes = false; panel.canCreateDirectories = true
+        panel.nameFieldStringValue = (projectURL?.deletingPathExtension().lastPathComponent ?? source?.url.deletingPathExtension().lastPathComponent ?? "Yeni Proje")+".atispress"
+        guard panel.runModal() == .OK, let url = panel.url else { return false }
+        do { try saveProject(as: url); return true } catch { self.error = error.localizedDescription; return false }
+    }
+    func confirmDiscard() -> Bool {
+        NSApp?.keyWindow?.makeFirstResponder(nil)
+        guard isModified else { return true }
+        let alert = NSAlert()
+        alert.messageText = "Projedeki değişiklikler kaydedilsin mi?"
+        alert.informativeText = "Kaydedilmeyen değişiklikler kaybolacak."
+        alert.addButton(withTitle: "Kaydet"); alert.addButton(withTitle: "Kaydetme"); alert.addButton(withTitle: "İptal")
+        let decision: UnsavedDecision
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: decision = .save
+        case .alertSecondButtonReturn: decision = .discard
+        default: decision = .cancel
+        }
+        return resolveUnsavedChanges(decision,save: { chooseSave() })
+    }
+    enum UnsavedDecision { case save, discard, cancel }
+    func resolveUnsavedChanges(_ decision: UnsavedDecision,save: () -> Bool) -> Bool {
+        switch decision {
+        case .save: return save()
+        case .discard: return true
+        case .cancel: return false
+        }
+    }
+    private func chooseRelink(_ reference: ProjectSource) -> URL? {
+        let panel = NSOpenPanel()
+        panel.title = "Kaynak PDF’yi Yeniden Bağla"; panel.prompt = "Yeniden Bağla"
+        panel.message = "Kaynak PDF bulunamadı veya değişmiş: \(reference.fileName) (\(reference.fileSize) bayt). Lütfen özgün PDF’yi seçin."
+        panel.allowedContentTypes = [.pdf]; panel.allowsMultipleSelection = false
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+    /// Loads into temporary values first: failure/cancel never replaces the active project.
+    func loadProject(at url: URL,relink: ((ProjectSource) -> URL?)? = nil) async throws {
+        let access = ProjectFileAccess(url)
+        let file = try ProjectDocument.decode(Data(contentsOf: url))
+        var snapshot = file.state
+        var loadedSource: PDFSource?
+        var relinked = false
+        if let reference = snapshot.source {
+            var sourceURL = reference.resolve()
+            if sourceURL == nil {
+                guard let relink else { throw ProjectFileError.missingSource(reference.fileName) }
+                guard let replacement = relink(reference) else { throw CancellationError() }
+                sourceURL = replacement; relinked = true
+            }
+            loadedSource = try await PDFSource.open(sourceURL!)
+            try snapshot.validateSelection(pageCount: loadedSource!.pages.count)
+            let actual = snapshot.project.pages.map { loadedSource!.pages[$0.number-1].sourcePage }
+            guard actual == snapshot.project.pages else { throw ProjectFileError.sourceMismatch }
+            snapshot.source = try ProjectSource.capture(sourceURL!,createBookmark: bookmarkCreator)
+        } else { try snapshot.validateSelection(pageCount: 0) }
+        try Task.checkCancellation()
+        restoring = true
+        planTask?.cancel(); bleedTask?.cancel(); plan = ImpositionPlan()
+        source = loadedSource; sourceReference = snapshot.source
+        projectURL = url; projectAccess = access
+        order = snapshot.order; included = snapshot.included; selectedPages = []
+        bookletGutter = snapshot.bookletGutter; repeatGutter = snapshot.repeatGutter
+        sheetPreset = snapshot.sheetPreset; project = snapshot.project; overlays = snapshot.overlays
+        sheetIndex = snapshot.sheetIndex; side = snapshot.side
+        exportSummary = nil; exportedFiles = []; error = nil
+        restoring = false
+        // Refreshing a valid/stale bookmark alone is not a user edit; relinking is.
+        savedState = snapshot; isModified = relinked
+        if relinked { savedState?.source = file.state.source }
+        schedulePlan()
+        zoomFactor = 0; zoomAction += 1
+        NSDocumentController.shared.noteNewRecentDocumentURL(url)
     }
 }

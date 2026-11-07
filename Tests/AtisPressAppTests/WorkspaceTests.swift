@@ -52,6 +52,8 @@ final class WorkspaceTests: XCTestCase {
         let model = Workspace()
         XCTAssertEqual(model.project.binding,.stepAndRepeat)
         XCTAssertEqual(model.project.sheet.gutter,0)
+        XCTAssertEqual(model.project.sheet.size,SheetPreset.cm33x48.size)
+        XCTAssertEqual(model.sheetPreset,"33×48")
         XCTAssertTrue(model.project.exportMarks.crop)
         XCTAssertEqual(model.project.exportMarks.lineWidth,0.25)
         model.project.exportMarks.sheetInfo = true
@@ -164,7 +166,7 @@ final class WorkspaceTests: XCTestCase {
         var media = CGRect(x: 0,y: 0,width: 200,height: 300)
         let context = try XCTUnwrap(CGContext(consumer: XCTUnwrap(CGDataConsumer(url: input as CFURL)),mediaBox: &media,nil))
         for _ in 0..<8 { context.beginPDFPage(nil); context.endPDFPage() }; context.closePDF()
-        model.open(input)
+        model.open(input,confirmChanges: false)
         for _ in 0..<200 {
             if model.source != nil { break }
             try await Task.sleep(for: .milliseconds(10))
@@ -207,7 +209,7 @@ final class WorkspaceTests: XCTestCase {
         context.closePDF()
         model.project.settings.generatedBleed.enabled = true
         model.setMode(.stepAndRepeat)
-        model.open(input)
+        model.open(input,confirmChanges: false)
         for _ in 0..<300 {
             if model.source != nil && !model.planning && !model.samplingBleed { break }
             try await Task.sleep(for: .milliseconds(10))

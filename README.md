@@ -120,6 +120,8 @@ Sources/
     WorkspaceView.swift
     InspectorView.swift
     PreviewCanvas.swift
+    ProjectDocument.swift
+    ProjectWindowControl.swift
 Tests/ImpositionCoreTests/PlannerTests.swift
 Tests/ImpositionCoreTests/StepAndRepeatTests.swift
 Tests/ImpositionCoreTests/ArtworkClipTests.swift
@@ -128,6 +130,7 @@ Tests/PDFEngineTests/PDFSourceTests.swift
 Tests/PDFEngineTests/PDFExportTests.swift
 Tests/PDFEngineTests/GeneratedBleedTests.swift
 Tests/AtisPressAppTests/WorkspaceTests.swift
+Tests/AtisPressAppTests/ProjectDocumentTests.swift
 ```
 
 ## Run the live preview
@@ -147,7 +150,7 @@ blocks LaunchServices connections, so interactive GUI checks used an ad hoc loca
 bundle containing the exact same executable, launched through the desktop tools.
 On a normal Mac terminal, use the `swift run` command above.
 
-Open with **PDF Aç… / ⌘O**, the toolbar, or drop a PDF anywhere in the workspace.
+Open with **Dosya → Aç… / ⌘O**, the toolbar, or drop a PDF anywhere in the workspace.
 A new PDF replaces the previous source. Checkboxes control inclusion; select rows
 with ⌘/⇧ and move with ↑/↓ toolbar buttons or native List drag reordering. Source
 numbers retain their original PDF identity after a move. Select a sheet in the
@@ -202,8 +205,8 @@ Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/
 
 ### Verification and current limits
 
-`swift test --disable-sandbox`: **54 XCTest tests, zero failures** (26 core,
-21 PDF reading/drawing/export, 7 workspace/drop/export/initial-fit regression tests). GUI smoke checks
+`swift test --disable-sandbox`: **66 XCTest tests, zero failures** (26 core,
+24 PDF reading/drawing/export, 16 workspace/project persistence regression tests). GUI smoke checks
 used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
 navigation, page selection/reordering/exclusion, binding change, front/back,
 shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
@@ -216,7 +219,7 @@ shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
 - Native file-dialog chrome and standard system commands follow the macOS language.
 - Existing core limits remain: regular-grid packing, one explicit fold sequence per
   signature size, included covers only, no creep/spine correction, unsupported bindings.
-- Standard PDF export is implemented; printing, persistence and installer distribution are not.
+- Standard PDF export and versioned project save/open are implemented; printing and installer distribution are not.
 
 ## Step & repeat — Tekrarlı yerleşim
 
@@ -369,8 +372,8 @@ Xcode, choose **AtisPressApp / My Mac**, and Run. Import the source and select
   safe-area lines within artwork and full-cut portions crossing artwork are omitted.
   Labels and sheet info are also clipped to free space and can be partially hidden
   when margins/gutters are too small. Full cuts therefore do not print over artwork.
-- There is still no project file save/load feature. Project-owned choices and mode
-  are retained in memory; cross-launch persistence awaits project serialization.
+- Project-owned choices, mode and sheet values are saved in `.atispress` files
+  and restored across launches (see Project save/open below).
 
 ### Bleed-aware drawing
 
@@ -501,3 +504,52 @@ retention, and export settings changing without replanning or changing preview.
 The existing artwork, generated bleed, vector export, ordering, cancellation and
 workspace regression tests remain in the suite. The native dialog layout has not
 received an interactive GUI smoke check for this change.
+
+## Project save/open — .atispress
+
+Launch with `swift run --disable-sandbox AtisPressApp` (or open `Package.swift`
+in Xcode and run **AtisPressApp / My Mac**). Launch and **Dosya → Yeni Proje / ⌘N**
+start in **Tekrarlı (kartvizit/düz iş)** with **33×48 cm (330×480 mm)** stock.
+Opening an existing project preserves its own mode, preset and custom dimensions.
+
+- **Dosya → Aç… / ⌘O** accepts PDF and `.atispress` files. The toolbar and file
+  drop also accept either type; a command-line argument can be either file type.
+- **Kaydet / ⌘S** saves the current project; **Farklı Kaydet… / ⇧⌘S** writes a new
+  project and switches subsequent saves to it. Source PDFs cannot be overwritten.
+  Project writes are atomic. Empty projects can also be saved.
+- Version 1 is readable JSON with top-level `version: 1` and `state`. `state.project`
+  contains ordered selected source-page metadata, binding/layout mode, blank-page
+  and cover policies, sheet size/orientation/margins/gripper/gutter, every imposition
+  setting, generated bleed settings/color, repeat grid/rotation/quantity, and export
+  mark choices. Other state fields retain all-page order, included pages, preview
+  overlays, sheet preset, selected sheet/face, and the separately remembered booklet
+  and repeat gutters. No calculated plan is persisted: the same planner regenerates it.
+- `state.source` contains the absolute PDF path, base64 security-scoped read-only
+  bookmark, filename and byte size. Bookmarks can follow moved PDFs; the original
+  path is a fallback. Missing/inaccessible files or a changed byte size trigger
+  **Kaynak PDF’yi Yeniden Bağla**. Relinking checks page count and selected-page
+  trim/bleed metadata before applying the project, and marks it modified for saving.
+- Unknown schema versions and inconsistent page selections are rejected. A failed
+  or canceled open leaves the current project intact. Preview overlay switches are
+  restored exactly; loading inspector values does not auto-enable guide layers.
+- Setting, selection, order, source and overlay edits set the native window's modified
+  indicator. Closing/quitting, New and opening another file prompt **Kaydet / Kaydetme /
+  İptal**. Canceling or failing to save blocks the pending action. Sheet/face navigation
+  alone does not count as an edit, but is included when saving.
+
+Verification: `swift build --disable-sandbox` and `swift test --disable-sandbox`.
+The suite includes JSON roundtrips/version rejection, defaults, exact restored plan
+and overlay equality, identical rendered PDF exports before/after reopening, missing/changed PDF references, canceled and successful relink,
+Save As, failed-write protection and save/discard/cancel decision coverage.
+The restricted XCTest host cannot use ScopedBookmarksAgent, so persistence tests
+inject native ordinary bookmark creation; production always requests security-scoped
+bookmarks. A desktop smoke test of the built executable verified real security-scoped
+bookmark saving, Save As, New defaults, saved-preset restoration, the Turkish relink
+dialog and restored preview, and the native close/cancel prompt.
+
+Limits: one active project/source PDF; PDFs are linked rather than embedded. The
+identity check uses filename/size and selected page geometry, not a content hash.
+Zoom/pan and transient row highlights reset on open; saved artwork placement,
+preview layers and sheet/face are restored. There is no autosave, crash recovery,
+project-version migration beyond v1, or packaged Finder file association/installer.
+Use the app's Open command or a command-line path with the Swift package build.
