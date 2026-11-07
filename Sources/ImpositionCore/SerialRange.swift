@@ -35,12 +35,14 @@ extension SerialField {
     }
     public func adjustedDigits(quantity: Int) -> SerialField {
         var field = self
+        guard usesSerialNumber else { return field }
         if !digitsAreManual,let required = requiredDigits(quantity: quantity),required > digits {
             field.digits = required; field.autoIncreasedDigits = required
         }
         return field
     }
     public func digitNote(quantity: Int) -> String? {
+        guard usesSerialNumber else { return nil }
         guard quantity > 0 else { return "Adet en az 1 olmalıdır." }
         guard let required = requiredDigits(quantity: quantity) else { return SerialRangeError.overflow.localizedDescription }
         if digitsAreManual,required > digits {
@@ -51,6 +53,7 @@ extension SerialField {
     }
     public func rangeDescription(quantity: Int,sheetCount: Int) -> String {
         guard quantity > 0 else { return "Numara aralığı: Adet en az 1 olmalıdır." }
+        if !usesSerialNumber { return "Sabit kod: \(codeSettings.template.prefix(256)) (\(quantity) adet, \(sheetCount) tabaka)" }
         let field = adjustedDigits(quantity: quantity)
         guard quantity > 0,let first = field.text(at: 0),let last = field.text(at: quantity-1) else {
             return "Numara aralığı: hesaplanamadı — \(SerialRangeError.overflow.localizedDescription)"

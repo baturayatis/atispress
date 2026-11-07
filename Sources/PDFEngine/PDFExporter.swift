@@ -48,7 +48,7 @@ public enum PDFExporter {
         for sheet in plan.sheets { try validate(sheet) }
         let date = Date()
         let dateLabel = marks.sheetInfo && sheetInfo.date ? PDFSheetInfoContext.formattedDate(date) : ""
-        var notes: [String] = []
+        var notes: [String] = PDFSerialCodeValidation.warnings(plan: plan)
         let keepBlankBacks = plan.hasBackContent && includeBlankBacks
         var sheetCount = 0, pageCount = 0
         var omittedBacks = false
@@ -195,7 +195,7 @@ public enum PDFExporter {
         if let serials = sheet.serialPlan {
             guard serials.quantity > 0,(1...20_000).contains(serials.capacity),
                   serials.sheetCount == sheet.repeatCount,serials.fields.count <= 100,
-                  serials.fields.allSatisfy({ $0.isValid && $0.value(at: serials.quantity-1) != nil }) else {
+                  serials.fields.allSatisfy({ $0.isValid && (!$0.usesSerialNumber || $0.value(at: serials.quantity-1) != nil) }) else {
                 throw PDFExportError.invalidGeometry
             }
         }

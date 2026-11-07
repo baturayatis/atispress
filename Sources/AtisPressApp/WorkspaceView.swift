@@ -173,6 +173,7 @@ struct WorkspaceView: View {
                     description: Text("Sayfa seçimini ve aşağıdaki doğrulama mesajlarını kontrol edin."))
                     .frame(maxWidth: .infinity,maxHeight: .infinity)
             }
+            ForEach(model.serialCodeWarnings,id: \.self) { Text($0).font(.caption).foregroundStyle(.orange).padding(.horizontal,10) }
             ForEach(model.previewControlWarnings,id: \.self) { Text($0).font(.caption).foregroundStyle(.orange).padding(.horizontal,10) }
             if let summary = model.project.autoLayout?.summary { Text(summary).font(.caption).padding(.horizontal,10).padding(.vertical,4) }
             Text("Kaydır: izleme dörtgeni / tekerlek · Yakınlaştır: kıstır · Taşı: sürükle · Turuncu: kenar payı / maşa")

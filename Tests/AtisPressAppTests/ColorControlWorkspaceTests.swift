@@ -67,7 +67,7 @@ final class ColorControlWorkspaceTests: XCTestCase {
         try await settle(workspace)
         let url = folder.appendingPathComponent("controls.atispress")
         try workspace.saveProject(as: url)
-        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf: url)).version,7)
+        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf: url)).version,ProjectDocument.currentVersion)
         let restored = model(); try await restored.loadProject(at: url); try await settle(restored)
         XCTAssertEqual(restored.project,workspace.project)
         XCTAssertEqual(restored.overlays,workspace.overlays)

@@ -3,6 +3,7 @@ import Foundation
 public struct SerialField: Identifiable, Equatable, Codable, Sendable {
     public enum Mode: String, Codable, Sendable { case sequential, stack }
     public enum Sides: String, Codable, Sendable { case front, back, both }
+    public var code: SerialCodeSettings? = nil
     public var id: UUID
     /// Zero-based page-pair job; numbering restarts independently for each job.
     public var jobIndex: Int
@@ -55,7 +56,7 @@ public struct SerialField: Identifiable, Equatable, Codable, Sendable {
         return prefix+(value < 0 ? "-" : "")+String(repeating: "0",count: max(0,min(32,digits)-number.count))+number+suffix
     }
     public var isValid: Bool {
-        jobIndex >= 0 && (0...32).contains(digits) && !font.isEmpty && font.count <= 200 &&
+        (kind == .text || codeSettings.isValid) && jobIndex >= 0 && (0...32).contains(digits) && !font.isEmpty && font.count <= 200 &&
         prefix.count <= 256 && suffix.count <= 256 && size.isFinite && (1...500).contains(size) &&
         rotation.isFinite && abs(rotation) <= 3600 && position.x.isFinite && position.y.isFinite &&
         abs(position.x) <= 1_000_000 && abs(position.y) <= 1_000_000 &&
@@ -69,6 +70,9 @@ public struct SerialPlacement: Equatable, Sendable {
     public var index: Int
     public var text: String
     public var position: Point { field.position }
+    public init(field: SerialField,slotIndex: Int,index: Int,text: String) {
+        self.field = field; self.slotIndex = slotIndex; self.index = index; self.text = text
+    }
 }
 /// A compact plan recipe; physical repetitions are evaluated without allocating quantity-sized arrays.
 public struct SerialNumberPlan: Equatable, Sendable {
@@ -96,7 +100,7 @@ public struct SerialNumberPlan: Equatable, Sendable {
         return fields.compactMap { field in
             guard field.sides == .both || (field.sides == .front ? itemFront : !itemFront),
                   let index = ordinal(copy: copy,repetition: repetition,mode: field.mode),
-                  let text = field.text(at: index) else { return nil }
+                  let text = field.text(at: index) ?? (field.usesSerialNumber ? nil : "") else { return nil }
             return SerialPlacement(field: field,slotIndex: slotIndex,index: index,text: text)
         }
     }
@@ -106,6 +110,7 @@ public struct SerialNumberPlan: Equatable, Sendable {
     public func range(field: SerialField,repetition: Int) -> String? {
         guard repetition >= 0,repetition < sheetCount,capacity > 0 else { return nil }
         guard let first = ordinal(copy: 0,repetition: repetition,mode: field.mode) else { return nil }
+        if !field.usesSerialNumber { return field.codeSettings.template }
         let last = field.mode == .sequential ? first+min(capacity-1,quantity-1-first) :
             first+min(capacity-1,(quantity-1-first)/sheetCount)*sheetCount
         guard let a = field.text(at: first), let b = field.text(at: last) else { return nil }
@@ -130,14 +135,14 @@ extension ImpositionPlanner {
         }
         guard project.serialFields.count <= 100,Set(project.serialFields.map(\.id)).count == project.serialFields.count,
               project.serialFields.allSatisfy(\.isValid) else {
-            plan.issues.append(ValidationIssue(.error,.serialNumbering,"Seri numara alanları geçersiz (en fazla 100 alan; boyut 1–500 pt).")); return
+            plan.issues.append(ValidationIssue(.error,.serialNumbering,"Seri alan ayarları geçersiz: en fazla 100 alan, yazı boyutu 1–500 pt, pozitif kod ölçüsü ve sessiz alan 0–1024 modül olmalıdır.")); return
         }
         for index in plan.sheets.indices {
             guard let layout = plan.sheets[index].repeatLayout else { continue }
             let fields = project.serialFields.filter { $0.jobIndex == layout.jobIndex }.map { $0.adjustedDigits(quantity: layout.numberedQuantity ?? layout.requestedQuantity ?? layout.copiesPerSheet) }
             guard !fields.isEmpty else { continue }
             let count = layout.numberedQuantity ?? layout.requestedQuantity ?? layout.copiesPerSheet
-            guard fields.allSatisfy({ $0.value(at: count-1) != nil }) else {
+            guard fields.allSatisfy({ !$0.usesSerialNumber || $0.value(at: count-1) != nil }) else {
                 plan.issues.append(ValidationIssue(.error,.serialNumbering,"Seri numara aralığı 64 bit sayı sınırını aşıyor.")); continue
             }
             plan.sheets[index].serialPlan = SerialNumberPlan(fields: fields,quantity: count,capacity: layout.copiesPerSheet,

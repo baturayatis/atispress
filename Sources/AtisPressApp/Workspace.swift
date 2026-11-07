@@ -794,3 +794,7 @@ extension Workspace {
         return PDFColorControlRenderer.geometry(sheet: sheet,settings: previewControlSettings,kind: side).warnings
     }
 }
+
+extension Workspace {
+    var serialCodeWarnings: [String] { PDFSerialCodeValidation.warnings(plan: plan) }
+}

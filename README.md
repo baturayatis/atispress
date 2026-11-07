@@ -286,8 +286,8 @@ Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/
 
 ### Verification and current limits
 
-`swift test --disable-sandbox`: **142 XCTest tests, zero failures** (56 core,
-43 PDF reading/drawing/export, 43 workspace/project persistence regression tests). GUI smoke checks
+`swift test --disable-sandbox`: **151 XCTest tests, zero failures** (58 core,
+47 PDF reading/drawing/export, 46 workspace/project persistence regression tests). GUI smoke checks
 used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
 navigation, page selection/reordering/exclusion, binding change, front/back,
 shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
@@ -601,7 +601,7 @@ Opening an existing project preserves its own mode, preset and custom dimensions
 - **Kaydet / ⌘S** saves the current project; **Farklı Kaydet… / ⇧⌘S** writes a new
   project and switches subsequent saves to it. Source PDFs cannot be overwritten.
   Project writes are atomic. Empty projects can also be saved.
-- Version 7 is readable JSON with top-level `version: 7` and `state`; version 1–6
+- Version 8 is readable JSON with top-level `version: 8` and `state`; version 1–7
   projects remain readable. Missing serial fields default to empty; old projects
   retain their saved layout values when opened. `state.project`
   contains ordered selected source-page metadata, binding/layout mode, blank-page
@@ -638,7 +638,7 @@ Limits: one active project/source PDF; PDFs are linked rather than embedded. The
 identity check uses filename/size and selected page geometry, not a content hash.
 Zoom/pan and transient row highlights reset on open; saved artwork placement,
 preview layers and sheet/face are restored. There is no autosave, crash recovery,
-project-version migration beyond v1–6 → v7, or an installer. The app bundle declares Finder file association as described above.
+project-version migration beyond v1–7 → v8, or an installer. The app bundle declares Finder file association as described above.
 Use the app's Open command or a command-line path with the Swift package build.
 
 ## Serial numbering — Seri Numara
@@ -770,7 +770,7 @@ button calculations run off the main actor; duplicate page-pair dimensions are
 probed once. Visible generated-bleed samples are prepared before publishing the
 new import. Serial numbering and PDF export consume the resulting plan normally.
 
-`Project.autoLayout` is saved in schema v7 (including sheet-selection policy) with each field's ownership, production,
+`Project.autoLayout` is saved in schema v8 (including sheet-selection policy) with each field's ownership, production,
 level, summary, sheet-clipping policy and standard-paper tolerance. v1/v2 projects
 without this metadata are restored as saved, and their existing settings are
 preserved on PDF replacement until the explicit Auto button is used. The version
@@ -821,7 +821,7 @@ Generated bleed suppresses missing-bleed warnings when enabled and needed.
 Displayed identical warnings are grouped with counts and compressed source-page
 ranges, e.g. **12 sayfada taşma payı eksik: 1-12**; detailed slot references remain
 available internally. Existing preview/export alignment and project roundtrip
-regressions remain active. Run `swift test --disable-sandbox` for all 142 tests.
+regressions remain active. Run `swift test --disable-sandbox` for all 151 tests.
 Native interactive smoke testing has not been rerun for these controls.
 
 ## Empty reverse export and repeat arrangement
@@ -1031,8 +1031,84 @@ front/back alignment, target/patch sizes, no-room warnings and partial placement
 info-strip clearance, independent preview/export output, a real AppKit preview
 pixel change, production defaults/manual overrides, and version-7 roundtrip with
 version-6 compatibility. All prior tests remain; the active-schema assertion now
-uses `ProjectDocument.currentVersion`. **142 tests pass.** Interactive desktop
+uses `ProjectDocument.currentVersion`. That feature set passed 142 tests; the current suite has 151. Interactive desktop
 smoke testing has not been rerun; preview drawing is exercised in XCTest.
+
+```sh
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+./scripts/build_app.sh
+open "dist/AtışPress.app"
+```
+
+## QR / Code 128 serial fields
+
+In **Seri Numara → Tür**, choose **Metin**, **QR kod** or **Barkod (Code 128)**.
+Existing projects/fields remain Metin. **İçerik şablonu** defaults to `{no}`;
+all occurrences are replaced with the complete formatted number, including
+prefix, zero padding, sign and suffix. Example: start 7, five digits, prefix `K-`
+and suffix `-X` expands `https://site.com/k/{no}` to
+`https://site.com/k/K-00007-X`. A template without `{no}` is static: the same
+payload is printed throughout the field's normal quantity/fire copy range.
+Static codes do not depend on counter arithmetic or overflow. Sıralı and
+**Yığın (kes ve istifle)** retain the existing lazy ordinal plan.
+
+Code settings are millimetres: QR defaults to a 25 mm square; a newly selected
+Code 128 defaults to 50 mm width and 15 mm bar height. Width includes the quiet
+zone. QR correction offers **L / M / Q / H**, default **M**. **Sessiz alan** defaults
+to **4 modules on all four QR edges** and **10 modules on the left/right of Code
+128** (editable range 0–1024 modules). The position is the lower-left corner of this outer quiet-zone box;
+text fields retain their baseline anchor. Rotation, item rotation, face choices,
+1 mm drag snapping and field duplication use the existing placement path.
+
+**Altına okunabilir metin yaz** adds the expanded payload below the code, using
+the field's selected font and its separate point-size setting (default 8 pt).
+The code and text rotate together. Codes use CMYK, default K100; selecting a code
+type from an RGB text field initializes its color to K100. An opaque CMYK-white
+knockout background protects the quiet zone and readable-text area from underlying
+artwork. Everything remains clipped to the item's trim.
+
+Only Apple CoreImage's **CIQRCodeGenerator** and **CICode128BarcodeGenerator**
+encode payloads. The generator bitmap is read at native module resolution,
+normalized to a top-row-first matrix, and stripped of its built-in padding.
+Explicit quiet-zone geometry is then applied in mm. Preview and PDF share
+**filled vector rectangles** for contiguous dark module runs; neither embeds the
+generator image. Optional readable text uses CoreText. Source PDF images remain
+source images, as before.
+
+A cache is configured for 256 results with a 16 MiB cost budget. Codes are
+generated for visible/exported copies; the sheet list still calculates number
+ranges without generating matrices. Validation probes field endpoints rather
+than expanding a run. A 100,000-copy job retains just its grid and numbering
+recipe. Duplicate/static payloads reuse their matrices. For variable-width manual
+number formats, endpoint warnings are a useful check rather than certification
+of every intermediate symbol.
+
+Turkish warnings appear below the preview and in export notes for **QR modules
+below 0.33 mm**, **Code 128 narrow bars below 0.25 mm**, content requiring a wider
+code, insufficient quiet zones, generation/capacity failures, and rotated code or
+readable text extending beyond trim. Too-long/unencodable codes are omitted with
+a warning; artwork and valid serial fields still export. Code 128 accepts ASCII
+without lossy conversion; use QR (UTF-8 bytes) for other characters. QR and Code
+128 remain subject to Apple's encoder capacities (requests above 4096 QR bytes
+or 1024 Code 128 bytes are rejected before generation). Actual scan performance
+also depends on contrast, stock, print process and reader; hardware scanning has
+not been verified. The restricted test host cannot run Apple's Vision decode
+backend, so no successful decoder check is claimed.
+
+Schema **8** saves the optional `SerialField.code` object: kind, template, width,
+height, QR correction, quiet-zone override, readable-text flag and text size.
+Existing font/color/position/rotation/mode/sides remain shared serial settings.
+Versions 1–7 still open with missing code settings interpreted as text.
+
+Nine new tests cover known matrices against the Apple generators and QR finder
+orientation, full `{no}` substitution/static content, correction/quiet-zone and
+size/trim warnings, 100,000-copy sequential/stack sampling, exact dark/white module
+cells in rendered PDFs, readable payload text, no image XObjects in vector-fixture
+exports, rotated click/drag snapping, live edits/duplication without repacking,
+and complete schema-8 roundtrip with version-7 compatibility. **151 tests pass**;
+all earlier tests remain, with the active-schema assertion updated to the current
+version. Interactive desktop UI and physical scanner smoke testing were not rerun.
 
 ```sh
 swift run --disable-sandbox AtisPressApp

@@ -3,7 +3,8 @@ import CoreText
 import Foundation
 import ImpositionCore
 
-/// Vector serial text shared by preview, hit testing and export, in item-local mm.
+/// Vector serial fields shared by preview, hit testing and export, in item-local mm.
+/// The existing public text overlay also dispatches QR/Code 128 module geometry.
 public enum PDFSerialDrawing {
     private static func line(_ placement: SerialPlacement) -> CTLine {
         let font = CTFontCreateWithName(placement.field.font as CFString,
@@ -18,17 +19,20 @@ public enum PDFSerialDrawing {
             .rotated(by: -placement.field.rotation * .pi/180)
     }
     public static func bounds(_ placement: SerialPlacement) -> CGRect {
+        if placement.field.kind != .text { return PDFSerialCodeDrawing.bounds(placement) }
         let line = line(placement)
         var ascent: CGFloat = 0,descent: CGFloat = 0
         let width = CTLineGetTypographicBounds(line,&ascent,&descent,nil)
         return CGRect(x: 0,y: -descent,width: max(width,0.5),height: ascent+descent)
     }
     public static func glyphBounds(_ placement: SerialPlacement) -> CGRect {
-        CTLineGetBoundsWithOptions(line(placement),.useGlyphPathBounds)
+        if placement.field.kind != .text { return PDFSerialCodeDrawing.bounds(placement) }
+        return CTLineGetBoundsWithOptions(line(placement),.useGlyphPathBounds)
     }
     public static func draw(_ placement: SerialPlacement,in context: CGContext) {
         context.saveGState(); defer { context.restoreGState() }
         context.concatenate(transform(placement))
+        if placement.field.kind != .text { PDFSerialCodeDrawing.drawLocal(placement,in: context); return }
         let values = placement.field.color.components
         let space = values.count == 4 ? CGColorSpaceCreateDeviceCMYK() : CGColorSpaceCreateDeviceRGB()
         context.setFillColor(CGColor(colorSpace: space,components: (values+[1]).map { CGFloat($0) })!)
