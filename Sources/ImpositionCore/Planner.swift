@@ -16,7 +16,11 @@ public enum ImpositionPlanner {
     }
     /// Produces the sole geometry source for both preview and future PDF export.
     public static func plan(_ project: Project) -> ImpositionPlan {
+        if let auto = project.autoLayout, !auto.trimTolerance.isFinite || !(0...1).contains(auto.trimTolerance) {
+            return ImpositionPlan(issues: [ValidationIssue(.error,.invalidInput,"Tam sayfa toleransı 0–1 mm aralığında olmalıdır.")])
+        }
         var result = layoutPlan(project)
+        addFitDiagnostics(project,to: &result)
         applySerials(project,to: &result)
         return result
     }
@@ -61,7 +65,7 @@ public enum ImpositionPlanner {
             // Minimize press sheets, then padding, then prefer the larger signature.
             let choices = [8, 16, 32].compactMap { count -> (Int, Int, Int)? in
                 let grid = signatureGrid(count)
-                guard let fit = bestLayout(spec, trim, grid.0, grid.1, s) else { return nil }
+                guard let fit = bestLayout(spec, trim, grid.0, grid.1, s,clipBleed: project.autoLayout?.clipBleedToSheet == true) else { return nil }
                 let units = (project.pages.count + count - 1) / count
                 return ((units + fit.capacity - 1) / fit.capacity, units * count - project.pages.count, count)
             }.sorted { a, b in a.0 != b.0 ? a.0 < b.0 : (a.1 != b.1 ? a.1 < b.1 : a.2 > b.2) }
@@ -93,10 +97,10 @@ public enum ImpositionPlanner {
             }
         }
         guard let first = units.first,
-              let layout = bestLayout(spec, trim, first.columns, first.rows, s) else {
+              let layout = bestLayout(spec, trim, first.columns, first.rows, s,clipBleed: project.autoLayout?.clipBleedToSheet == true) else {
             error(.exceedsSheet, "Forma ve baskı işaretleri tabakaya sığmıyor."); return result
         }
-        let reserve = max(s.bleed, s.cropMarkOffset + s.cropMarkLength)
+        let reserve = project.autoLayout?.clipBleedToSheet == true ? max(0,s.cropMarkLength > 0 ? s.cropMarkOffset+s.cropMarkLength : 0) : max(s.bleed,s.cropMarkOffset+s.cropMarkLength)
         for offset in stride(from: 0, to: units.count, by: layout.capacity) {
             var front = Side(); var back = Side()
             for index in 0..<min(layout.capacity, units.count - offset) {
@@ -162,6 +166,19 @@ public enum ImpositionPlanner {
             if s.turnMethod != .sheetwise {
                 back.slots = front.slots.map { reflected($0, layout.size, s.turnMethod) }
                 back.marks = front.marks.map { reflectMark($0, layout.size, s.turnMethod) }
+            }
+            if project.autoLayout?.clipBleedToSheet == true {
+                func clipped(_ side: Side) -> Side {
+                    var side = side
+                    for i in side.slots.indices {
+                        guard let r = side.slots[i].artworkClip else { continue }
+                        let x = max(0,r.origin.x),y = max(0,r.origin.y)
+                        side.slots[i].artworkClip = Rect(x: x,y: y,width: min(layout.size.width,r.origin.x+r.size.width)-x,
+                                                       height: min(layout.size.height,r.origin.y+r.size.height)-y)
+                    }
+                    return side
+                }
+                front = clipped(front); back = clipped(back)
             }
             front.marks += front.slots.flatMap { marks($0, s) }
             back.marks += back.slots.flatMap { marks($0, s) }
@@ -248,8 +265,8 @@ public enum ImpositionPlanner {
         }.sorted { $0.y == $1.y ? $0.x < $1.x : $0.y < $1.y }
         return Unit(columns: columns, rows: rows, front: front, back: back)
     }
-    private static func bestLayout(_ spec: SheetSpec, _ trim: Size, _ columns: Int, _ rows: Int, _ s: ImpositionSettings) -> Layout? {
-        let reserve = max(s.bleed, s.cropMarkOffset + s.cropMarkLength)
+    private static func bestLayout(_ spec: SheetSpec, _ trim: Size, _ columns: Int, _ rows: Int, _ s: ImpositionSettings,clipBleed: Bool = false) -> Layout? {
+        let reserve = clipBleed ? max(0,s.cropMarkLength > 0 ? s.cropMarkOffset+s.cropMarkLength : 0) : max(s.bleed,s.cropMarkOffset+s.cropMarkLength)
         let raw = Size(Double(columns)*trim.width + Double(columns-1)*spec.gutter + 2*reserve,
                        Double(rows)*trim.height + Double(rows-1)*spec.gutter + 2*reserve)
         guard raw.width.isFinite, raw.height.isFinite else { return nil }

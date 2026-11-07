@@ -34,6 +34,7 @@ struct WorkspaceView: View {
             } label: { Label("PDF Dışa Aktar",systemImage: "square.and.arrow.up") }
                 .disabled(!model.canExportNow).help("PDF Dışa Aktar").accessibilityLabel("PDF Dışa Aktar")
             if model.samplingBleed { ProgressView().controlSize(.small); Text("Taşma örnekleniyor…") }
+            Button("Otomatik düzenle") { model.autoArrange() }.disabled(model.source == nil || model.loading || model.autoArranging || model.exporting)
             if model.planning { ProgressView().controlSize(.small); Text("Hesaplanıyor…") }
         }
     }
@@ -66,10 +67,10 @@ struct WorkspaceView: View {
                     .font(.caption).foregroundStyle(.secondary).padding(8)
             }.frame(minHeight: 250)
             VStack(spacing: 0) {
-                HStack { Text(model.project.binding == .stepAndRepeat ? "Tekrarlı İşler" : "Tabakalar / Formalar").font(.headline); Spacer(); Text("\(model.plan.sheets.count)") }.padding(12)
+                HStack { Text(model.project.binding == .stepAndRepeat ? "Tekrarlı İşler" : "Tabakalar / Formalar").font(.headline); Spacer(); Text("\(model.displaySheets.count)") }.padding(12)
                 List(selection: $model.sheetIndex) {
-                    ForEach(model.plan.sheets.indices,id: \.self) { index in
-                        let sheet = model.plan.sheets[index]
+                    ForEach(model.displaySheets.indices,id: \.self) { index in
+                        let sheet = model.displaySheets[index]
                         let signatures = Set(sheet.front.slots.map(\.signature)).sorted().map { String($0+1) }.joined(separator: ", ")
                         VStack(alignment: .leading,spacing: 4) {
                             if let layout = sheet.repeatLayout {
@@ -159,6 +160,7 @@ struct WorkspaceView: View {
                     description: Text(model.source == nil ? "PDF dosyasını buraya sürükleyin veya ⌘O ile açın." : "Sayfa seçimini ve aşağıdaki doğrulama mesajlarını kontrol edin."))
                     .frame(maxWidth: .infinity,maxHeight: .infinity)
             }
+            if let summary = model.project.autoLayout?.summary { Text(summary).font(.caption).padding(.horizontal,10).padding(.vertical,4) }
             Text("Kaydır: izleme dörtgeni / tekerlek · Yakınlaştır: kıstır · Taşı: sürükle · Turuncu: kenar payı / maşa")
                 .font(.caption).foregroundStyle(.secondary).padding(6)
             if let summary = model.exportSummary {

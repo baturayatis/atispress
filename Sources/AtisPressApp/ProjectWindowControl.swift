@@ -30,7 +30,7 @@ struct ProjectWindowControl: NSViewRepresentable {
             window?.title = (model.projectURL?.lastPathComponent ?? "Yeni Proje")+" — AtışPress"
         }
         func windowShouldClose(_ sender: NSWindow) -> Bool {
-            guard !model.loading,!model.exporting,model.confirmDiscard() else { return false }
+            guard !model.loading,!model.exporting,!model.autoArranging,model.confirmDiscard() else { return false }
             if let original,original.windowShouldClose?(sender) == false { return false }
             model.closeApproved = true
             return true

@@ -8,18 +8,31 @@ typealias PreviewOverlays = PDFRenderOptions
 @MainActor
 final class Workspace: ObservableObject {
     static func newProject() -> Project {
-        Project(pages: [],binding: .stepAndRepeat,
+        var p = Project(pages: [],binding: .stepAndRepeat,
             sheet: SheetSpec(preset: .cm33x48,margins: Insets(left: 10,right: 10,top: 10,bottom: 10),
                              gripperWidth: 10,gutter: 0))
+        p.autoLayout = AutoLayoutSettings()
+        return p
     }
     @Published var project = Workspace.newProject() {
         didSet {
+            if !restoring && !applyingAutomatic && !trackingManual {
+                let changed = AutoLayoutField.changes(from: oldValue,to: project)
+                if !changed.isEmpty {
+                    var state = project.autoLayout ?? .legacy
+                    state.manualFields.formUnion(changed); state.automaticFields.subtract(changed); state.summary = nil
+                    trackingManual = true; project.autoLayout = state; trackingManual = false
+                }
+            }
             refreshModified()
+            if applyingAutomatic { return }
             var previous = oldValue
             previous.exportMarks = project.exportMarks
+            let clipChanged = previous.autoLayout?.clipBleedToSheet != project.autoLayout?.clipBleedToSheet || previous.autoLayout?.trimTolerance != project.autoLayout?.trimTolerance
+            previous.autoLayout = project.autoLayout
             let serialChanged = previous.serialFields != project.serialFields
             previous.serialFields = project.serialFields
-            if previous != project || (serialChanged && planning) { schedulePlan() }
+            if previous != project || clipChanged || (serialChanged && planning) { schedulePlan() }
             else if serialChanged { plan = ImpositionPlanner.updatingSerials(in: plan,project: project) }
         }
     }
@@ -42,6 +55,10 @@ final class Workspace: ObservableObject {
     private var sourceReference: ProjectSource?
     private var savedState: ProjectState?
     private var restoring = false
+    private var applyingAutomatic = false
+    private var trackingManual = false
+    @Published private(set) var autoArranging = false
+    private var autoTask: Task<Void,Never>?
     private var projectAccess: ProjectFileAccess?
     private var savePanel: NSSavePanel?
     var closeApproved = false
@@ -74,7 +91,8 @@ final class Workspace: ObservableObject {
     private var revision = UUID()
     private var importRevision = UUID()
 
-    var currentSheet: Sheet? { plan.sheets.indices.contains(sheetIndex) ? plan.sheets[sheetIndex] : nil }
+    var displaySheets: [Sheet] { plan.sheets+plan.diagnosticSheets }
+    var currentSheet: Sheet? { displaySheets.indices.contains(sheetIndex) ? displaySheets[sheetIndex] : nil }
     var currentSide: Side? { currentSheet.map { side == .front ? $0.front : $0.back } }
     var highlightedSlots: Set<Int> {
         Set(plan.issues.compactMap { issue in
@@ -83,7 +101,7 @@ final class Workspace: ObservableObject {
         })
     }
     var canExportNow: Bool {
-        source != nil && plan.canExport && !plan.sheets.isEmpty && !planning && !loading && !exporting && !samplingBleed && !bleedSamplingFailed
+        source != nil && plan.canExport && !plan.sheets.isEmpty && !planning && !loading && !autoArranging && !exporting && !samplingBleed && !bleedSamplingFailed
     }
     private func warmGeneratedBleed() {
         bleedTask?.cancel()
@@ -96,6 +114,12 @@ final class Workspace: ObservableObject {
             return
         }
         let numbers = Array(Set(side.slots.compactMap(\.sourcePageNumber)))
+        if numbers.allSatisfy({ source.edgeSamples.cached(page: $0) != nil }) {
+            let native = numbers.filter { source.edgeSamples.cached(page: $0)?.usesCMYK == true }.count
+            let rgb = numbers.count-native
+            bleedSampleSummary = "Kenar örnekleri: \(native) CMYK · \(rgb) RGB"+(rgb > 0 ? " (özgün CMYK kanalları korunmaz)" : "")
+            samplingBleed = false; return
+        }
         samplingBleed = true
         bleedTask = Task {
             do {
@@ -210,7 +234,7 @@ final class Workspace: ObservableObject {
         }
     }
     func open(_ url: URL,confirmChanges: Bool = true) {
-        guard !loading, !exporting, (!confirmChanges || confirmDiscard()) else { return }
+        guard !loading, !exporting, !autoArranging, (!confirmChanges || confirmDiscard()) else { return }
         if url.pathExtension.lowercased() == "atispress" {
             loading = true; error = nil
             importTask = Task {
@@ -228,13 +252,29 @@ final class Workspace: ObservableObject {
             do {
                 let source = try await PDFSource.open(url)
                 guard !Task.isCancelled, importRevision == token else { return }
-                plan = ImpositionPlan()
+                var baseline = project
+                var prepared: AutoLayoutResult
+                while true {
+                    var snapshot = baseline; snapshot.pages = source.pages.map(\.sourcePage)
+                    if snapshot.autoLayout == nil { snapshot.autoLayout = .legacy }
+                    prepared = await Task.detached(priority: .userInitiated) { SmartAutoLayout.arrange(snapshot) }.value
+                    guard !Task.isCancelled,importRevision == token else { return }
+                    if prepared.plan.generatedBleed.enabled && prepared.plan.generatedBleed.method != .solidColor {
+                        let numbers = Array(Set(prepared.plan.sheets.first?.front.slots.compactMap(\.sourcePageNumber) ?? []))
+                        try await source.prepareGeneratedBleed(pages: numbers)
+                    }
+                    guard !Task.isCancelled,importRevision == token else { return }
+                    if baseline == project { break }
+                    baseline = project
+                }
+                guard !Task.isCancelled,importRevision == token else { return }
+                planTask?.cancel(); revision = UUID()
                 projectURL = nil; projectAccess = nil
                 sourceReference = try? ProjectSource.capture(source.url,createBookmark: bookmarkCreator)
                 self.source = source
                 order = source.pages.map(\.number); included = Set(order); selectedPages = []
-                sheetIndex = 0
-                project.pages = source.pages.map(\.sourcePage)
+                sheetIndex = 0; repetition = 0
+                applyAutomatic(prepared)
                 loading = false
                 refreshModified()
             } catch {
@@ -283,7 +323,7 @@ final class Workspace: ObservableObject {
             }.value
             guard !Task.isCancelled, revision == token else { return }
             plan = next; planning = false
-            sheetIndex = max(0,min(sheetIndex,max(0,next.sheets.count-1)))
+            sheetIndex = max(0,min(sheetIndex,max(0,displaySheets.count-1)))
             repetition = max(0,min(repetition,(currentSheet?.repeatCount ?? 1)-1))
         }
     }
@@ -321,8 +361,8 @@ extension Workspace {
         isModified = current != savedState
     }
     func createNewProject() {
-        guard !loading,!exporting,confirmDiscard() else { return }
-        importTask?.cancel(); planTask?.cancel(); bleedTask?.cancel()
+        guard !loading,!exporting,!autoArranging,confirmDiscard() else { return }
+        importTask?.cancel(); autoTask?.cancel(); autoArranging = false; planTask?.cancel(); bleedTask?.cancel()
         restoring = true
         source = nil; sourceReference = nil; projectURL = nil; projectAccess = nil
         order = []; included = []; selectedPages = []; overlays = PreviewOverlays(); sheetPreset = "33×48"
@@ -453,5 +493,58 @@ extension Workspace {
     func moveSerialField(_ id: UUID,to position: Point) {
         guard let index = project.serialFields.firstIndex(where: { $0.id == id }) else { return }
         project.serialFields[index].position = Point(position.x.rounded(),position.y.rounded())
+    }
+}
+
+extension Workspace {
+    func autoLabel(_ label: String,_ field: AutoLayoutField) -> String {
+        if project.autoLayout?.automaticFields.contains(field) == true { return label+" · Otomatik" }
+        if project.autoLayout?.manualFields.contains(field) == true { return label+" · Manuel" }
+        return label
+    }
+    func markManual(_ field: AutoLayoutField) {
+        guard !restoring,!applyingAutomatic else { return }
+        var state = project.autoLayout ?? .legacy
+        state.manualFields.insert(field); state.automaticFields.remove(field); state.summary = nil
+        project.autoLayout = state
+    }
+    func autoBinding<T>(_ binding: Binding<T>,_ field: AutoLayoutField) -> Binding<T> {
+        Binding(get: { binding.wrappedValue },set: { self.markManual(field); binding.wrappedValue = $0 })
+    }
+    func setProduction(_ production: ProductionType) {
+        var state = project.autoLayout ?? .legacy; state.production = production
+        project.autoLayout = state
+        if !project.pages.isEmpty { autoArrange(resetOverrides: false) }
+    }
+    func autoArrange(resetOverrides: Bool = true) {
+        guard !loading,!exporting,!autoArranging,!project.pages.isEmpty else { return }
+        NSApp?.keyWindow?.makeFirstResponder(nil)
+        let snapshot = project
+        autoArranging = true
+        autoTask = Task {
+            let result = await Task.detached(priority: .userInitiated) { SmartAutoLayout.arrange(snapshot,resetOverrides: resetOverrides) }.value
+            guard !Task.isCancelled else { return }
+            guard project == snapshot else { autoArranging = false; return }
+            if let source,result.plan.generatedBleed.enabled,result.plan.generatedBleed.method != .solidColor {
+                do { try await source.prepareGeneratedBleed(pages: Array(Set(result.plan.sheets.first?.front.slots.compactMap(\.sourcePageNumber) ?? []))) }
+                catch { self.error = error.localizedDescription }
+            }
+            guard !Task.isCancelled else { return }
+            guard project == snapshot else { autoArranging = false; return }
+            planTask?.cancel(); revision = UUID()
+            applyAutomatic(result)
+            autoArranging = false
+        }
+    }
+    private func applyAutomatic(_ result: AutoLayoutResult) {
+        applyingAutomatic = true
+        project = result.project
+        if project.autoLayout?.manualFields.contains(.sheetSize) != true { sheetPreset = result.presetName }
+        plan = result.plan; planning = false
+        sheetIndex = max(0,min(sheetIndex,max(0,displaySheets.count-1)))
+        repetition = max(0,min(repetition,(currentSheet?.repeatCount ?? 1)-1))
+        applyingAutomatic = false
+        warmGeneratedBleed(); refreshModified()
+        zoomFactor = 0; zoomAction += 1
     }
 }

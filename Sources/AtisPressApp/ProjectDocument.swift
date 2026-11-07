@@ -79,7 +79,7 @@ struct ProjectState: Codable, Equatable {
     }
 }
 struct ProjectDocument: Codable, Equatable {
-    static let currentVersion = 2
+    static let currentVersion = 3
     var version: Int = currentVersion
     var state: ProjectState
     static func decode(_ data: Data) throws -> ProjectDocument {

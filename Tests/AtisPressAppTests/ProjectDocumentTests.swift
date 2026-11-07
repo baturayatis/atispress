@@ -82,7 +82,7 @@ final class ProjectDocumentTests: XCTestCase {
         let file = ProjectDocument(state: model.state)
         let data = try file.encoded()
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String:Any])
-        XCTAssertEqual(object["version"] as? Int,2)
+        XCTAssertEqual(object["version"] as? Int,ProjectDocument.currentVersion)
         XCTAssertEqual(try ProjectDocument.decode(data),file)
         XCTAssertFalse(try XCTUnwrap(file.state.source).bookmark.isEmpty)
         var future = object; future["version"] = 999

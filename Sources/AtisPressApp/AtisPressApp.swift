@@ -4,7 +4,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var workspace: Workspace?
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let workspace else { return .terminateNow }
-        guard !workspace.loading,!workspace.exporting else { return .terminateCancel }
+        guard !workspace.loading,!workspace.exporting,!workspace.autoArranging else { return .terminateCancel }
         return workspace.closeApproved || workspace.confirmDiscard() ? .terminateNow : .terminateCancel
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -43,15 +43,15 @@ struct AtisPressApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("Yeni Proje") { workspace.createNewProject() }.keyboardShortcut("n")
-                    .disabled(workspace.loading || workspace.exporting)
+                    .disabled(workspace.loading || workspace.exporting || workspace.autoArranging)
                 Button("Aç…") { workspace.openPanel() }.keyboardShortcut("o")
-                    .disabled(workspace.loading || workspace.exporting)
+                    .disabled(workspace.loading || workspace.exporting || workspace.autoArranging)
             }
             CommandGroup(replacing: .saveItem) {
                 Button("Kaydet") { workspace.chooseSave() }.keyboardShortcut("s")
-                    .disabled(workspace.loading)
+                    .disabled(workspace.loading || workspace.autoArranging)
                 Button("Farklı Kaydet…") { workspace.chooseSave(asNew: true) }.keyboardShortcut("s",modifiers: [.command,.shift])
-                    .disabled(workspace.loading)
+                    .disabled(workspace.loading || workspace.autoArranging)
                 Divider()
                 Button("PDF Dışa Aktar…") { workspace.chooseExport(perSheet: false) }
                     .keyboardShortcut("e",modifiers: [.command,.shift]).disabled(!workspace.canExportNow)

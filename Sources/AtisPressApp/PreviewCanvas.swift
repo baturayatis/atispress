@@ -33,7 +33,7 @@ struct PreviewCanvas: NSViewRepresentable {
     }
     func updateNSView(_ scroll: NSScrollView,context: Context) {
         guard let canvas = scroll.documentView as? SheetCanvasView else { return }
-        let sizeChanged = canvas.sheet?.size != sheet.size
+        let sizeChanged = canvas.sheet?.size != sheet.size || canvas.sheet?.diagnosticBounds != sheet.diagnosticBounds
         update(canvas)
         if canvas.zoomAction != zoomAction {
             canvas.zoomAction = zoomAction
@@ -120,7 +120,9 @@ final class SheetCanvasView: NSView {
         generatedOverlay = generatedBleed.enabled ? source.map { GeneratedBleedOverlay(settings: generatedBleed,cache: $0.edgeSamples) } : nil
         self.sheetIndex = sheetIndex; self.sideKind = kind
         self.sheet = sheet; self.side = side; self.overlays = overlays; self.highlighted = highlighted
-        let newSize = NSSize(width: sheet.size.width*pointsPerMM+2*padding,height: sheet.size.height*pointsPerMM+2*padding)
+        let width = max(sheet.size.width,(sheet.diagnosticBounds?.origin.x ?? 0)+(sheet.diagnosticBounds?.size.width ?? 0))
+        let height = max(sheet.size.height,(sheet.diagnosticBounds?.origin.y ?? 0)+(sheet.diagnosticBounds?.size.height ?? 0))
+        let newSize = NSSize(width: width*pointsPerMM+2*padding,height: height*pointsPerMM+2*padding)
         if frame.size != newSize { setFrameSize(newSize) }
         needsDisplay = true
     }
@@ -194,6 +196,13 @@ final class SheetCanvasView: NSView {
         }
         PDFPlanRenderer.drawMarks(side.marks,sheetSize: sheet.size,in: context,options: overlays,displayScale: scale)
         context.restoreGState()
+        if let r = sheet.diagnosticBounds {
+            context.saveGState(); defer { context.restoreGState() }
+            context.translateBy(x: padding,y: padding); context.scaleBy(x: pointsPerMM,y: pointsPerMM)
+            context.setStrokeColor(NSColor.systemRed.cgColor)
+            context.setLineWidth(2/pointsPerMM/scale)
+            context.stroke(CGRect(x: r.origin.x,y: r.origin.y,width: r.size.width,height: r.size.height))
+        }
     }
     private func label(_ text: String,at point: CGPoint,size: CGFloat,color: NSColor) {
         let readableSize = max(size,11/pointsPerMM/max(0.04,enclosingScrollView?.magnification ?? 1))

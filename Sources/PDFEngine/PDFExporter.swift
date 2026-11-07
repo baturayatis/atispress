@@ -43,7 +43,7 @@ public enum PDFExporter {
     }
     public static func export(plan: ImpositionPlan,source: PDFSource,destination: PDFExportDestination,
                               marks: ExportMarks = ExportMarks(),jobName: String = "",overlays: [any PDFSlotOverlay] = []) throws -> PDFExportResult {
-        guard plan.canExport, plan.generatedBleed.isValid, !plan.sheets.isEmpty else { throw PDFExportError.invalidPlan }
+        guard plan.canExport, plan.diagnosticSheets.isEmpty, plan.generatedBleed.isValid, !plan.sheets.isEmpty else { throw PDFExportError.invalidPlan }
         var sheetCount = 0
         for sheet in plan.sheets {
             guard sheet.repeatCount > 0, sheet.repeatCount <= maximumPageCount/2-sheetCount else { throw PDFExportError.tooManyPages }
@@ -152,7 +152,7 @@ public enum PDFExporter {
         }
     }
     private static func validate(_ sheet: Sheet) throws {
-        guard sheet.size.width.isFinite,sheet.size.height.isFinite,sheet.size.width > 0,sheet.size.height > 0 else {
+        guard sheet.diagnosticBounds == nil,sheet.size.width.isFinite,sheet.size.height.isFinite,sheet.size.width > 0,sheet.size.height > 0 else {
             throw PDFExportError.invalidGeometry
         }
         if let serials = sheet.serialPlan {

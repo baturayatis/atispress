@@ -107,6 +107,8 @@ Sources/
     Planner.swift
     StepAndRepeat.swift
     SerialNumbering.swift
+    SmartAutoLayout.swift
+    FitDiagnostics.swift
   PDFEngine/
     PDFSource.swift
     PDFArtwork.swift
@@ -128,6 +130,7 @@ Sources/
 Tests/ImpositionCoreTests/PlannerTests.swift
 Tests/ImpositionCoreTests/StepAndRepeatTests.swift
 Tests/ImpositionCoreTests/SerialNumberingTests.swift
+Tests/ImpositionCoreTests/SmartAutoLayoutTests.swift
 Tests/ImpositionCoreTests/ArtworkClipTests.swift
 Tests/ImpositionCoreTests/GeneratedBleedPlanTests.swift
 Tests/PDFEngineTests/PDFSourceTests.swift
@@ -135,6 +138,7 @@ Tests/PDFEngineTests/PDFExportTests.swift
 Tests/PDFEngineTests/GeneratedBleedTests.swift
 Tests/AtisPressAppTests/WorkspaceTests.swift
 Tests/AtisPressAppTests/ProjectDocumentTests.swift
+Tests/AtisPressAppTests/AutoLayoutWorkspaceTests.swift
 ```
 
 ## Run the live preview
@@ -179,8 +183,9 @@ Changing mark geometry automatically enables its overlay so the change is visibl
 Page labels stay readable at low zoom; purple badges identify rotation/mirroring,
 and gray crossed slots identify blanks. Validation issues with slot references
 outline those slots in red; clicking a referenced issue jumps to its sheet/face.
-Margins/gripper have their own visibility toggle. Errors with no viable layout show an empty
-preview and a validation explanation rather than retaining an unrelated old plan.
+Margins/gripper have their own visibility toggle. Fit failures retain a separate
+diagnostic preview with the source item, a red overflow outline and exact required
+and available dimensions. Diagnostic geometry cannot be exported.
 
 ### Responsiveness and rendering
 
@@ -209,8 +214,8 @@ Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/
 
 ### Verification and current limits
 
-`swift test --disable-sandbox`: **78 XCTest tests, zero failures** (32 core,
-26 PDF reading/drawing/export, 20 workspace/project persistence regression tests). GUI smoke checks
+`swift test --disable-sandbox`: **93 XCTest tests, zero failures** (40 core,
+28 PDF reading/drawing/export, 25 workspace/project persistence regression tests). GUI smoke checks
 used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
 navigation, page selection/reordering/exclusion, binding change, front/back,
 shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
@@ -521,12 +526,14 @@ Opening an existing project preserves its own mode, preset and custom dimensions
 - **Kaydet / ⌘S** saves the current project; **Farklı Kaydet… / ⇧⌘S** writes a new
   project and switches subsequent saves to it. Source PDFs cannot be overwritten.
   Project writes are atomic. Empty projects can also be saved.
-- Version 2 is readable JSON with top-level `version: 2` and `state`; version 1
-  projects remain readable, with serial fields defaulting to empty. `state.project`
+- Version 3 is readable JSON with top-level `version: 3` and `state`; version 1/2
+  projects remain readable. Missing serial fields default to empty; old projects
+  retain their saved layout values when opened. `state.project`
   contains ordered selected source-page metadata, binding/layout mode, blank-page
   and cover policies, sheet size/orientation/margins/gripper/gutter, every imposition
   setting, generated bleed settings/color, repeat grid/rotation/quantity, export
-  mark choices, and per-job serial fields. Other state fields retain all-page order, included pages, preview
+  mark choices, per-job serial fields, and automatic-layout state (production type,
+  per-field automatic/manual flags, comfort level, clipping policy and summary). Other state fields retain all-page order, included pages, preview
   overlays, sheet preset, selected sheet/face, and the separately remembered booklet
   and repeat gutters. No calculated plan is persisted: the same planner regenerates it.
 - `state.source` contains the absolute PDF path, base64 security-scoped read-only
@@ -556,7 +563,7 @@ Limits: one active project/source PDF; PDFs are linked rather than embedded. The
 identity check uses filename/size and selected page geometry, not a content hash.
 Zoom/pan and transient row highlights reset on open; saved artwork placement,
 preview layers and sheet/face are restored. There is no autosave, crash recovery,
-project-version migration beyond v1 → v2, or packaged Finder file association/installer.
+project-version migration beyond v1/v2 → v3, or packaged Finder file association/installer.
 Use the app's Open command or a command-line path with the Swift package build.
 
 ## Serial numbering — Seri Numara
@@ -601,7 +608,7 @@ The sheet list shows first/last formatted numbers for every field on each physic
 sheet. Click a physical-sheet row or use **Baskı tabakası** to preview its real
 numbers. Large lists show 100 sheets at a time with previous/next controls.
 
-`Project.serialFields` is saved in version 2 `.atispress` files with stable UUIDs
+`Project.serialFields` is saved in `.atispress` files with stable UUIDs
 and zero-based job indices. `Sheet.serialPlan` holds a compact pure-core numbering
 recipe, evaluated for each slot and physical repetition; it does not allocate a
 quantity-sized array. Preview and PDF export use this same recipe and the same
@@ -622,9 +629,89 @@ modes. Long/rotated text extending outside trim is clipped rather than auto-fitt
 Verification adds small-grid sequential/stack and partial-quantity examples,
 front/back/copy identity (including repeated PDF pages and blank reverses), per-job
 fields, formatting/overflow, immediate edits/duplication, rotated drag hit testing
-and mm snapping, v1 compatibility and numbered v2 project roundtrips. PDF tests
+and mm snapping, v1 compatibility and numbered project roundtrips. PDF tests
 inspect real exported text, its planned positions, vector resources, rotated and
 reflected glyph footprints, and matching preview/export pixels across repetitions.
 A native launch showed the new inspector. Further interactive serial smoke checks
 were blocked by an unresponsive macOS file picker and subsequent ScreenCaptureKit
 errors in the desktop automation service; automated AppKit drag tests passed.
+
+## Smart auto layout — Otomatik düzen
+
+Run `swift run --disable-sandbox AtisPressApp`, optionally followed by a PDF or
+project path, or use Xcode's **AtisPressApp / My Mac** scheme. New workspaces still
+start with Tekrarlı and 33×48 before a source is known. **Importing a PDF now runs
+Otomatik düzen for its actual trim dimensions.** The inspector and toolbar also
+provide **Otomatik düzenle**. Opening a saved `.atispress` restores it exactly and
+does not rearrange it.
+
+Select **Üretim → Dijital / Ofset** (default Dijital). Changing production reruns
+layout while retaining manual fields. The solver uses these decisions:
+
+1. A5, A4, A3, SRA3, 33×48, 35×50, 50×70 and 70×100 are recognized within ±1 mm,
+   including swapped orientation. A matching flat item uses the same paper one-up,
+   without marks/bleed/margins. Slight excess trim is clipped without scaling.
+2. An explicitly chosen sheet is retained. Otherwise, a nonstandard small item
+   chooses the preset with the most comfortable copies; ties prefer smaller stock,
+   unrotated items, then portrait. Thus an **unpinned card can select 70×100**; to
+   use 33×48, choose that preset explicitly. Large items (area at least A3 or a side
+   longer than 500 mm) use the smallest fitting stock. If no preset fits, a custom
+   sheet is computed. Every page-pair job must fit the shared stock.
+3. On each candidate stock, the first fitting comfort level wins:
+
+| Level | Margins | Gripper | Marks / bleed |
+| --- | --- | --- | --- |
+| L1 full | 10 mm | Dijital 0; Ofset 10 mm | 5 mm crop ticks, offset = bleed + 0.5 mm; bleed 3 mm |
+| L2 reduced | 5 mm | Production minimum | Same crop marks and bleed |
+| L3 clipped | Dijital 3; Ofset 5 mm | Production minimum | Crop marks off; bleed clipped to stock |
+| L4 full sheet | 0 | Dijital 0; Ofset 10 mm | Marks and bleed off |
+
+Ofset's 10 mm gripper remains reserved even at L4. If that prevents a matching
+paper from fitting, automatic stock selection tries a larger sheet; pinned stock
+keeps the fit error. The full-sheet digital L4 explicitly allows zero margins.
+Source bleed that is missing/unknown/insufficient enables generated bleed, unless
+that setting was manually chosen. A full-sheet job with zero bleed does not need
+it. For flat work, auto gutter is **2 × bleed with crop marks on, otherwise zero**.
+The existing gutter contract remains: positive gutter is the clear distance
+between bleed boxes, with trim pitch = trim + 2×bleed + gutter.
+
+Auto-chosen controls are labeled **Otomatik**. Editing a control (even selecting
+its current value) labels it **Manuel** and locks it against future imports and
+production changes. Other fields can still adapt to the new source. **Otomatik
+düzenle explicitly clears these locks** and chooses afresh, while preserving job
+mode, turn method, quantity, page selection and serial fields. Preview-layer
+switches remain independent of export marks. A short Turkish summary is shown
+in the inspector and below the preview after each automatic arrangement; manual
+edits clear a stale summary.
+
+`SmartAutoLayout.arrange(project, resetOverrides:)` is a pure-core API returning
+the chosen project, preset name, summary and the real imposition plan. Import and
+button calculations run off the main actor; duplicate page-pair dimensions are
+probed once. Visible generated-bleed samples are prepared before publishing the
+new import. Serial numbering and PDF export consume the resulting plan normally.
+
+`Project.autoLayout` is saved in schema v3 with each field's ownership, production,
+level, summary, sheet-clipping policy and standard-paper tolerance. v1/v2 projects
+without this metadata are restored as saved, and their existing settings are
+preserved on PDF replacement until the explicit Auto button is used. The version
+regression test still checks the version field, now against the active schema.
+
+A fit failure leaves `plan.sheets` non-exportable and supplies `diagnosticSheets`
+separately. The canvas expands to show the red required extent beyond the actual
+paper; diagnostics state source trim, grid, 0° required size, stock size and usable
+area in mm. Referenced issues select that diagnostic sheet. Empty page selection
+and invalid PDF input still show their own validation state.
+
+Tests cover A4/A5 full-sheet matches, swapped orientations and ±1 mm clipping
+without scaling, L1 cards on pinned 33×48, L2/L3 fallback, Ofset gripper minimums,
+maximum-copy stock selection, large/custom fallback, sticky edits across imports,
+explicit reset, saved production/flags, old-schema compatibility, diagnostic
+source retention and actual red pixels outside the paper, clean L1 crop geometry,
+and exported PDF MediaBox equality with the chosen sheet. All earlier serial,
+preview, bleed, export and persistence tests remain in the suite.
+
+Current limits: regular grids and one shared stock policy per project; no printer
+capability discovery or cost/stock-waste optimization. Manual settings take
+precedence and can still cause a fit error. Full-sheet tolerance trims up to 1 mm
+rather than rescaling artwork. Native interactive UI smoke testing has not been
+rerun for this change; the AppKit diagnostic rendering test runs automatically.

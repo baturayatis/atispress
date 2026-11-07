@@ -480,6 +480,38 @@ final class PDFExportTests: XCTestCase {
         XCTAssertEqual(imageObjects(try XCTUnwrap(CGPDFDocument(target as CFURL))),0)
     }
 
+    func testAutoFullSheetExportMediaBoxMatchesChosenPaper() async throws {
+        let folder = try directory(), input = folder.appendingPathComponent("a4-source.pdf")
+        var media = CGRect(x: 0,y: 0,width: 210*unit,height: 297*unit)
+        let cg = try XCTUnwrap(CGContext(consumer: XCTUnwrap(CGDataConsumer(url: input as CFURL)),mediaBox: &media,nil))
+        cg.beginPDFPage(nil); cg.setFillColor(CGColor(gray: 0.6,alpha: 1)); cg.fill(media); cg.endPDFPage(); cg.closePDF()
+        let source = try await PDFSource.open(input)
+        let project = Project(pages: source.pages.map(\.sourcePage),sheet: SheetSpec(preset: .cm33x48))
+        let auto = SmartAutoLayout.arrange(project)
+        XCTAssertEqual(auto.project.sheet.size,SheetPreset.a4.size)
+        let file = folder.appendingPathComponent("auto.pdf")
+        _ = try PDFExporter.export(plan: auto.plan,source: source,destination: .singlePDF(file),marks: auto.project.exportMarks)
+        let document = try XCTUnwrap(CGPDFDocument(file as CFURL))
+        let bounds = try XCTUnwrap(document.page(at: 1)).getBoxRect(.mediaBox)
+        XCTAssertEqual(bounds.width,auto.plan.sheets[0].size.width*unit,accuracy: 0.001)
+        XCTAssertEqual(bounds.height,auto.plan.sheets[0].size.height*unit,accuracy: 0.001)
+        XCTAssertEqual(bounds.width,210*unit,accuracy: 0.001)
+        XCTAssertEqual(bounds.height,297*unit,accuracy: 0.001)
+    }
+    func testAutomaticComfortMarksFitWithoutClippingAnyBleed() throws {
+        var p = Project(pages: [SourcePage(number: 1,trimSize: Size(85,55),availableBleed: 0)],sheet: SheetSpec(preset: .cm33x48))
+        p.autoLayout = AutoLayoutSettings(); p.autoLayout?.manualFields = [.sheetSize]
+        let result = SmartAutoLayout.arrange(p)
+        XCTAssertEqual(result.project.autoLayout?.level,.full)
+        for sheet in result.plan.sheets {
+            for side in [sheet.front,sheet.back] {
+                let geometry = PDFExportMarkRenderer.geometry(side: side,sheet: sheet,settings: result.project.exportMarks)
+                XCTAssertTrue(geometry.warnings.isEmpty)
+                XCTAssertFalse(geometry.segments.isEmpty)
+            }
+        }
+    }
+
     private struct GeneratedBleed: PDFSlotOverlay {
         var phase: PDFOverlayPhase { .underArtwork }
         func draw(in context: CGContext,placement: PDFSlotContext) {

@@ -78,8 +78,8 @@ extension ImpositionPlanner {
                 }
             }
             // The array stays in copy order. GridPosition expresses each face's row/column order.
-            let frontSide = repeatSide(frontSlots,grid: grid,spec: spec,settings: settings)
-            let backSide = repeatSide(backSlots,grid: grid,spec: spec,settings: settings)
+            let frontSide = repeatSide(frontSlots,grid: grid,spec: spec,settings: settings,clipToSheet: project.autoLayout?.clipBleedToSheet == true)
+            let backSide = repeatSide(backSlots,grid: grid,spec: spec,settings: settings,clipToSheet: project.autoLayout?.clipBleedToSheet == true)
             if settings.generatedBleed.enabled {
                 for slot in frontSide.slots+backSide.slots {
                     if let clip = slot.artworkClip,
@@ -122,9 +122,21 @@ extension ImpositionPlanner {
 
     /// Both faces use an origin viewed from their own side of the sheet.
     /// Reflection maps positions, never glyphs; type must remain readable after printing.
-    private static func repeatMirrorsX(_ project: Project) -> Bool {
+    static func repeatMirrorsX(_ project: Project) -> Bool {
         let sideGripper = project.sheet.gripperEdge == .left || project.sheet.gripperEdge == .right
         return sideGripper == (project.settings.turnMethod == .workAndTumble)
+    }
+    static func repeatMargins(_ spec: SheetSpec,mirrorX: Bool) -> Insets {
+        var m = spec.margins
+        switch spec.gripperEdge {
+        case .left: m.left += spec.gripperWidth
+        case .right: m.right += spec.gripperWidth
+        case .top: m.top += spec.gripperWidth
+        case .bottom: m.bottom += spec.gripperWidth
+        }
+        if !mirrorX { m.bottom = max(m.bottom,m.top); m.top = m.bottom }
+        else { m.left = max(m.left,m.right); m.right = m.left }
+        return m
     }
     private static func backPosition(_ p: GridPosition, columns: Int, rows: Int, mirrorX: Bool) -> GridPosition {
         mirrorX ? GridPosition(column: columns-1-p.column,row: p.row) : GridPosition(column: p.column,row: rows-1-p.row)
@@ -138,35 +150,27 @@ extension ImpositionPlanner {
         let portrait = Size(min(spec.size.width,spec.size.height),max(spec.size.width,spec.size.height))
         let landscape = Size(portrait.height,portrait.width)
         let sheets = spec.orientation == .portrait ? [portrait] : spec.orientation == .landscape ? [landscape] : [portrait,landscape]
-        let reserve = max(settings.bleed,settings.cropMarkLength > 0 ? settings.cropMarkOffset+settings.cropMarkLength : 0)
+        let reserve = max(project.autoLayout?.clipBleedToSheet == true ? 0 : settings.bleed,settings.cropMarkLength > 0 ? settings.cropMarkOffset+settings.cropMarkLength : 0)
         // Zero gutter is an explicit shared-trim-cut mode. Otherwise bleed boxes do not overlap.
         let spacing = spec.gutter == 0 ? 0 : 2*settings.bleed+spec.gutter
         var best: RepeatGrid?
         for sheet in sheets {
-            var m = spec.margins
-            switch spec.gripperEdge {
-            case .left: m.left += spec.gripperWidth
-            case .right: m.right += spec.gripperWidth
-            case .top: m.top += spec.gripperWidth
-            case .bottom: m.bottom += spec.gripperWidth
-            }
-            // Reserve the opposite lay/gripper too, so both passes fit at the same coordinates.
-            if !mirrorX { m.bottom = max(m.bottom,m.top); m.top = m.bottom }
-            else { m.left = max(m.left,m.right); m.right = m.left }
+            let m = repeatMargins(spec,mirrorX: mirrorX)
             let width = sheet.width-m.left-m.right-2*reserve
             let height = sheet.height-m.top-m.bottom-2*reserve
             for rotation in (options.allowRotation ? [0,90] : [0]) {
                 let item = rotation == 0 ? trim : Size(trim.height,trim.width)
-                guard width >= item.width, height >= item.height else { continue }
+                let tolerance = project.autoLayout?.trimTolerance ?? 0
+                guard width+tolerance >= item.width, height+tolerance >= item.height else { continue }
                 let fitColumns = ((width+spacing)/(item.width+spacing)).rounded(.down)
                 let fitRows = ((height+spacing)/(item.height+spacing)).rounded(.down)
                 guard fitColumns.isFinite,fitRows.isFinite else { continue }
                 // Bound conversion; oversized automatic layouts report a validation error above.
-                var columns = options.columns ?? Int(min(fitColumns,20_001))
-                var rows = options.rows ?? Int(min(fitRows,20_001))
+                var columns = options.columns ?? Int(min(max(tolerance > 0 ? 1 : 0,fitColumns),20_001))
+                var rows = options.rows ?? Int(min(max(tolerance > 0 ? 1 : 0,fitRows),20_001))
                 if settings.turnMethod != .sheetwise && mirrorX && options.columns == nil { columns -= columns%2 }
                 if settings.turnMethod != .sheetwise && !mirrorX && options.rows == nil { rows -= rows%2 }
-                guard columns > 0,rows > 0,Double(columns) <= fitColumns,Double(rows) <= fitRows else { continue }
+                guard columns > 0,rows > 0,Double(columns) <= max(tolerance > 0 ? 1 : 0,fitColumns),Double(rows) <= max(tolerance > 0 ? 1 : 0,fitRows) else { continue }
                 let usedWidth = Double(columns)*item.width+Double(columns-1)*spacing
                 let usedHeight = Double(rows)*item.height+Double(rows-1)*spacing
                 let origin = !mirrorX ?
@@ -179,7 +183,7 @@ extension ImpositionPlanner {
         return best
     }
 
-    private static func repeatSide(_ slots: [Slot], grid: RepeatGrid, spec: SheetSpec, settings: ImpositionSettings) -> Side {
+    private static func repeatSide(_ slots: [Slot], grid: RepeatGrid, spec: SheetSpec, settings: ImpositionSettings,clipToSheet: Bool) -> Side {
         var slots = slots
         var lines = pressGuides(spec,grid.sheet)
         if settings.turnMethod == .workAndTumble {
@@ -198,10 +202,11 @@ extension ImpositionPlanner {
             lines += marks(slot,settings).filter { $0.kind != .crop && $0.kind != .bleed }
             // Bleed guides stop at shared cuts; they never imply overlapping neighboring artwork.
             let p = slot.gridPosition!
-            let l = spec.gutter == 0 && p.column > 0 ? slot.x : slot.x-settings.bleed
-            let r = spec.gutter == 0 && p.column < grid.columns-1 ? slot.x+slot.size.width : slot.x+slot.size.width+settings.bleed
-            let b = spec.gutter == 0 && p.row > 0 ? slot.y : slot.y-settings.bleed
-            let t = spec.gutter == 0 && p.row < grid.rows-1 ? slot.y+slot.size.height : slot.y+slot.size.height+settings.bleed
+            var l = spec.gutter == 0 && p.column > 0 ? slot.x : slot.x-settings.bleed
+            var r = spec.gutter == 0 && p.column < grid.columns-1 ? slot.x+slot.size.width : slot.x+slot.size.width+settings.bleed
+            var b = spec.gutter == 0 && p.row > 0 ? slot.y : slot.y-settings.bleed
+            var t = spec.gutter == 0 && p.row < grid.rows-1 ? slot.y+slot.size.height : slot.y+slot.size.height+settings.bleed
+            if clipToSheet { l = max(0,l); b = max(0,b); r = min(grid.sheet.width,r); t = min(grid.sheet.height,t) }
             slots[index].artworkClip = Rect(x: l,y: b,width: r-l,height: t-b)
             if spec.gutter != 0 || !settings.generatedBleed.enabled { lines += rectangleLines(l,b,r,t,kind: .bleed) }
         }

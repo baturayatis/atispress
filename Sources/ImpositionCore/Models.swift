@@ -39,9 +39,22 @@ public enum SignatureSize: String, Codable, Sendable {
     }
 }
 public enum SheetPreset: Sendable {
-    case a4, a3, sra3, cm33x48, cm35x50, cm50x70, cm70x100
+    case a5, a4, a3, sra3, cm33x48, cm35x50, cm50x70, cm70x100
+    public var title: String {
+        switch self {
+        case .a5: return "A5"
+        case .a4: return "A4"
+        case .a3: return "A3"
+        case .sra3: return "SRA3"
+        case .cm33x48: return "33×48"
+        case .cm35x50: return "35×50"
+        case .cm50x70: return "50×70"
+        case .cm70x100: return "70×100"
+        }
+    }
     public var size: Size {
         switch self {
+        case .a5: return Size(148, 210)
         case .a4: return Size(210, 297)
         case .a3: return Size(297, 420)
         case .sra3: return Size(320, 450)
@@ -164,6 +177,7 @@ public struct ExportMarks: Equatable, Sendable, Codable {
     public static var none: ExportMarks { var value = ExportMarks(); value.crop = false; return value }
 }
 public struct Project: Equatable, Sendable, Codable {
+    public var autoLayout: AutoLayoutSettings? = nil
     public var serialFields: [SerialField] = []
     public var exportMarks = ExportMarks()
     public var pages: [SourcePage]
@@ -181,10 +195,11 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        autoLayout = try c.decodeIfPresent(AutoLayoutSettings.self,forKey: .autoLayout)
         serialFields = try c.decodeIfPresent([SerialField].self,forKey: .serialFields) ?? []
         exportMarks = try c.decode(ExportMarks.self,forKey: .exportMarks)
         pages = try c.decode([SourcePage].self,forKey: .pages)
@@ -250,6 +265,8 @@ public struct Sheet: Equatable, Sendable {
     public var repeatCount: Int
     public var repeatLayout: RepeatLayout?
     public var serialPlan: SerialNumberPlan? = nil
+    /// Non-exportable diagnostic outline used when layout cannot fit.
+    public var diagnosticBounds: Rect? = nil
     public init(size: Size, front: Side, back: Side, repeatCount: Int = 1, repeatLayout: RepeatLayout? = nil) {
         self.size = size; self.front = front; self.back = back
         self.repeatCount = repeatCount; self.repeatLayout = repeatLayout
@@ -271,6 +288,7 @@ public struct ValidationIssue: Equatable, Sendable {
 }
 public struct ImpositionPlan: Sendable {
     public var sheets: [Sheet]
+    public var diagnosticSheets: [Sheet] = []
     public var issues: [ValidationIssue]
     public var addedBlankPages: Int
     public var signaturePageCount: Int
