@@ -226,14 +226,19 @@ public enum SmartAutoLayout {
     /// Compare geometry once per distinct page-pair size. Quantity, serials and duplicated jobs do not change fit.
     private static func evaluationProject(_ original: Project) -> Project {
         var p = original; p.serialFields = []; p.stepAndRepeat.quantity = 1
+        p.stepAndRepeat.waste = nil
         if p.binding == .stepAndRepeat {
             var seen = Set<String>(), pages: [SourcePage] = []
-            for i in stride(from: 0,to: p.pages.count,by: 2) {
-                let pair = Array(p.pages[i..<min(i+2,p.pages.count)])
+            var layout = PageLayoutSettings(); layout.mode = .duplex
+            for job in p.repeatJobs {
+                let pair = [job.front,job.back].compactMap { $0 }
                 let key = pair.map { "\($0.trimSize.width)/\($0.trimSize.height)" }.joined(separator: ":")
-                if seen.insert(key).inserted { pages += pair }
+                if seen.insert(key).inserted {
+                    pages += pair
+                    layout.overrides.append(PageJobOverride(frontPage: job.front.number,layout: job.back == nil ? .simplex : .duplex))
+                }
             }
-            p.pages = pages
+            p.pages = pages; p.stepAndRepeat.pageLayout = layout
         }
         return p
     }

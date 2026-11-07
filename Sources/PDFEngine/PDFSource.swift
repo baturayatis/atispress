@@ -32,13 +32,14 @@ public final class PDFSource: @unchecked Sendable {
     public let id = UUID()
     public let url: URL
     public let pages: [PDFPageInfo]
+    public let preflight: [PDFPreflightFinding]
     private let queue = DispatchQueue(label: "com.atispress.pdf-raster", qos: .userInitiated)
     private var rasterDocument: PDFDocument?
     private let scopedAccess: Bool
     private let cache = NSCache<NSString, PDFPageRaster>()
 
-    private init(url: URL, pages: [PDFPageInfo], scopedAccess: Bool) {
-        self.url = url; self.pages = pages; self.scopedAccess = scopedAccess
+    private init(url: URL, pages: [PDFPageInfo], scopedAccess: Bool,preflight: [PDFPreflightFinding]) {
+        self.url = url; self.pages = pages; self.scopedAccess = scopedAccess; self.preflight = preflight
         cache.totalCostLimit = 64 * 1024 * 1024
     }
     deinit { if scopedAccess { url.stopAccessingSecurityScopedResource() } }
@@ -69,7 +70,7 @@ public final class PDFSource: @unchecked Sendable {
                 pages.append(PDFPageInfo(number: number, trimSize: size, availableBleed: amount,
                                          hasTrimBox: hasBox("TrimBox", page: page)))
             }
-            return PDFSource(url: url, pages: pages, scopedAccess: scopedAccess)
+            return PDFSource(url: url, pages: pages, scopedAccess: scopedAccess,preflight: PDFPreflight.inspect(document))
         }.value
         } catch {
             if scopedAccess { url.stopAccessingSecurityScopedResource() }

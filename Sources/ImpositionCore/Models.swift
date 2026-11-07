@@ -135,6 +135,8 @@ public enum RepeatArrangement: String, Codable, Sendable { case adjacent, spaced
 /// Optional dimensions override the automatically fitted grid independently.
 public struct StepAndRepeatSettings: Equatable, Sendable, Codable {
     /// Nil in legacy files preserves their existing gutter behavior.
+    public var waste: WasteSettings? = nil
+    public var pageLayout: PageLayoutSettings? = nil
     public var arrangement: RepeatArrangement? = nil
     public var columns: Int?
     public var rows: Int?
@@ -158,6 +160,10 @@ public struct RepeatLayout: Equatable, Sendable {
     public var backPageNumber: Int?
     public var columns: Int
     public var rows: Int
+    public var productionQuantity: Int? = nil
+    public var wasteQuantity: Int = 0
+    public var numberedQuantity: Int? = nil
+    public var frontOnly = false
     public var requestedQuantity: Int?
     public var copiesPerSheet: Int { columns * rows }
     public init(jobIndex: Int, frontPageNumber: Int, backPageNumber: Int?, columns: Int, rows: Int, requestedQuantity: Int?) {
@@ -181,6 +187,7 @@ public struct ExportMarks: Equatable, Sendable, Codable {
     public static var none: ExportMarks { var value = ExportMarks(); value.crop = false; return value }
 }
 public struct Project: Equatable, Sendable, Codable {
+    public var sheetInfo: SheetInfoSettings? = nil
     public var includeBlankBacks: Bool? = nil
     public var autoLayout: AutoLayoutSettings? = nil
     public var serialFields: [SerialField] = []
@@ -200,10 +207,11 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        sheetInfo = try c.decodeIfPresent(SheetInfoSettings.self,forKey: .sheetInfo)
         includeBlankBacks = try c.decodeIfPresent(Bool.self,forKey: .includeBlankBacks)
         autoLayout = try c.decodeIfPresent(AutoLayoutSettings.self,forKey: .autoLayout)
         serialFields = try c.decodeIfPresent([SerialField].self,forKey: .serialFields) ?? []

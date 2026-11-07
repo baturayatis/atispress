@@ -38,12 +38,8 @@ extension ImpositionPlanner {
         if settings.turnMethod != .sheetwise && override.map({ $0 % 2 != 0 }) == true {
             issue(.invalidInput,"Aynı kalıp için \(mirrorX ? "sütun" : "satır") sayısı çift olmalıdır."); return plan
         }
-        // Selection order determines consecutive pairs. An odd last page has an unprinted reverse;
-        // it is never appended to the source list and never counted as padding.
-        for index in stride(from: 0,to: project.pages.count,by: 2) {
-            let front = project.pages[index]
-            let back = index+1 < project.pages.count ? project.pages[index+1] : nil
-            let job = index/2
+        for (job,pair) in project.repeatJobs.enumerated() {
+            let front = pair.front, back = pair.back
             guard back == nil || back?.trimSize == front.trimSize else {
                 issue(.mixedPageSizes,"İş \(job+1): ön ve arka sayfa boyutları aynı olmalıdır."); continue
             }
@@ -91,11 +87,18 @@ extension ImpositionPlanner {
                 }
             }
             let quantity = options.quantity
-            let repeats = quantity.map { $0/grid.capacity + ($0%grid.capacity == 0 ? 0 : 1) } ?? 1
+            guard let production = (options.waste ?? WasteSettings()).quantities(for: quantity ?? grid.capacity) else {
+                issue(.invalidInput,"Fire payı geçersiz veya üretim adedi 64 bit sayı sınırını aşıyor."); continue
+            }
+            let repeats = production.total/grid.capacity + (production.total%grid.capacity == 0 ? 0 : 1)
             let sheetIndex = plan.sheets.count
             plan.sheets.append(Sheet(size: grid.sheet,front: frontSide,back: backSide,repeatCount: repeats,
                 repeatLayout: RepeatLayout(jobIndex: job,frontPageNumber: front.number,backPageNumber: back?.number,
                     columns: grid.columns,rows: grid.rows,requestedQuantity: quantity)))
+            plan.sheets[plan.sheets.count-1].repeatLayout?.productionQuantity = production.total
+            plan.sheets[plan.sheets.count-1].repeatLayout?.wasteQuantity = production.waste
+            plan.sheets[plan.sheets.count-1].repeatLayout?.numberedQuantity = options.waste?.numberCopies == true ? production.total : quantity ?? grid.capacity
+            plan.sheets[plan.sheets.count-1].repeatLayout?.frontOnly = pair.frontOnly
             let missing = Set([front,back].compactMap { $0 }.filter { ($0.availableBleed ?? -1) < settings.bleed }.map(\.number))
             if settings.bleed > 0 && !settings.generatedBleed.enabled {
                 for (kind,side) in [(SideKind.front,frontSide),(.back,backSide)] {

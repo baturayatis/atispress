@@ -43,9 +43,12 @@ public enum PDFExporter {
         return try export(plan: plan,source: source,destination: destination,marks: marks,includeBlankBacks: includeBlankBacks,overlays: overlays)
     }
     public static func export(plan: ImpositionPlan,source: PDFSource,destination: PDFExportDestination,
-                              marks: ExportMarks = ExportMarks(),jobName: String = "",includeBlankBacks: Bool = true,overlays: [any PDFSlotOverlay] = []) throws -> PDFExportResult {
+                              marks: ExportMarks = ExportMarks(),jobName: String = "",sheetInfo: SheetInfoSettings = SheetInfoSettings(),production: ProductionType = .digital,includeBlankBacks: Bool = true,overlays: [any PDFSlotOverlay] = []) throws -> PDFExportResult {
         guard plan.canExport, plan.diagnosticSheets.isEmpty, plan.generatedBleed.isValid, !plan.sheets.isEmpty else { throw PDFExportError.invalidPlan }
         for sheet in plan.sheets { try validate(sheet) }
+        let date = Date()
+        let dateLabel = marks.sheetInfo && sheetInfo.date ? PDFSheetInfoContext.formattedDate(date) : ""
+        var notes: [String] = []
         let keepBlankBacks = plan.hasBackContent && includeBlankBacks
         var sheetCount = 0, pageCount = 0
         var omittedBacks = false
@@ -56,6 +59,16 @@ public enum PDFExporter {
             pageCount += sheet.repeatCount*faces
             sheetCount += sheet.repeatCount
             omittedBacks = omittedBacks || !hasBack
+            if marks.sheetInfo {
+                let sides: [(SideKind,Side)] = hasBack ? [(.front,sheet.front),(.back,sheet.back)] : [(.front,sheet.front)]
+                for (kind,side) in sides {
+                    let context = PDFSheetInfoContext(jobName: jobName,date: date,sheetNumber: sheetCount,totalSheets: plan.totalPressSheets,side: kind,production: production)
+                    let text = context.text(settings: sheetInfo,sheet: sheet,dateLabel: dateLabel)
+                    if !text.isEmpty && PDFSheetInfo.placement(text: text,side: side,sheet: sheet,marks: marks) == nil {
+                        if !notes.contains(PDFSheetInfo.noRoomWarning) { notes.append(PDFSheetInfo.noRoomWarning) }
+                    }
+                }
+            }
         }
         guard let document = CGPDFDocument(source.url as CFURL) else { throw PDFReadError.unreadable }
         if !document.isUnlocked && !document.unlockWithPassword("") { throw PDFReadError.locked }
@@ -106,13 +119,13 @@ public enum PDFExporter {
         }
         switch destination {
         case .singlePDF:
-            try write(stagedFile(0),document: document,plan: plan,marks: marks,jobName: jobName,keepBlankBacks: keepBlankBacks,overlays: effectiveOverlays,only: nil)
+            try write(stagedFile(0),document: document,plan: plan,marks: marks,jobName: jobName,sheetInfo: sheetInfo,production: production,date: date,dateLabel: dateLabel,keepBlankBacks: keepBlankBacks,overlays: effectiveOverlays,only: nil)
         case .perSheet:
             var physical = 0
             for (index,sheet) in plan.sheets.enumerated() {
                 for repetition in 0..<sheet.repeatCount {
                     try Task.checkCancellation()
-                    try write(stagedFile(physical),document: document,plan: plan,marks: marks,jobName: jobName,keepBlankBacks: keepBlankBacks,overlays: effectiveOverlays,only: (index,repetition))
+                    try write(stagedFile(physical),document: document,plan: plan,marks: marks,jobName: jobName,sheetInfo: sheetInfo,production: production,date: date,dateLabel: dateLabel,keepBlankBacks: keepBlankBacks,overlays: effectiveOverlays,only: (index,repetition))
                     physical += 1
                 }
             }
@@ -133,18 +146,20 @@ public enum PDFExporter {
             if case .perSheet = destination { for file in published { try? manager.removeItem(at: file) } }
             throw error
         }
-        return PDFExportResult(files: published,pageCount: pageCount,sheetCount: sheetCount,notes: omittedBacks ? ["Arka yüz boş: çıktıya eklenmedi."] : [])
+        return PDFExportResult(files: published,pageCount: pageCount,sheetCount: sheetCount,notes: notes + (omittedBacks ? ["Arka yüz boş: çıktıya eklenmedi."] : []))
     }
-    private static func write(_ url: URL,document: CGPDFDocument,plan: ImpositionPlan,marks: ExportMarks,jobName: String,keepBlankBacks: Bool,
+    private static func write(_ url: URL,document: CGPDFDocument,plan: ImpositionPlan,marks: ExportMarks,jobName: String,sheetInfo: SheetInfoSettings,production: ProductionType,date: Date,dateLabel: String,keepBlankBacks: Bool,
                               overlays: [any PDFSlotOverlay],only: (Int,Int)?) throws {
         guard let consumer = CGDataConsumer(url: url as CFURL),
               let context = CGContext(consumer: consumer,mediaBox: nil,[kCGPDFContextCreator:"AtışPress"] as CFDictionary) else {
             throw PDFExportError.cannotCreatePDF
         }
         defer { context.closePDF() }
+        let totalSheets = plan.totalPressSheets
         let indices = only.map { $0.0..<($0.0+1) } ?? plan.sheets.indices
         for index in indices {
             let sheet = plan.sheets[index]
+            let firstPhysical = plan.sheets.prefix(index).reduce(0) { $0+$1.repeatCount }+1
             let repetitions = only.map { $0.1..<($0.1+1) } ?? 0..<sheet.repeatCount
             let faces: [(SideKind,Side)] = sheet.hasContent(on: .back) || keepBlankBacks ? [(.front,sheet.front),(.back,sheet.back)] : [(.front,sheet.front)]
             for repetition in repetitions {
@@ -160,8 +175,10 @@ public enum PDFExporter {
                         context.clip(to: CGRect(x: 0,y: 0,width: sheet.size.width,height: sheet.size.height))
                         try PDFPlanRenderer.drawSide(side,sheet: sheet,document: document,in: context,sheetIndex: index,
                                                      kind: kind,repetition: repetition,options: .artworkOnly,overlays: overlays)
-                        PDFExportMarkRenderer.draw(side: side,sheet: sheet,in: context,settings: marks,
-                            info: "\(jobName) · Tabaka \(plan.sheets.prefix(index).reduce(0) { $0+$1.repeatCount }+repetition+1) · \(kind == .front ? "Ön" : "Arka")")
+                        let info = marks.sheetInfo ? PDFSheetInfoContext(jobName: jobName,date: date,
+                            sheetNumber: firstPhysical+repetition,
+                            totalSheets: totalSheets,side: kind,production: production).text(settings: sheetInfo,sheet: sheet,dateLabel: dateLabel) : ""
+                        PDFExportMarkRenderer.draw(side: side,sheet: sheet,in: context,settings: marks,info: info)
                         context.restoreGState(); context.endPDFPage()
                     } catch {
                         context.restoreGState(); context.endPDFPage(); throw error

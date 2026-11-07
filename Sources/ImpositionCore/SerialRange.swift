@@ -60,7 +60,7 @@ extension SerialField {
 }
 extension Sheet {
     public var excessCopies: Int {
-        guard let layout = repeatLayout,let quantity = layout.requestedQuantity,layout.copiesPerSheet > 0 else { return 0 }
+        guard let layout = repeatLayout,let quantity = layout.productionQuantity ?? layout.requestedQuantity,layout.copiesPerSheet > 0 else { return 0 }
         let remaining = quantity % layout.copiesPerSheet
         return remaining == 0 ? 0 : layout.copiesPerSheet-remaining
     }

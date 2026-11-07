@@ -76,8 +76,15 @@ struct WorkspaceView: View {
                         VStack(alignment: .leading,spacing: 4) {
                             if let layout = sheet.repeatLayout {
                                 Text("İş \(layout.jobIndex+1) · \(sheet.repeatCount) tabaka").fontWeight(.medium)
-                                Text("Ön \(layout.frontPageNumber) / Arka \(layout.backPageNumber.map(String.init) ?? "Boş") · \(layout.columns)×\(layout.rows)")
+                                Picker("İş yüzü",selection: Binding(get: { model.jobPageLayout(frontPage: layout.frontPageNumber) },
+                                    set: { model.setJobPageLayout(frontPage: layout.frontPageNumber,mode: $0) })) {
+                                    Text("Genel ayar").tag(PageLayout.automatic)
+                                    Text("Tek yüz").tag(PageLayout.simplex)
+                                    Text("Çift yüz").tag(PageLayout.duplex)
+                                }.pickerStyle(.menu)
+                                Text("Ön \(layout.frontPageNumber) / Arka \(layout.backPageNumber.map(String.init) ?? "Yok") · \(layout.columns)×\(layout.rows)")
                                     .font(.caption).foregroundStyle(.secondary)
+                                if let summary = sheet.productionSummary { Text(summary).font(.caption).foregroundStyle(.secondary) }
                             } else {
                                 Text("Tabaka \(index+1)").fontWeight(.medium)
                                 Text("\(sheet.size.width,specifier: "%.0f") × \(sheet.size.height,specifier: "%.0f") mm · Forma \(signatures)")
@@ -152,6 +159,7 @@ struct WorkspaceView: View {
                             Text("\(sheet.repeatLayout == nil ? "Tabaka" : "İş") \(model.sheetIndex+1) · \(model.side == .front ? "Ön" : "Arka") · \(sheet.size.width,specifier: "%.1f") × \(sheet.size.height,specifier: "%.1f") mm")
                             if let layout = sheet.repeatLayout {
                                 Text("\(layout.columns)×\(layout.rows) · \(layout.copiesPerSheet) adet/tabaka · \(sheet.repeatCount) tabaka")
+                                if let summary = sheet.productionSummary { Text(summary) }
                             }
                             if let label = generatedBleedLabel { Text(label) }
                         }

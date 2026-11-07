@@ -12,6 +12,9 @@ final class Workspace: ObservableObject {
         var p = Project(pages: [],binding: .stepAndRepeat,
             sheet: SheetSpec(preset: .sra3,margins: Insets(left: 10,right: 10,top: 10,bottom: 10),
                              gripperWidth: 0,gutter: 0))
+        p.stepAndRepeat.pageLayout = PageLayoutSettings()
+        p.stepAndRepeat.waste = WasteSettings()
+        p.sheetInfo = SheetInfoSettings()
         p.autoLayout = AutoLayoutSettings()
         p.autoLayout?.automaticFields.insert(.gutter)
         return p
@@ -42,6 +45,7 @@ final class Workspace: ObservableObject {
             var previous = oldValue
             previous.exportMarks = project.exportMarks
             previous.includeBlankBacks = project.includeBlankBacks
+            previous.sheetInfo = project.sheetInfo
             let clipChanged = previous.autoLayout?.clipBleedToSheet != project.autoLayout?.clipBleedToSheet || previous.autoLayout?.trimTolerance != project.autoLayout?.trimTolerance
             previous.autoLayout = project.autoLayout
             let serialChanged = previous.serialFields != project.serialFields
@@ -214,10 +218,11 @@ final class Workspace: ObservableObject {
         }
         let snapshot = plan, options = project.exportMarks
         let includeBlankBacks = project.includeBlankBacks ?? true
+        let sheetInfo = project.sheetInfo ?? SheetInfoSettings(), production = project.autoLayout?.production ?? .digital
         exporting = true; exportSummary = nil; exportedFiles = []
         let worker = Task.detached(priority: .userInitiated) {
             defer { scopedParent?.stopAccessingSecurityScopedResource() }
-            do { return try PDFExporter.export(plan: snapshot,source: source,destination: destination,marks: options,jobName: source.url.deletingPathExtension().lastPathComponent,includeBlankBacks: includeBlankBacks) }
+            do { return try PDFExporter.export(plan: snapshot,source: source,destination: destination,marks: options,jobName: source.url.lastPathComponent,sheetInfo: sheetInfo,production: production,includeBlankBacks: includeBlankBacks) }
             catch {
                 if let cleanupOnFailure { try? FileManager.default.removeItem(at: cleanupOnFailure) }
                 throw error
@@ -618,11 +623,13 @@ extension Workspace {
     func serialQuantity(job: Int) -> Int {
         project.stepAndRepeat.quantity ?? plan.sheets.first(where: { $0.repeatLayout?.jobIndex == job })?.repeatLayout?.copiesPerSheet ?? 1
     }
-    func serialSheetCount(job: Int) -> Int {
-        guard let capacity = plan.sheets.first(where: { $0.repeatLayout?.jobIndex == job })?.repeatLayout?.copiesPerSheet,capacity > 0 else { return 0 }
+    func serialNumberedQuantity(job: Int) -> Int {
         let quantity = serialQuantity(job: job)
-        guard quantity > 0 else { return 0 }
-        return quantity/capacity+(quantity%capacity == 0 ? 0 : 1)
+        guard project.stepAndRepeat.waste?.numberCopies == true else { return quantity }
+        return project.stepAndRepeat.waste?.quantities(for: quantity)?.total ?? quantity
+    }
+    func serialSheetCount(job: Int) -> Int {
+        plan.sheets.first(where: { $0.repeatLayout?.jobIndex == job })?.repeatCount ?? 0
     }
     func setSerialEnd(_ text: String,id: UUID) {
         guard let field = project.serialFields.first(where: { $0.id == id }) else { return }
@@ -643,7 +650,7 @@ extension Workspace {
     }
     private func normalizeSerialDigits() {
         guard !normalizingDigits else { return }
-        let fields = project.serialFields.map { $0.adjustedDigits(quantity: serialQuantity(job: $0.jobIndex)) }
+        let fields = project.serialFields.map { $0.adjustedDigits(quantity: serialNumberedQuantity(job: $0.jobIndex)) }
         guard fields != project.serialFields else { return }
         normalizingDigits = true; project.serialFields = fields; normalizingDigits = false
     }
@@ -682,5 +689,77 @@ extension Workspace {
         refreshRecentFiles()
         guard let current = recentFiles.first(where: { $0.id == file.id }),current.isAvailable else { return }
         open(current.url)
+    }
+}
+
+extension Workspace {
+    var pageLayoutMode: PageLayout { project.stepAndRepeat.pageLayout?.mode ?? .duplex }
+    var pageLayoutSummary: String {
+        let mode = project.resolvedPageLayout == .duplex ? "Çift yüz (1–2 ön/arka, 3–4…)" : "Tek yüz (her sayfa ayrı iş)"
+        return mode + (pageLayoutMode == .automatic ? " · Otomatik" : " · Manuel")
+    }
+    func setPageLayout(_ mode: PageLayout) {
+        var next = project
+        var settings = next.stepAndRepeat.pageLayout ?? PageLayoutSettings()
+        settings.mode = mode; next.stepAndRepeat.pageLayout = settings
+        applyPageLayout(next)
+    }
+    func jobPageLayout(frontPage: Int) -> PageLayout {
+        project.stepAndRepeat.pageLayout?.overrides.last(where: { $0.frontPage == frontPage })?.layout ?? .automatic
+    }
+    func setJobPageLayout(frontPage: Int,mode: PageLayout) {
+        var next = project
+        var settings = next.stepAndRepeat.pageLayout ?? PageLayoutSettings()
+        if next.stepAndRepeat.pageLayout == nil { settings.mode = .duplex }
+        settings.overrides.removeAll { $0.frontPage == frontPage }
+        if mode != .automatic { settings.overrides.append(PageJobOverride(frontPage: frontPage,layout: mode)) }
+        next.stepAndRepeat.pageLayout = settings
+        applyPageLayout(next)
+    }
+    private func applyPageLayout(_ next: Project) {
+        var next = next
+        let oldJobs = project.repeatJobs,newJobs = next.repeatJobs
+        next.serialFields = project.serialFields.flatMap { original -> [SerialField] in
+            guard oldJobs.indices.contains(original.jobIndex) else { return [original] }
+            let old = oldJobs[original.jobIndex]
+            var targets: [(Int,SideKind)] = []
+            func attach(_ page: Int,opposite: Bool = false) {
+                guard let index = newJobs.firstIndex(where: { $0.front.number == page || $0.back?.number == page }) else { return }
+                var side: SideKind = newJobs[index].front.number == page ? .front : .back
+                if opposite { side = side == .front ? .back : .front }
+                targets.append((index,side))
+            }
+            if original.sides != .back { attach(old.front.number) }
+            if original.sides != .front {
+                if let back = old.back { attach(back.number) }
+                else { attach(old.front.number,opposite: true) }
+            }
+            var fields: [SerialField] = []
+            for job in Set(targets.map { $0.0 }).sorted() {
+                var field = original
+                if !fields.isEmpty { field.id = UUID() }
+                field.jobIndex = job
+                let sides = Set(targets.filter { $0.0 == job }.map { $0.1 })
+                field.sides = sides.count == 2 ? .both : sides.contains(.front) ? .front : .back
+                fields.append(field)
+            }
+            return fields.isEmpty ? [original] : fields
+        }
+        next.autoLayout?.summary = nil
+        project = next
+    }
+    func sheetInfoBinding<T>(_ key: WritableKeyPath<SheetInfoSettings,T>) -> Binding<T> {
+        Binding(get: { (self.project.sheetInfo ?? SheetInfoSettings())[keyPath: key] },set: { value in
+            var settings = self.project.sheetInfo ?? SheetInfoSettings()
+            settings[keyPath: key] = value; self.project.sheetInfo = settings
+        })
+    }
+    var infoJobName: String {
+        get { project.sheetInfo?.jobName ?? source?.url.lastPathComponent ?? "İş adı" }
+        set { var settings = project.sheetInfo ?? SheetInfoSettings(); settings.jobName = newValue; project.sheetInfo = settings }
+    }
+    func sheetInfoText(sheet: Sheet,number: Int = 1,kind: SideKind = .front) -> String {
+        PDFSheetInfoContext(jobName: source?.url.lastPathComponent ?? "İş adı",sheetNumber: number,totalSheets: plan.totalPressSheets,
+            side: kind,production: project.autoLayout?.production ?? .digital).text(settings: project.sheetInfo ?? SheetInfoSettings(),sheet: sheet)
     }
 }

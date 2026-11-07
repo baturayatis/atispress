@@ -286,8 +286,8 @@ Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/
 
 ### Verification and current limits
 
-`swift test --disable-sandbox`: **119 XCTest tests, zero failures** (52 core,
-32 PDF reading/drawing/export, 35 workspace/project persistence regression tests). GUI smoke checks
+`swift test --disable-sandbox`: **134 XCTest tests, zero failures** (56 core,
+38 PDF reading/drawing/export, 40 workspace/project persistence regression tests). GUI smoke checks
 used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
 navigation, page selection/reordering/exclusion, binding change, front/back,
 shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
@@ -308,10 +308,12 @@ Run with the same commands above (`swift run AtisPressApp`, or open `Package.swi
 and run the AtisPressApp scheme on My Mac). Select **Tekrarlı (kartvizit/düz iş)**
 in **Yerleşim Yöntemi**. The existing booklet mode and its original tests remain.
 
-- Consecutive **selected-order** page pairs are independent jobs: 1/2, 3/4, etc.
+- In **Çift yüz**, consecutive **selected-order** page pairs are independent jobs: 1/2, 3/4, etc.
   Each job gets its own sheet layout in **Tekrarlı İşler**. Different jobs may have
   different trim sizes; a job's front/back must match. An odd final page has an
-  unprinted reverse. Source pages are never padded; `addedBlankPages` stays zero,
+  unprinted reverse when duplex is explicitly selected. New projects automatically
+  choose Tek yüz for odd counts or unequal page sizes; each page then becomes
+  its own front-only job. Source pages are never padded; `addedBlankPages` stays zero,
   even with the reject-padding policy.
 - **90° döndürmeye izin ver** allows a uniform item rotation if it increases
   capacity. Stock portrait/landscape and item 0°/90° candidates are compared.
@@ -452,7 +454,7 @@ Xcode, choose **AtisPressApp / My Mac**, and Run. Import the source and select
   anchors are retained. Warnings in the dialog explain removed portions.
 - Artwork protection takes precedence over internal guides and full-length cuts:
   safe-area lines within artwork and full-cut portions crossing artwork are omitted.
-  Labels and sheet info are also clipped to free space and can be partially hidden
+  Slot labels are clipped to free space and can be partially hidden
   when margins/gutters are too small. Full cuts therefore do not print over artwork.
 - Project-owned choices, mode and sheet values are saved in `.atispress` files
   and restored across launches (see Project save/open below).
@@ -599,7 +601,7 @@ Opening an existing project preserves its own mode, preset and custom dimensions
 - **Kaydet / ⌘S** saves the current project; **Farklı Kaydet… / ⇧⌘S** writes a new
   project and switches subsequent saves to it. Source PDFs cannot be overwritten.
   Project writes are atomic. Empty projects can also be saved.
-- Version 5 is readable JSON with top-level `version: 5` and `state`; version 1–4
+- Version 6 is readable JSON with top-level `version: 6` and `state`; version 1–5
   projects remain readable. Missing serial fields default to empty; old projects
   retain their saved layout values when opened. `state.project`
   contains ordered selected source-page metadata, binding/layout mode, blank-page
@@ -636,7 +638,7 @@ Limits: one active project/source PDF; PDFs are linked rather than embedded. The
 identity check uses filename/size and selected page geometry, not a content hash.
 Zoom/pan and transient row highlights reset on open; saved artwork placement,
 preview layers and sheet/face are restored. There is no autosave, crash recovery,
-project-version migration beyond v1–4 → v5, or an installer. The app bundle declares Finder file association as described above.
+project-version migration beyond v1–5 → v6, or an installer. The app bundle declares Finder file association as described above.
 Use the app's Open command or a command-line path with the Swift package build.
 
 ## Serial numbering — Seri Numara
@@ -768,7 +770,7 @@ button calculations run off the main actor; duplicate page-pair dimensions are
 probed once. Visible generated-bleed samples are prepared before publishing the
 new import. Serial numbering and PDF export consume the resulting plan normally.
 
-`Project.autoLayout` is saved in schema v5 (including sheet-selection policy) with each field's ownership, production,
+`Project.autoLayout` is saved in schema v6 (including sheet-selection policy) with each field's ownership, production,
 level, summary, sheet-clipping policy and standard-paper tolerance. v1/v2 projects
 without this metadata are restored as saved, and their existing settings are
 preserved on PDF replacement until the explicit Auto button is used. The version
@@ -819,7 +821,7 @@ Generated bleed suppresses missing-bleed warnings when enabled and needed.
 Displayed identical warnings are grouped with counts and compressed source-page
 ranges, e.g. **12 sayfada taşma payı eksik: 1-12**; detailed slot references remain
 available internally. Existing preview/export alignment and project roundtrip
-regressions remain active. Run `swift test --disable-sandbox` for all 119 tests.
+regressions remain active. Run `swift test --disable-sandbox` for all 134 tests.
 Native interactive smoke testing has not been rerun for these controls.
 
 ## Empty reverse export and repeat arrangement
@@ -851,7 +853,7 @@ All previous tests remain, with the former spacing-specific tests explicitly
 choosing Aralıklı and the front-only extension test expecting the new page count.
 Run `swift run --disable-sandbox AtisPressApp`; verify with
 `swift test --disable-sandbox`. Native interactive UI smoke testing has not been
-rerun; the existing single-source, consecutive page-pair job model is unchanged.
+rerun for that change. Single-source jobs now support the page-layout options below.
 
 ## Home screen and recent files
 
@@ -877,8 +879,91 @@ injected file-picker result (no native dialog during XCTest), comparing imported
 projects and plans with drag-drop and recent-file opening. They also cover typed
 picker filters, cancellation, project restoration, persistent ordering/deduplication,
 missing-file availability and failed-import history. All 114 earlier tests remain
-unchanged; the current suite contains 119 tests. Native interactive picker/UI smoke
+unchanged; that addition brought the suite to 119 tests. Production features below extend it to 134. Native interactive picker/UI smoke
 testing has not been rerun for this change.
 
 Run `swift run --disable-sandbox AtisPressApp` or rebuild the signed bundle with
 `./scripts/build_app.sh` and open `dist/AtışPress.app`.
+
+## Fire payı, sayfa düzeni, ön kontrol ve bilgi şeridi
+
+**Adet** in the repeat and serial inspectors remains the requested customer
+quantity. Beside it, **Fire** selects **Yüzde (%)** (default 0) or **Sabit adet**.
+Percent fire rounds upward to a whole copy. The planner uses `Adet + fire` to
+calculate physical sheets and shows, for example,
+**Adet 1000 + fire 50 = 1050 üretim, 12 tabaka** for a 90-copy grid. Grid rounding
+can produce additional copies; the existing actual production count remains
+visible. **Fire kopyalar → Numarasız** is the default. **Numaralı** extends each
+field's range through the production quantity; the end-number input still determines
+the customer quantity. Capacity rounding beyond that
+quantity is always unnumbered. Sequential and cut-and-stack use the same lazy
+recipe and total physical-sheet count; no quantity-sized arrays are created.
+Fire/quantity apply per flat-work job, as before; booklet modes do not have an
+independent run-quantity control. Invalid or overflowing counts report errors.
+
+For multi-page imports, **Sayfa düzeni → Otomatik** chooses **Çift yüz** only for
+an even selected-page count with equal dimensions (within 0.001 mm); otherwise
+it chooses **Tek yüz**. The resolved choice is labeled **Otomatik**. A manual
+choice persists across imports. **İş yüzü** in the job list overrides the rule
+at that source front page: splitting a duplex job preserves both pages as
+separate fronts; a duplex override consumes the next selected page. Each selected
+page is used exactly once. Serial fields follow their source faces when jobs
+are regrouped, duplicating a both-sides field if its faces become separate jobs.
+Explicit simplex jobs suppress serial-only backs. Existing mixed-job blank-back
+export controls remain in force; same-plate turn/tumble still requires both press
+faces when each contains artwork.
+
+Schema **6** saves `stepAndRepeat.waste`, `stepAndRepeat.pageLayout` (global mode
+and source-front-page overrides), and `project.sheetInfo` (name and field flags).
+Versions 1–5 still open. Missing production settings mean zero fire, unnumbered
+fire and legacy consecutive duplex pairing; opening never rearranges an old
+project. The Swift core API also treats a nil `pageLayout` as legacy intent;
+set `PageLayoutSettings()` to request the new automatic policy. New app projects
+set this automatically. Preflight results are derived from the linked source,
+not persisted as potentially stale inspection results.
+
+**Ön Kontrol** inspects the source during import, off the main actor, using only
+Apple CoreGraphics/PDFKit/Foundation. It reports grouped Turkish findings with
+severity, affected page ranges and counts: RGB image/color use, effective image
+resolution below 250 dpi, used unembedded fonts, Separation/DeviceN spot spaces,
+transparency/soft masks/blend modes, page-size differences, missing bleed, and
+vector CMYK colors above 300% total ink. Image DPI uses placed content-stream
+transforms, including nested Form XObjects; imposition preserves scale. RGB is
+informational for Dijital and a warning for Ofset. Generated bleed suppresses
+missing-bleed findings when applicable. No preflight finding disables export;
+existing invalid-plan and mismatched duplex-size errors still apply.
+
+This is **best effort**, not PDF/X certification or a full RIP: unsupported inline
+images, patterns/shadings, complex/resource-limited streams, ICC conversion and
+pixel-level total-ink coverage are explicitly **kontrol edilemedi**. Font checks
+inspect used PDF font descriptors/program streams; Type 3 programs count as
+embedded. Finding no issue is never shown as an overall OK. Inspection bounds
+nested forms and tracked operators, avoids image decompression, and does not
+alter the PDF or convert colors.
+
+In the export dialog, **Tabaka bilgi şeridi** now has checkboxes for **İş adı**,
+**Tarih**, **Tabaka no / toplam**, **Ön/Arka**, **Tabaka boyutu** and
+**Ofset/Dijital**. The editable name defaults to the PDF filename. An example
+updates immediately with the chosen fields. Export draws vector Helvetica text
+at **6 pt**, using the selected black/registration CMYK mark color. Date is
+captured once per export. A measured placement must fit an outer free margin,
+clear of every trim/bleed box, production stroke and slot label. When the full
+line cannot fit, it is skipped and **Tabaka bilgi şeridi için boş kenar alanı yok;
+şerit çıktıya eklenmedi.** appears in the dialog/export notes. It is never partially
+printed over artwork. Both combined and per-sheet PDFs use the same settings.
+
+All 119 earlier tests remain unchanged. Fifteen additional tests cover fire
+arithmetic/rounding/overflow, lazy numbered and unnumbered fire in both modes,
+automatic/manual/per-job side selection, serial face migration, known RGB/low-DPI/
+unembedded-font/spot/transparency/rich-black PDF fixtures and inherited Form
+resources, strip geometry/no-room behavior/vector 6 pt text, grouped preflight,
+and complete schema-6 roundtrips with version-5 compatibility. Current total:
+**134 tests, zero failures**. Native interactive UI smoke testing has not been
+rerun for this change.
+
+```sh
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+./scripts/build_app.sh
+open "dist/AtışPress.app"
+```

@@ -95,7 +95,9 @@ public enum PDFExportMarkRenderer {
             }
         }
         if settings.sheetInfo {
-            PDFPlanRenderer.drawLabel(info,at: CGPoint(x: sheet.size.width/2,y: 3),size: 2,color: color,in: context)
+            if let placement = PDFSheetInfo.placement(text: info,side: side,sheet: sheet,marks: settings) {
+                PDFSheetInfo.draw(placement,color: color,in: context)
+            }
         }
     }
 }

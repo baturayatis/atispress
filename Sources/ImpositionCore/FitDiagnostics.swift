@@ -23,9 +23,10 @@ extension ImpositionPlanner {
             if s.turnMethod == .workAndTurn { margins.left = max(margins.left,margins.right); margins.right = margins.left }
             if s.turnMethod == .workAndTumble { margins.top = max(margins.top,margins.bottom); margins.bottom = margins.top }
         }
-        let count = project.binding == .stepAndRepeat ? (project.pages.count+1)/2 : 1
+        let jobs = project.repeatJobs
+        let count = project.binding == .stepAndRepeat ? jobs.count : 1
         for job in 0..<count {
-            let page = project.pages[project.binding == .stepAndRepeat ? job*2 : 0]
+            let page = project.binding == .stepAndRepeat ? jobs[job].front : project.pages[0]
             guard page.trimSize.width.isFinite,page.trimSize.height.isFinite,page.trimSize.width > 0,page.trimSize.height > 0 else { continue }
             if project.binding == .stepAndRepeat,plan.sheets.contains(where: { $0.repeatLayout?.jobIndex == job }) { continue }
             let columns: Int, rows: Int

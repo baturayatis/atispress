@@ -18,8 +18,9 @@ struct SerialInspectorView: View {
                             set: { model.project.stepAndRepeat.quantity = $0 }),format: .number)
                             .textFieldStyle(.roundedBorder).accessibilityLabel("Seri numara adedi")
                     }
-                    if let sheet = model.currentSheet,sheet.excessCopies > 0 {
-                        Text("Fazla \(sheet.excessCopies) kopya numarasız").font(.caption).foregroundStyle(.orange)
+                    FireControlsView(model: model)
+                    if let sheet = model.currentSheet,sheet.unnumberedCopiesDescription != "0" {
+                        Text("Fazla \(sheet.unnumberedCopiesDescription) kopya numarasız").font(.caption).foregroundStyle(.orange)
                     }
                     Button("Alan Ekle") { model.addSerialField() }.disabled(model.project.serialFields.count >= 100)
                     ForEach(fields) { field in
@@ -30,7 +31,7 @@ struct SerialInspectorView: View {
                                     Text(field.text(at: 0) ?? "Geçersiz").lineLimit(1)
                                 }
                             }.buttonStyle(.borderless)
-                            Text(field.rangeDescription(quantity: model.serialQuantity(job: job),sheetCount: model.serialSheetCount(job: job)))
+                            Text(field.rangeDescription(quantity: model.serialNumberedQuantity(job: job),sheetCount: model.serialSheetCount(job: job)))
                                 .font(.caption).textSelection(.enabled)
                         }
                     }
@@ -38,7 +39,7 @@ struct SerialInspectorView: View {
                         editor(index)
                     }
                     if !fields.isEmpty {
-                        Text("Önizlemedeki numaraya tıklayın ve sürükleyin: 1 mm’ye oturur. Fazla üretilen kopyalar numarasızdır.")
+                        Text("Önizlemedeki numaraya tıklayın ve sürükleyin: 1 mm’ye oturur. Fire numaralama seçimi uygulanır; üretim adedini aşan yuvalar numarasızdır.")
                             .font(.caption).foregroundStyle(.secondary)
                         if let sheet = model.currentSheet {
                             Stepper("Baskı tabakası: \(model.repetition+1) / \(sheet.repeatCount)",value: $model.repetition,in: 0...max(0,sheet.repeatCount-1))
@@ -88,7 +89,7 @@ struct SerialInspectorView: View {
             Toggle("Basamağı elle sabitle",isOn: field.digitsAreManual).toggleStyle(.checkbox)
             Stepper("Basamak: \(field.wrappedValue.digits)",value: Binding(get: { field.wrappedValue.digits },
                 set: { model.setSerialDigits($0,id: field.wrappedValue.id) }),in: 0...32)
-            if let note = field.wrappedValue.digitNote(quantity: model.serialQuantity(job: job)) {
+            if let note = field.wrappedValue.digitNote(quantity: model.serialNumberedQuantity(job: job)) {
                 Text(note).font(.caption).foregroundStyle(.orange)
             }
             TextField("Önek",text: field.prefix).textFieldStyle(.roundedBorder)

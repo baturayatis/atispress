@@ -72,6 +72,7 @@ public struct SerialPlacement: Equatable, Sendable {
 }
 /// A compact plan recipe; physical repetitions are evaluated without allocating quantity-sized arrays.
 public struct SerialNumberPlan: Equatable, Sendable {
+    public var frontOnly = false
     public var fields: [SerialField]
     public var quantity: Int
     public var capacity: Int
@@ -91,6 +92,7 @@ public struct SerialNumberPlan: Equatable, Sendable {
         guard let copy = slot.copyIndex else { return [] }
         // On same-plate work, a press face contains both item fronts and backs.
         let itemFront = (slot.itemSide ?? kind) == .front
+        if frontOnly && !itemFront { return [] }
         return fields.compactMap { field in
             guard field.sides == .both || (field.sides == .front ? itemFront : !itemFront),
                   let index = ordinal(copy: copy,repetition: repetition,mode: field.mode),
@@ -132,15 +134,17 @@ extension ImpositionPlanner {
         }
         for index in plan.sheets.indices {
             guard let layout = plan.sheets[index].repeatLayout else { continue }
-            let fields = project.serialFields.filter { $0.jobIndex == layout.jobIndex }.map { $0.adjustedDigits(quantity: layout.requestedQuantity ?? layout.copiesPerSheet) }
+            let fields = project.serialFields.filter { $0.jobIndex == layout.jobIndex }.map { $0.adjustedDigits(quantity: layout.numberedQuantity ?? layout.requestedQuantity ?? layout.copiesPerSheet) }
             guard !fields.isEmpty else { continue }
-            let count = layout.requestedQuantity ?? layout.copiesPerSheet
+            let count = layout.numberedQuantity ?? layout.requestedQuantity ?? layout.copiesPerSheet
             guard fields.allSatisfy({ $0.value(at: count-1) != nil }) else {
                 plan.issues.append(ValidationIssue(.error,.serialNumbering,"Seri numara aralığı 64 bit sayı sınırını aşıyor.")); continue
             }
             plan.sheets[index].serialPlan = SerialNumberPlan(fields: fields,quantity: count,capacity: layout.copiesPerSheet,
                 sheetCount: plan.sheets[index].repeatCount)
+            plan.sheets[index].serialPlan?.frontOnly = layout.frontOnly
             for field in fields {
+                if layout.frontOnly && field.sides == .back { plan.issues.append(ValidationIssue(.warning,.serialNumbering,"Tek yüz işte arka seri numara alanı basılmaz.")) }
                 if field.digitsAreManual,let required = field.requiredDigits(quantity: count),required > field.digits {
                     plan.issues.append(ValidationIssue(.warning,.serialNumbering,field.digitNote(quantity: count)!))
                 }

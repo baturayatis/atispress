@@ -111,6 +111,7 @@ struct InspectorView: View {
                         measurement(model.autoLabel("Güvenli alan",.safeArea),guide(\.safeAreaInset,field: .safeArea,overlay: \.safeArea),range: 0...30)
                     }.padding(5)
                 }
+                PreflightView(model: model)
                 SerialInspectorView(model: model)
                 generatedBleedControls
                 GroupBox("Önizleme Katmanları") {
@@ -178,8 +179,14 @@ struct InspectorView: View {
     private var repeatControls: some View {
         GroupBox("Tekrarlı Yerleşim") {
             VStack(alignment: .leading,spacing: 10) {
-                Text("Seçili sırada 1–2 ön/arka, 3–4 ayrı iş… Tek kalan sayfanın arkası boş.")
-                    .font(.caption).foregroundStyle(.secondary)
+                if (model.source?.pages.count ?? model.project.pages.count) > 1 {
+                    Picker("Sayfa düzeni",selection: Binding(get: { model.pageLayoutMode },set: model.setPageLayout)) {
+                        Text("Otomatik").tag(PageLayout.automatic)
+                        Text("Çift yüz (1–2 ön/arka, 3–4…)").tag(PageLayout.duplex)
+                        Text("Tek yüz (her sayfa ayrı iş)").tag(PageLayout.simplex)
+                    }
+                }
+                Text(model.pageLayoutSummary).font(.caption).foregroundStyle(.secondary)
                 Picker(model.autoLabel("Dizilim",.gutter),selection: Binding(get: { model.repeatArrangement },set: model.setRepeatArrangement)) {
                     Text("Bitişik (ara boşluk 0)").tag(RepeatArrangement.adjacent)
                     Text("Aralıklı (ara boşluk = 2 × taşma)").tag(RepeatArrangement.spaced)
@@ -203,6 +210,7 @@ struct InspectorView: View {
                             .textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing).accessibilityLabel("Adet")
                     }
                 }
+                FireControlsView(model: model)
                 if let sheet = model.currentSheet, let layout = sheet.repeatLayout {
                     Text("\(layout.columns) × \(layout.rows) = \(layout.copiesPerSheet) adet/tabaka").fontWeight(.medium)
                     if model.project.autoLayout?.automaticFields.contains(.allowRotation) == true {
