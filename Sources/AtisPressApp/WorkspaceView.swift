@@ -13,6 +13,7 @@ struct WorkspaceView: View {
             InspectorView(model: model).frame(minWidth: 290,idealWidth: 310,maxWidth: 360)
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.refreshRecentFiles() }
         .overlay { if dropTarget { RoundedRectangle(cornerRadius: 10).stroke(.blue,lineWidth: 4).padding(5).allowsHitTesting(false) } }
         .onDrop(of: [.fileURL],isTargeted: $dropTarget,perform: model.acceptDrop)
         .alert("İşlem tamamlanamadı",isPresented: Binding(get: { model.error != nil },set: { if !$0 { model.error = nil } })) {
@@ -157,10 +158,11 @@ struct WorkspaceView: View {
                             .font(.caption).padding(7).background(.regularMaterial,in: RoundedRectangle(cornerRadius: 6)).padding(10)
                             .allowsHitTesting(false)
                     }
+            } else if model.source == nil {
+                HomeEmptyStateView(model: model)
             } else {
-                ContentUnavailableView(model.source == nil ? "PDF ile başlayın" : "Önizleme oluşturulamadı",
-                    systemImage: model.source == nil ? "doc.richtext" : "exclamationmark.triangle",
-                    description: Text(model.source == nil ? "PDF dosyasını buraya sürükleyin veya ⌘O ile açın." : "Sayfa seçimini ve aşağıdaki doğrulama mesajlarını kontrol edin."))
+                ContentUnavailableView("Önizleme oluşturulamadı",systemImage: "exclamationmark.triangle",
+                    description: Text("Sayfa seçimini ve aşağıdaki doğrulama mesajlarını kontrol edin."))
                     .frame(maxWidth: .infinity,maxHeight: .infinity)
             }
             if let summary = model.project.autoLayout?.summary { Text(summary).font(.caption).padding(.horizontal,10).padding(.vertical,4) }

@@ -286,8 +286,8 @@ Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/
 
 ### Verification and current limits
 
-`swift test --disable-sandbox`: **114 XCTest tests, zero failures** (52 core,
-32 PDF reading/drawing/export, 30 workspace/project persistence regression tests). GUI smoke checks
+`swift test --disable-sandbox`: **119 XCTest tests, zero failures** (52 core,
+32 PDF reading/drawing/export, 35 workspace/project persistence regression tests). GUI smoke checks
 used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
 navigation, page selection/reordering/exclusion, binding change, front/back,
 shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
@@ -819,7 +819,7 @@ Generated bleed suppresses missing-bleed warnings when enabled and needed.
 Displayed identical warnings are grouped with counts and compressed source-page
 ranges, e.g. **12 sayfada taşma payı eksik: 1-12**; detailed slot references remain
 available internally. Existing preview/export alignment and project roundtrip
-regressions remain active. Run `swift test --disable-sandbox` for all 114 tests.
+regressions remain active. Run `swift test --disable-sandbox` for all 119 tests.
 Native interactive smoke testing has not been rerun for these controls.
 
 ## Empty reverse export and repeat arrangement
@@ -852,3 +852,33 @@ choosing Aralıklı and the front-only extension test expecting the new page cou
 Run `swift run --disable-sandbox AtisPressApp`; verify with
 `swift test --disable-sandbox`. Native interactive UI smoke testing has not been
 rerun; the existing single-source, consecutive page-pair job model is unchanged.
+
+## Home screen and recent files
+
+The empty home screen shows **PDF Seç…** below
+**PDF dosyasını buraya sürükle veya ⌘O ile yükle**. It opens the standard macOS
+file picker restricted to PDF files. **Proje Aç…** opens the same picker restricted
+to `.atispress` projects. **Dosya → Aç / ⌘O** continues to accept both types.
+Every picker selection, recent-file click, Finder open and drag-drop converges on
+`Workspace.open`; PDF reading, automatic layout, preview, save prompts and the
+project relink flow remain shared.
+
+**Son kullanılanlar** retains the five most recently opened PDFs/projects or
+saved projects, newest first. Reopening a file moves it to the top without a
+duplicate. History persists in app preferences, independently of project JSON,
+with security-scoped bookmarks when available and a path fallback. A canceled
+picker or failed import does not add an entry. Missing/inaccessible files stay in
+the list, greyed out and disabled with **Bulunamadı**; availability refreshes on
+showing the home screen, returning to the app, and before opening a recent item.
+Successful bookmark resolution can follow moved files.
+
+Five new regression tests exercise the actual button and menu actions through an
+injected file-picker result (no native dialog during XCTest), comparing imported
+projects and plans with drag-drop and recent-file opening. They also cover typed
+picker filters, cancellation, project restoration, persistent ordering/deduplication,
+missing-file availability and failed-import history. All 114 earlier tests remain
+unchanged; the current suite contains 119 tests. Native interactive picker/UI smoke
+testing has not been rerun for this change.
+
+Run `swift run --disable-sandbox AtisPressApp` or rebuild the signed bundle with
+`./scripts/build_app.sh` and open `dist/AtışPress.app`.

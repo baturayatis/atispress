@@ -79,9 +79,17 @@ final class Workspace: ObservableObject {
     private var savePanel: NSSavePanel?
     var closeApproved = false
 
+    typealias FilePicker = (OpenFileKind,@escaping (URL?) -> Void) -> Void
     private let bookmarkCreator: (URL) throws -> Data
-    init(bookmarkCreator: @escaping (URL) throws -> Data = ProjectSource.securityBookmark) {
+    private let recentStore: RecentFilesStore
+    private let filePicker: FilePicker?
+    @Published private(set) var recentFiles: [RecentFile] = []
+    init(bookmarkCreator: @escaping (URL) throws -> Data = ProjectSource.securityBookmark,
+         recentStore: RecentFilesStore? = nil,filePicker: FilePicker? = nil) {
         self.bookmarkCreator = bookmarkCreator
+        self.recentStore = recentStore ?? RecentFilesStore()
+        self.filePicker = filePicker
+        recentFiles = self.recentStore.files()
         savedState = state
     }
     @Published var loading = false
@@ -238,16 +246,26 @@ final class Workspace: ObservableObject {
         next.binding = mode
         project = next
     }
-    func openPanel() {
+    // ⌘O, home buttons and the toolbar differ only in their picker filter.
+    func openPanel() { chooseFile(.any) }
+    func choosePDF() { chooseFile(.pdf) }
+    func chooseProject() { chooseFile(.project) }
+    private func chooseFile(_ kind: OpenFileKind) {
+        guard !loading,!exporting,!autoArranging else { return }
         if let filePanel { filePanel.makeKeyAndOrderFront(nil); return }
+        let finish: (URL?) -> Void = { [weak self] url in
+            guard let url,kind.accepts(url) else { return }
+            self?.open(url)
+        }
+        if let filePicker { filePicker(kind,finish); return }
         let panel = NSOpenPanel()
         filePanel = panel
-        panel.allowedContentTypes = [.pdf,.projectFile]; panel.allowsMultipleSelection = false
-        panel.title = "Aç"; panel.prompt = "Aç"
-        panel.message = "AtışPress projesi (.atispress) veya PDF seçin"
+        panel.allowedContentTypes = kind.contentTypes; panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false; panel.canChooseFiles = true; panel.allowsOtherFileTypes = false
+        panel.title = kind.title; panel.prompt = "Aç"; panel.message = kind.message
         panel.begin { [weak self] response in
             self?.filePanel = nil
-            if response == .OK, let url = panel.url { self?.open(url) }
+            finish(response == .OK ? panel.url : nil)
         }
     }
     func open(_ url: URL,confirmChanges: Bool = true) {
@@ -293,6 +311,7 @@ final class Workspace: ObservableObject {
                 sheetIndex = 0; repetition = 0
                 applyAutomatic(prepared)
                 loading = false
+                recordRecentFile(source.url)
                 refreshModified()
             } catch {
                 guard !Task.isCancelled, importRevision == token else { return }
@@ -405,7 +424,7 @@ extension Workspace {
         try ProjectDocument(state: snapshot).encoded().write(to: url,options: .atomic)
         sourceReference = snapshot.source; projectURL = url; projectAccess = access
         savedState = snapshot; refreshModified()
-        NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        recordRecentFile(url)
         return url
     }
     @discardableResult
@@ -492,7 +511,7 @@ extension Workspace {
         if relinked { savedState?.source = file.state.source }
         schedulePlan()
         zoomFactor = 0; zoomAction += 1
-        NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        recordRecentFile(url)
     }
 }
 
@@ -647,5 +666,21 @@ extension Workspace {
         }
         next.autoLayout = state
         trackingManual = true; project = next; trackingManual = false
+    }
+}
+
+extension Workspace {
+    func refreshRecentFiles() { recentFiles = recentStore.files() }
+    private func recordRecentFile(_ url: URL) {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        recentStore.record(url,bookmark: try? bookmarkCreator(url))
+        refreshRecentFiles()
+        NSDocumentController.shared.noteNewRecentDocumentURL(url)
+    }
+    func openRecent(_ file: RecentFile) {
+        refreshRecentFiles()
+        guard let current = recentFiles.first(where: { $0.id == file.id }),current.isAvailable else { return }
+        open(current.url)
     }
 }
