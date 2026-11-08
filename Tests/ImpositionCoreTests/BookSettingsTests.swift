@@ -119,4 +119,37 @@ final class BookSettingsTests: XCTestCase {
         XCTAssertEqual(plan.diagnosticSheets[coverRef.sheet].bookInfo?.section,.cover)
     }
 
+    func testA5Booklet106PagesSeparateCoverFitsManualA4WithZeroFoldGutterAndMarksOff() throws {
+        var p = Project(pages:(1...110).map { SourcePage(number:$0,trimSize:SheetPreset.a5.size,availableBleed:3) },binding:.saddleStitch,
+                        sheet:SheetSpec(preset:.a4,margins:Insets(),gripperWidth:0,gutter:0,orientation:.landscape))
+        p.coverMode = .separate; p.exportMarks = .none
+        p.settings.cropMarkLength = 0; p.settings.cropMarkOffset = 0
+        // Keep the normal 3 mm bleed. Zero sheet clearances must clip its outer
+        // extent, not turn it into an unrequested 6 mm between fold neighbors.
+        var book = BookSettings(); book.coverSourceID = UUID(); book.coverPDFPages = [107,108,109,110]; book.auxiliaryPages = book.coverPDFPages
+        p.book = book
+        var auto = AutoLayoutSettings(); auto.sheetSelection = .fixed; auto.manualFields = [.sheetSize,.marginLeft,.marginRight,.marginTop,.marginBottom,.gripperWidth,.gutter,.exportCrop]
+        p.autoLayout = auto
+        let plan = ImpositionPlanner.plan(p)
+        XCTAssertTrue(plan.canExport,plan.issues.map(\.message).joined(separator:"\n"))
+        XCTAssertEqual(p.sheet.gutter,0)
+        XCTAssertEqual(plan.addedBlankPages,2)
+        let interiors = plan.sheets.filter { $0.bookInfo?.section == .interior }
+        XCTAssertEqual(interiors.count,27)
+        XCTAssertEqual(plan.sheets.filter { $0.bookInfo?.section == .cover }.count,1)
+        XCTAssertTrue(plan.diagnosticSheets.isEmpty)
+        let first = try XCTUnwrap(interiors.first),slots = first.front.slots.sorted { $0.x<$1.x }
+        XCTAssertEqual(first.size,Size(297,210)); XCTAssertEqual(slots.count,2)
+        XCTAssertEqual(slots[1].x-slots[0].x-slots[0].size.width,0,accuracy:0.000001)
+        XCTAssertEqual(slots.map { $0.x+$0.size.width }.max()!-slots.map(\.x).min()!,296,accuracy:0.000001)
+        XCTAssertTrue(plan.sheets.flatMap { $0.front.slots+$0.back.slots }.allSatisfy { slot in
+            guard let r = slot.artworkClip else { return false }
+            return r.origin.x>=0 && r.origin.y>=0 && r.origin.x+r.size.width<=297.000001 && r.origin.y+r.size.height<=210.000001
+        })
+        p.sheet.gutter = 6
+        let spaced = ImpositionPlanner.plan(p)
+        XCTAssertFalse(spaced.canExport,"An explicitly requested 6 mm gap really needs 302 mm and must not be silently removed")
+        XCTAssertTrue(spaced.issues.contains { $0.message.contains("gereken 302.00×210.00") })
+    }
+
 }

@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import PDFKit
 import ImpositionCore
 import PDFEngine
 @testable import AtisPressApp
@@ -116,4 +117,53 @@ final class BookWorkspaceTests: XCTestCase {
         workspace.bookSettings.interiorPaper.microns = nil; try await settle(workspace)
         XCTAssertFalse(workspace.canExportNow); XCTAssertTrue(workspace.currentSheet?.bookInfo?.summary.contains("hesaplanamadı") == true)
     }
+    func testExplicitZeroGutterIsNotReplacedWhenEnteringBookletMode() {
+        let workspace = model()
+        // The inspector marks an explicit edit even if 0 was already displayed.
+        workspace.markManual(.gutter); workspace.project.sheet.gutter = 0
+        workspace.setMode(.saddleStitch)
+        XCTAssertEqual(workspace.project.sheet.gutter,0,"First booklet entry must not replace a user's zero with the legacy 6 mm default")
+    }
+
+    func testA5Booklet106PagePDFSeparateCoverOnManualA4AndAllZeroClearances() async throws {
+        let folder = try folder(),body = try fixture(folder,"A5-106.pdf",count:106,size:SheetPreset.a5.size),cover = try fixture(folder,"A5-cover.pdf",count:4,size:SheetPreset.a5.size),workspace = model()
+        try await prepare(workspace,body,binding:.saddleStitch)
+        workspace.loadCoverPDF(cover); try await settle(workspace)
+        workspace.project.exportMarks.crop = true
+        workspace.project.settings.cropMarkLength = 5; workspace.project.settings.cropMarkOffset = 3.5
+        workspace.sheetPreset = "A4"
+        workspace.project.sheet = SheetSpec(preset:.a4,margins:Insets(),gripperWidth:0,gutter:0,orientation:.landscape)
+        workspace.project.settings.bleed = 3
+        // Leave preview crop length/offset intact: disabling output marks must
+        // not secretly keep their fit padding or overwrite the user's gutter.
+        workspace.project.exportMarks = .none; workspace.overlays = .artworkOnly
+        try await settle(workspace)
+        XCTAssertEqual(workspace.project.sheet.gutter,0)
+        XCTAssertTrue(workspace.plan.canExport,workspace.plan.issues.map(\.message).joined(separator:"\n"))
+        XCTAssertEqual(workspace.plan.sheets.count,28)
+        XCTAssertEqual(workspace.plan.addedBlankPages,2)
+        XCTAssertTrue(workspace.plan.diagnosticSheets.isEmpty)
+        XCTAssertEqual(workspace.plan.sheets.first?.size,Size(297,210))
+        workspace.project.exportMarks.crop = true; try await settle(workspace)
+        XCTAssertFalse(workspace.plan.canExport,"Enabling crop marks must re-evaluate the full-sheet fit")
+        workspace.project.exportMarks = .none; try await settle(workspace)
+        XCTAssertTrue(workspace.plan.canExport)
+        XCTAssertEqual(workspace.overlays,.artworkOnly)
+        XCTAssertEqual(workspace.project.settings.cropMarkLength,5)
+        let saved = folder.appendingPathComponent("A5-106.atispress"); try workspace.saveProject(as:saved)
+        let restored = model(); try await restored.loadProject(at:saved); try await settle(restored)
+        XCTAssertTrue(restored.plan.canExport)
+        XCTAssertEqual(restored.project.sheet.gutter,0)
+        XCTAssertEqual(restored.plan.sheets,workspace.plan.sheets)
+        let output = folder.appendingPathComponent("A5-106-A4.pdf")
+        let result = try PDFExporter.export(plan:restored.plan,source:XCTUnwrap(restored.source),destination:.singlePDF(output),marks:.none)
+        XCTAssertEqual(result.sheetCount,28); XCTAssertEqual(result.pageCount,56)
+        let document = try XCTUnwrap(PDFDocument(url:output))
+        for i in 0..<document.pageCount {
+            let box = try XCTUnwrap(document.page(at:i)).bounds(for:.mediaBox)
+            XCTAssertEqual(box.width,297*72/25.4,accuracy:0.01)
+            XCTAssertEqual(box.height,210*72/25.4,accuracy:0.01)
+        }
+    }
+
 }

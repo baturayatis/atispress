@@ -9,8 +9,7 @@ extension ImpositionPlanner {
               spec.size.width > 0,spec.size.height > 0 else { return }
         let stock = spec.orientation == .landscape ? Size(max(spec.size.width,spec.size.height),min(spec.size.width,spec.size.height)) :
             spec.orientation == .portrait ? Size(min(spec.size.width,spec.size.height),max(spec.size.width,spec.size.height)) : spec.size
-        let reserve = project.binding != .stepAndRepeat && project.autoLayout?.clipBleedToSheet != true ? max(s.bleed,s.cropMarkOffset+s.cropMarkLength) :
-            max(project.autoLayout?.clipBleedToSheet == true ? 0 : s.bleed,s.cropMarkLength > 0 ? s.cropMarkOffset+s.cropMarkLength : 0)
+        let reserve = project.layoutExteriorReserve
         var margins = spec.margins
         if project.binding == .stepAndRepeat { margins = repeatMargins(spec,mirrorX: repeatMirrorsX(project)) }
         else {

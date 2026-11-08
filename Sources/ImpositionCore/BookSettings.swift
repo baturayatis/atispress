@@ -97,6 +97,7 @@ public struct BookSheetInfo: Equatable, Sendable {
     public var maximumCreep: Double
     public var creepEnabled = false
     public var bleed: Double = 0
+    public var bleedClippedToSheet = false
     public var coverAllowance: Double = 0
     public var adhesiveAllowance: Double = 0
     public var leftFlap: Double = 0
@@ -106,7 +107,10 @@ public struct BookSheetInfo: Equatable, Sendable {
         let spineText = spine.map { String(format:"%.3f mm",$0) } ?? "hesaplanamadı"
         let creepText = creepEnabled && (interiorPaper.millimetres == nil || coverPaper.millimetres == nil) ? "hesaplanamadı" : String(format:"%.3f mm",maximumCreep)
         let spreadText = spine == nil ? "hesaplanamadı" : String(format:"%.2f × %.2f mm",spreadSize.width,spreadSize.height)
-        let bleedText = spine == nil ? " · Taşmalı açılım hesaplanamadı" : String(format:" · Taşma dahil %.2f × %.2f mm",spreadSize.width+2*bleed,spreadSize.height+2*bleed)
+        let bleedText: String
+        if spine == nil { bleedText = " · Taşmalı açılım hesaplanamadı" }
+        else if bleedClippedToSheet { bleedText = String(format:" · Taşma %.2f mm: tabaka sınırında kırpılır",bleed) }
+        else { bleedText = String(format:" · Taşma dahil %.2f × %.2f mm",spreadSize.width+2*bleed,spreadSize.height+2*bleed) }
         return "\(label) · İç: \(interiorPageCount) sayfa · Sırt: \(spineText) · Açılım: "+spreadText+bleedText+" · İç kâğıt: \(interiorPaper.description) · Kapak: \(coverPaper.description) · En çok creep: "+creepText+String(format:" · Sırt payları: %.3f + %.3f mm · Kulaklar: %.2f / %.2f mm",coverAllowance,adhesiveAllowance,leftFlap,rightFlap)
     }
 }
@@ -141,5 +145,25 @@ extension Project {
         let selection = resolvedCoverSelection
         let covers = Set([selection.front,selection.insideFront,selection.insideBack,selection.back].compactMap { $0 }.filter { $0>0 })
         return candidates.filter { !covers.contains($0.number) }
+    }
+}
+
+extension Project {
+    /// Explicit edge-to-edge booklet setup: trim/fold geometry uses the user's
+    /// gutter unchanged, while bleed is clipped to the physical sheet.
+    public var usesFullSheetBooklet: Bool {
+        guard isBooklet || bookCoverTemplate else { return false }
+        let m = sheet.margins,e = exportMarks
+        return sheet.gripperWidth == 0 && [m.left,m.right,m.top,m.bottom].allSatisfy { $0 == 0 } &&
+            !e.crop && !e.fold && !e.bleed && !e.safeArea && !e.pageNumbers && !e.sheetInfo && !e.fullCut && !e.colorBar && !e.registrationTargets
+    }
+    var clipsArtworkToSheet: Bool { usesFullSheetBooklet || autoLayout?.clipBleedToSheet == true }
+    /// Keep fit calculations, placement and diagnostics on the same exterior reserve.
+    var layoutExteriorReserve: Double {
+        if usesFullSheetBooklet { return 0 }
+        let s = settings
+        let crop = s.cropMarkLength>0 ? s.cropMarkOffset+s.cropMarkLength : 0
+        if binding == .stepAndRepeat { return max(clipsArtworkToSheet ? 0 : s.bleed,crop) }
+        return clipsArtworkToSheet ? crop : max(s.bleed,s.cropMarkOffset+s.cropMarkLength)
     }
 }

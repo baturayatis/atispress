@@ -287,8 +287,8 @@ Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/
 
 ### Verification and current limits
 
-`swift test --disable-sandbox`: **182 XCTest tests, zero failures** (76 core,
-51 PDF reading/drawing/export, 55 workspace/project persistence regression tests). GUI smoke checks
+`swift test --disable-sandbox`: **185 XCTest tests, zero failures** (77 core,
+51 PDF reading/drawing/export, 57 workspace/project persistence regression tests). GUI smoke checks
 used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
 navigation, page selection/reordering/exclusion, binding change, front/back,
 shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
@@ -824,7 +824,7 @@ Generated bleed suppresses missing-bleed warnings when enabled and needed.
 Displayed identical warnings are grouped with counts and compressed source-page
 ranges, e.g. **12 sayfada taşma payı eksik: 1-12**; detailed slot references remain
 available internally. Existing preview/export alignment and project roundtrip
-regressions remain active. Run `swift test --disable-sandbox` for all 182 tests.
+regressions remain active. Run `swift test --disable-sandbox` for all 185 tests.
 Native interactive smoke testing has not been rerun for these controls.
 
 ## Empty reverse export and repeat arrangement
@@ -1034,7 +1034,7 @@ front/back alignment, target/patch sizes, no-room warnings and partial placement
 info-strip clearance, independent preview/export output, a real AppKit preview
 pixel change, production defaults/manual overrides, and version-7 roundtrip with
 version-6 compatibility. All prior tests remain; the active-schema assertion now
-uses `ProjectDocument.currentVersion`. That feature set passed 142 tests; the current suite has 182. Interactive desktop
+uses `ProjectDocument.currentVersion`. That feature set passed 142 tests; the current suite has 185. Interactive desktop
 smoke testing has not been rerun; preview drawing is exercised in XCTest.
 
 ```sh
@@ -1321,4 +1321,52 @@ sheet), fixed trim/clip geometry, all turn styles, cover selection and independe
 ordering, spread/flap sizes, native-scale mismatch warnings, diagnostic section
 links, vector text export positions and image-XObject absence, live preview pixel
 changes, schema-10 roundtrips, separate-cover relinking/overwrite protection, and
-schema-9 compatibility. The complete suite has **182 tests**.
+schema-9 compatibility. The complete suite has **185 tests**.
+
+
+### A5 / 106-page / separate-cover / A4 zero-gutter regression
+
+Reproduced first with a failing test: 106 A5 interior pages, a separate four-face
+A5 cover, manually selected landscape A4, every margin/gripper/gutter at 0,
+all output marks off, and the normal 3 mm bleed retained. The original diagnostic
+was **gereken 302.00×216.00 mm** although the trim spread is **296×210 mm**.
+
+There were two distinct paths to the extra 6 mm:
+
+- `Planner.bestLayout` uses `2 × trimWidth + sheet.gutter + 2 × reserve`.
+  With gutter already 0, its `reserve = max(bleed, cropOffset + cropLength)`
+  still added **two 3 mm outer bleed reserves**, producing 302×216. This was
+  exterior fit padding, not a 6 mm gap between the fold neighbors. Diagnostics
+  repeated the same reserve. Inactive preview crop dimensions could also reserve
+  space even after output marks were switched off.
+- `Workspace.setMode` independently used `bookletGutter ?? 6` on first entry
+  into a booklet mode, overwriting an explicitly entered zero. A second failing
+  test reproduced that real-gutter path. It now honors the inspector's manual
+  gutter flag on first entry; an already remembered booklet gutter still takes
+  precedence, preserving independent per-mode values.
+
+Zero outer margins, zero gripper and all output marks off now select an
+edge-to-edge booklet fit: the fold uses the exact requested gutter, no exterior
+mark/bleed reserve inflates the trim spread, and artwork/bleed is clipped to the
+physical sheet. The independent cover uses the same rule; its assembled panels
+also intersect the template's clipped artwork bounds. The preview and a Turkish
+warning identify clipped bleed. Production-mark changes replan only when they
+change this booklet fit policy; preview overlay switches remain independent.
+The source bleed setting remains 3 mm rather than being silently changed to zero.
+
+Native PDF point serialization can put a nominal 210 mm edge a few millionths
+of a millimetre above 210. Full-sheet fit allows **0.0001 mm** numerical slack;
+artwork is still clipped to the exact sheet. This is not a 1 mm trim allowance.
+An explicitly requested **6 mm gutter still needs 302 mm and fails on A4**;
+it is never silently removed.
+
+The real-PDF workspace regression covers import, separate-cover loading, manual
+A4/zero settings, output-mark toggling with stale preview crop lengths, save/open,
+and export: **27 interior sheets (106 pages + 2 blanks) + 1 cover sheet = 28 A4
+sheets / 56 PDF sides**, with zero fold gap. No stored setting was added, so the
+schema remains 10.
+
+```sh
+swift test --disable-sandbox --filter testA5Booklet106
+swift test --disable-sandbox --filter testExplicitZeroGutter
+```

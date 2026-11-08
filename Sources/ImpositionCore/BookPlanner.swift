@@ -65,7 +65,7 @@ public enum BookPlanner {
             } else { issue("Creep için iç ve kapak kâğıdı kalınlıklarını girin; kalınlık tahmin edilmez.") }
         }
         var info = BookSheetInfo(section:.interior,interiorPageCount:pageCount,spine:spine,spreadSize:spread,interiorPaper:book.interiorPaper,coverPaper:book.coverPaper,maximumCreep:maximumCreep)
-        info.bleed = original.settings.bleed
+        info.bleed = original.settings.bleed; info.bleedClippedToSheet = original.clipsArtworkToSheet
         info.creepEnabled = book.creepEnabled; info.coverAllowance = book.coverAllowance; info.adhesiveAllowance = book.adhesiveAllowance
         info.leftFlap = original.binding == .perfectBound ? book.leftFlap : 0; info.rightFlap = original.binding == .perfectBound ? book.rightFlap : 0
         for i in result.sheets.indices { result.sheets[i].bookInfo = info }
@@ -155,6 +155,13 @@ public enum BookPlanner {
                         let bounds = rect(Rect(x:panel.x,y:panel.y,width:panel.size.width,height:panel.size.height),by:whole)
                         panel.origin = bounds.origin; panel.size = bounds.size; panel.rotation = whole.rotation; panel.mirrored = whole.mirrored
                         panel.artworkClip = panel.artworkClip.map { rect($0,by:whole) }
+                        if let a = panel.artworkClip,let b = whole.artworkClip {
+                            let x = max(a.origin.x,b.origin.x),y = max(a.origin.y,b.origin.y)
+                            let w = min(a.origin.x+a.size.width,b.origin.x+b.size.width)-x
+                            let h = min(a.origin.y+a.size.height,b.origin.y+b.size.height)-y
+                            guard w>0,h>0 else { continue }
+                            panel.artworkClip = Rect(x:x,y:y,width:w,height:h)
+                        }
                         panel.itemSide = whole.itemSide
                         output.slots.append(panel)
                     }

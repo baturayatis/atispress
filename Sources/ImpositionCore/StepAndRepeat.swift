@@ -74,8 +74,8 @@ extension ImpositionPlanner {
                 }
             }
             // The array stays in copy order. GridPosition expresses each face's row/column order.
-            let frontSide = repeatSide(frontSlots,grid: grid,spec: spec,settings: settings,clipToSheet: project.autoLayout?.clipBleedToSheet == true)
-            let backSide = repeatSide(backSlots,grid: grid,spec: spec,settings: settings,clipToSheet: project.autoLayout?.clipBleedToSheet == true)
+            let frontSide = repeatSide(frontSlots,grid: grid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet)
+            let backSide = repeatSide(backSlots,grid: grid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet)
             if settings.generatedBleed.enabled {
                 for slot in frontSide.slots+backSide.slots {
                     if let clip = slot.artworkClip,
@@ -154,7 +154,7 @@ extension ImpositionPlanner {
         let portrait = Size(min(spec.size.width,spec.size.height),max(spec.size.width,spec.size.height))
         let landscape = Size(portrait.height,portrait.width)
         let sheets = spec.orientation == .portrait ? [portrait] : spec.orientation == .landscape ? [landscape] : [portrait,landscape]
-        let reserve = max(project.autoLayout?.clipBleedToSheet == true ? 0 : settings.bleed,settings.cropMarkLength > 0 ? settings.cropMarkOffset+settings.cropMarkLength : 0)
+        let reserve = project.layoutExteriorReserve
         // Zero gutter is an explicit shared-trim-cut mode. Otherwise bleed boxes do not overlap.
         let spacing = spec.gutter == 0 ? 0 : 2*settings.bleed+spec.gutter
         var best: RepeatGrid?
@@ -164,7 +164,7 @@ extension ImpositionPlanner {
             let height = sheet.height-m.top-m.bottom-2*reserve
             for rotation in (options.allowRotation ? [0,90] : [0]) {
                 let item = rotation == 0 ? trim : Size(trim.height,trim.width)
-                let tolerance = project.autoLayout?.trimTolerance ?? 0
+                let tolerance = max(project.autoLayout?.trimTolerance ?? 0,project.usesFullSheetBooklet ? 0.0001 : 0)
                 guard width+tolerance >= item.width, height+tolerance >= item.height else { continue }
                 let fitColumns = ((width+spacing)/(item.width+spacing)).rounded(.down)
                 let fitRows = ((height+spacing)/(item.height+spacing)).rounded(.down)

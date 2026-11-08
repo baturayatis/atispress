@@ -47,7 +47,7 @@ final class Workspace: ObservableObject {
             previous.exportMarks = project.exportMarks
             previous.includeBlankBacks = project.includeBlankBacks
             previous.sheetInfo = project.sheetInfo
-            let clipChanged = previous.autoLayout?.clipBleedToSheet != project.autoLayout?.clipBleedToSheet || previous.autoLayout?.trimTolerance != project.autoLayout?.trimTolerance
+            let clipChanged = oldValue.usesFullSheetBooklet != project.usesFullSheetBooklet || previous.autoLayout?.clipBleedToSheet != project.autoLayout?.clipBleedToSheet || previous.autoLayout?.trimTolerance != project.autoLayout?.trimTolerance
             previous.autoLayout = project.autoLayout
             let serialChanged = previous.serialFields != project.serialFields
             previous.serialFields = project.serialFields
@@ -264,6 +264,7 @@ final class Workspace: ObservableObject {
     func setMode(_ mode: BindingMethod) {
         guard mode != project.binding else { return }
         var next = project
+        let firstBookletGutter = project.autoLayout?.manualFields.contains(.gutter) == true ? project.sheet.gutter : 6
         if project.binding == .gang { gangGutter = project.sheet.gutter }
         if mode == .stepAndRepeat {
             if project.binding != .gang { bookletGutter = project.sheet.gutter }
@@ -273,8 +274,8 @@ final class Workspace: ObservableObject {
             else { bookletGutter = project.sheet.gutter }
             next.sheet.gutter = gangGutter ?? 0
         } else if project.binding == .stepAndRepeat {
-            repeatGutter = project.sheet.gutter; next.sheet.gutter = bookletGutter ?? 6
-        } else if project.binding == .gang { next.sheet.gutter = bookletGutter ?? 6 }
+            repeatGutter = project.sheet.gutter; next.sheet.gutter = bookletGutter ?? firstBookletGutter
+        } else if project.binding == .gang { next.sheet.gutter = bookletGutter ?? firstBookletGutter }
         next.binding = mode
         if mode == .gang {
             if next.gang == nil {

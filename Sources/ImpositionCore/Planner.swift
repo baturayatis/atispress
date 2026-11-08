@@ -56,6 +56,10 @@ public enum ImpositionPlanner {
                   ($0.availableBleed == nil || ($0.availableBleed!.isFinite && $0.availableBleed! >= 0)) }) else {
             error(.invalidInput, "Sayfa, ölçü veya ayarlar geçersiz."); return result
         }
+        let reserve = project.layoutExteriorReserve
+        if project.usesFullSheetBooklet {
+            result.issues.append(ValidationIssue(.warning,.bookSettings,"Sıfır kenar/maşa ve kapalı çıktı işaretleri: taşma tabaka sınırında kırpılır; katlama ara boşluğu \(spec.gutter) mm korunur."))
+        }
         let trim = project.pages[0].trimSize
         guard project.pages.allSatisfy({ $0.trimSize == trim }) else {
             error(.mixedPageSizes, "Karışık sayfa boyutları desteklenmiyor."); return result
@@ -73,7 +77,7 @@ public enum ImpositionPlanner {
             // Minimize press sheets, then padding, then prefer the larger signature.
             let choices = [8, 16, 32].compactMap { count -> (Int, Int, Int)? in
                 let grid = signatureGrid(count)
-                guard let fit = bestLayout(spec, trim, grid.0, grid.1, s,clipBleed: project.autoLayout?.clipBleedToSheet == true) else { return nil }
+                guard let fit = bestLayout(spec, trim, grid.0, grid.1, s,reserve: reserve,fitTolerance: project.usesFullSheetBooklet ? 0.0001 : 0) else { return nil }
                 let units = (project.pages.count + count - 1) / count
                 return ((units + fit.capacity - 1) / fit.capacity, units * count - project.pages.count, count)
             }.sorted { a, b in a.0 != b.0 ? a.0 < b.0 : (a.1 != b.1 ? a.1 < b.1 : a.2 > b.2) }
@@ -105,10 +109,9 @@ public enum ImpositionPlanner {
             }
         }
         guard let first = units.first,
-              let layout = bestLayout(spec, trim, first.columns, first.rows, s,clipBleed: project.autoLayout?.clipBleedToSheet == true) else {
+              let layout = bestLayout(spec, trim, first.columns, first.rows, s,reserve: reserve,fitTolerance: project.usesFullSheetBooklet ? 0.0001 : 0) else {
             error(.exceedsSheet, "Forma ve baskı işaretleri tabakaya sığmıyor."); return result
         }
-        let reserve = project.autoLayout?.clipBleedToSheet == true ? max(0,s.cropMarkLength > 0 ? s.cropMarkOffset+s.cropMarkLength : 0) : max(s.bleed,s.cropMarkOffset+s.cropMarkLength)
         for offset in stride(from: 0, to: units.count, by: layout.capacity) {
             var front = Side(); var back = Side()
             for index in 0..<min(layout.capacity, units.count - offset) {
@@ -177,7 +180,7 @@ public enum ImpositionPlanner {
                 back.slots = front.slots.map { reflected($0, layout.size, s.turnMethod) }
                 back.marks = front.marks.map { reflectMark($0, layout.size, s.turnMethod) }
             }
-            if project.autoLayout?.clipBleedToSheet == true {
+            if project.clipsArtworkToSheet {
                 func clipped(_ side: Side) -> Side {
                     var side = side
                     for i in side.slots.indices {
@@ -275,8 +278,7 @@ public enum ImpositionPlanner {
         }.sorted { $0.y == $1.y ? $0.x < $1.x : $0.y < $1.y }
         return Unit(columns: columns, rows: rows, front: front, back: back)
     }
-    private static func bestLayout(_ spec: SheetSpec, _ trim: Size, _ columns: Int, _ rows: Int, _ s: ImpositionSettings,clipBleed: Bool = false) -> Layout? {
-        let reserve = clipBleed ? max(0,s.cropMarkLength > 0 ? s.cropMarkOffset+s.cropMarkLength : 0) : max(s.bleed,s.cropMarkOffset+s.cropMarkLength)
+    private static func bestLayout(_ spec: SheetSpec, _ trim: Size, _ columns: Int, _ rows: Int, _ s: ImpositionSettings,reserve: Double,fitTolerance: Double) -> Layout? {
         let raw = Size(Double(columns)*trim.width + Double(columns-1)*spec.gutter + 2*reserve,
                        Double(rows)*trim.height + Double(rows-1)*spec.gutter + 2*reserve)
         guard raw.width.isFinite, raw.height.isFinite else { return nil }
@@ -298,11 +300,14 @@ public enum ImpositionPlanner {
             var h = size.height-m.top-m.bottom
             if s.turnMethod == .workAndTurn { w = (w-spec.gutter)/2 }
             if s.turnMethod == .workAndTumble { h = (h-spec.gutter)/2 }
+            // PDF point serialization can put an exact A5 edge a sub-micrometre amount
+            // above 210 mm. Full-sheet jobs allow only 0.0001 mm numerical slack;
+            // their artwork remains clipped to the exact physical sheet.
             for rotate in [false, true] {
                 let u = rotate ? Size(raw.height,raw.width) : raw
-                guard w >= u.width, h >= u.height else { continue }
-                let nx = (w+spec.gutter)/(u.width+spec.gutter)
-                let ny = (h+spec.gutter)/(u.height+spec.gutter)
+                guard w+fitTolerance >= u.width, h+fitTolerance >= u.height else { continue }
+                let nx = (w+spec.gutter+fitTolerance)/(u.width+spec.gutter)
+                let ny = (h+spec.gutter+fitTolerance)/(u.height+spec.gutter)
                 // Bound conversion and allocation even for hostile custom dimensions.
                 guard nx.isFinite, ny.isFinite else { continue }
                 let candidate = Layout(size: size, origin: Point(m.left,m.bottom), columns: Int(min(nx,100_000)), rows: Int(min(ny,100_000)), rotated: rotate, unitSize: u)
