@@ -6,23 +6,23 @@ struct SerialInspectorView: View {
     @FocusState private var editingEnd: UUID?
     @State private var endDraft = ""
     private var job: Int { model.currentSheet?.repeatLayout?.jobIndex ?? 0 }
-    private var fields: [SerialField] { model.project.serialFields.filter { $0.jobIndex == job } }
+    private var fields: [SerialField] { model.editableSerialFields.filter { $0.jobIndex == job } }
     var body: some View {
         GroupBox("Seri Numara") {
             VStack(alignment: .leading,spacing: 9) {
-                if model.project.binding == .stepAndRepeat {
+                if model.project.binding == .stepAndRepeat || (model.project.binding == .gang && model.selectedGangJob != nil) {
                     Text("İş \(job+1) · Sol alt kesim köşesinden alan konumu (mm)").font(.caption)
                     HStack {
                         Text("Adet")
                         TextField("Adet",value: Binding(get: { model.serialQuantity(job: job) },
-                            set: { model.project.stepAndRepeat.quantity = $0 }),format: .number)
+                            set: model.setSerialQuantity),format: .number)
                             .textFieldStyle(.roundedBorder).accessibilityLabel("Seri numara adedi")
                     }
                     FireControlsView(model: model)
                     if let sheet = model.currentSheet,sheet.unnumberedCopiesDescription != "0" {
                         Text("Fazla \(sheet.unnumberedCopiesDescription) kopya numarasız").font(.caption).foregroundStyle(.orange)
                     }
-                    Button("Alan Ekle") { model.addSerialField() }.disabled(model.project.serialFields.count >= 100)
+                    Button("Alan Ekle") { model.addSerialField() }.disabled(model.editableSerialFields.count >= 100)
                     ForEach(fields) { field in
                         VStack(alignment: .leading,spacing: 4) {
                             Button { model.selectedSerialID = field.id } label: {
@@ -35,7 +35,7 @@ struct SerialInspectorView: View {
                                 .font(.caption).textSelection(.enabled)
                         }
                     }
-                    if let index = model.project.serialFields.firstIndex(where: { $0.id == model.selectedSerialID && $0.jobIndex == job }) {
+                    if let index = model.editableSerialFields.firstIndex(where: { $0.id == model.selectedSerialID && $0.jobIndex == job }) {
                         editor(index)
                     }
                     if !fields.isEmpty {
@@ -45,24 +45,24 @@ struct SerialInspectorView: View {
                             Stepper("Baskı tabakası: \(model.repetition+1) / \(sheet.repeatCount)",value: $model.repetition,in: 0...max(0,sheet.repeatCount-1))
                         }
                     }
-                } else { Text("Seri numara için Tekrarlı (kartvizit/düz iş) modunu seçin.").font(.caption) }
+                } else { Text(model.project.binding == .gang ? "Önce PDF ekleyin ve bir iş seçin." : "Seri numara için Tekrarlı (kartvizit/düz iş) modunu seçin.").font(.caption) }
             }.padding(5).frame(maxWidth: .infinity,alignment: .leading)
         }.onChange(of: editingEnd) { _,_ in syncEndDraft() }
             .onChange(of: model.project.stepAndRepeat.quantity) { _,_ in syncEndDraft() }
-            .onChange(of: model.project.serialFields) { _,_ in syncEndDraft() }
+            .onChange(of: model.editableSerialFields) { _,_ in syncEndDraft() }
             .onChange(of: model.currentSheet?.repeatLayout?.copiesPerSheet) { _,_ in syncEndDraft() }
     }
     private func editor(_ index: Int) -> some View {
-        let snapshot = model.project.serialFields[index]
-        let field = Binding(get: { model.project.serialFields.first(where: { $0.id == snapshot.id }) ?? snapshot },set: { value in
-            if let current = model.project.serialFields.firstIndex(where: { $0.id == snapshot.id }) { model.project.serialFields[current] = value }
+        let snapshot = model.editableSerialFields[index]
+        let field = Binding(get: { model.editableSerialFields.first(where: { $0.id == snapshot.id }) ?? snapshot },set: { value in
+            if let current = model.editableSerialFields.firstIndex(where: { $0.id == snapshot.id }) { model.editableSerialFields[current] = value }
         })
         return VStack(alignment: .leading,spacing: 8) {
             HStack {
-                Button("Çoğalt") { model.duplicateSerialField(field.wrappedValue.id) }.disabled(model.project.serialFields.count >= 100)
+                Button("Çoğalt") { model.duplicateSerialField(field.wrappedValue.id) }.disabled(model.editableSerialFields.count >= 100)
                 Button("Sil") {
                     editingEnd = nil; NSApp?.keyWindow?.makeFirstResponder(nil)
-                    model.project.serialFields.removeAll { $0.id == snapshot.id }
+                    model.editableSerialFields.removeAll { $0.id == snapshot.id }
                     model.serialInputErrors[snapshot.id] = nil; model.selectedSerialID = nil
                 }
             }
@@ -147,7 +147,7 @@ struct SerialInspectorView: View {
         }
     }
     private func syncEndDraft() {
-        if let id = editingEnd,let field = model.project.serialFields.first(where: { $0.id == id }) {
+        if let id = editingEnd,let field = model.editableSerialFields.first(where: { $0.id == id }) {
             endDraft = field.value(at: max(1,model.serialQuantity(job: field.jobIndex))-1).map(String.init) ?? ""
         }
     }

@@ -4,11 +4,7 @@ extension Sheet {
     public func hasContent(on kind: SideKind) -> Bool {
         let face = kind == .front ? front : back
         if face.slots.contains(where: { $0.sourcePageNumber != nil }) { return true }
-        guard let serialPlan else { return false }
-        // The earliest repetition contains every potentially numbered copy pile.
-        return face.slots.enumerated().contains {
-            !serialPlan.placements(slot: $0.element,slotIndex: $0.offset,kind: kind,repetition: 0).isEmpty
-        }
+        return !serialPlacements(side: face,kind: kind,repetition: 0).isEmpty
     }
 }
 extension ImpositionPlan {

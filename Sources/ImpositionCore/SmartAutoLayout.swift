@@ -82,6 +82,14 @@ public enum SmartAutoLayout {
         var rotations: Int
     }
     public static func arrange(_ original: Project,resetOverrides: Bool = false) -> AutoLayoutResult {
+        if original.binding == .gang {
+            var next = original
+            if resetOverrides { next.gang?.mode = .automatic; next.gang?.blocks = [] }
+            let plan = ImpositionPlanner.plan(next)
+            let summary = plan.sheets.first?.gangLayout?.summary ?? "Karışık düzen için işleri ve tabakayı kontrol edin."
+            next.autoLayout?.summary = summary
+            return AutoLayoutResult(project:next,presetName:presetName(for:next.sheet.size),summary:summary,plan:plan)
+        }
         var state = original.autoLayout ?? AutoLayoutSettings()
         if resetOverrides {
             if state.sheetSelection == .fixed { state.sheetSelection = .automatic }

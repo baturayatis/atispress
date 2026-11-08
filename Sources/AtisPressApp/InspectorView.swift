@@ -6,7 +6,7 @@ struct InspectorView: View {
     private let presets: [String:SheetPreset] = ["A5":.a5,"A4":.a4,"A3":.a3,"SRA3":.sra3,"33×48":.cm33x48,
         "35×50":.cm35x50,"50×70":.cm50x70,"70×100":.cm70x100]
     private var presetBinding: Binding<String> {
-        Binding(get: { model.sheetPreset },set: { value in
+        Binding(get: { model.project.binding == .gang && model.sheetPreset == Workspace.automaticSheetTitle ? SmartAutoLayout.presetName(for:model.project.sheet.size) : model.sheetPreset },set: { value in
             if value == Workspace.automaticSheetTitle { model.returnToAutomaticSheet(); return }
             model.markManual(.sheetSize)
             model.sheetPreset = value
@@ -36,6 +36,7 @@ struct InspectorView: View {
                     VStack(alignment: .leading,spacing: 10) {
                         Picker("Yöntem",selection: Binding(get: { model.project.binding },set: model.setMode)) {
                             Text("Tekrarlı (kartvizit/düz iş)").tag(BindingMethod.stepAndRepeat)
+                            Text("Karışık iş (gang)").tag(BindingMethod.gang)
                             Text("Tel dikiş").tag(BindingMethod.saddleStitch)
                             Text("Tutkallı cilt").tag(BindingMethod.perfectBound)
                         }
@@ -58,18 +59,21 @@ struct InspectorView: View {
                     }.padding(5)
                 }
                 if model.project.binding == .stepAndRepeat { repeatControls }
+                if model.project.binding == .gang { GangInspectorView(model: model) }
                 GroupBox("Baskı Tabakası") {
                     VStack(spacing: 10) {
-                        Picker("Tabaka seçimi",selection: Binding(get: { model.project.autoLayout?.sheetSelection ?? .fixed },set: model.setSheetSelection)) {
-                            Text("Sabit").tag(SheetSelection.fixed)
-                            Text("En verimli").tag(SheetSelection.efficient)
-                            Text("Otomatik").tag(SheetSelection.automatic)
+                        if model.project.binding != .gang {
+                            Picker("Tabaka seçimi",selection: Binding(get: { model.project.autoLayout?.sheetSelection ?? .fixed },set: model.setSheetSelection)) {
+                                Text("Sabit").tag(SheetSelection.fixed)
+                                Text("En verimli").tag(SheetSelection.efficient)
+                                Text("Otomatik").tag(SheetSelection.automatic)
+                            }
                         }
                         Picker(model.autoLabel("Boyut",.sheetSize),selection: presetBinding) {
-                            Text(Workspace.automaticSheetTitle).tag(Workspace.automaticSheetTitle)
+                            if model.project.binding != .gang { Text(Workspace.automaticSheetTitle).tag(Workspace.automaticSheetTitle) }
                             ForEach(["A5","A4","A3","SRA3","33×48","35×50","50×70","70×100","Özel"],id: \.self) { Text($0) }
                         }
-                        if (model.project.autoLayout?.sheetSelection ?? .fixed) == .fixed || model.project.autoLayout?.manualFields.contains(.sheetSize) == true {
+                        if model.project.binding != .gang && ((model.project.autoLayout?.sheetSelection ?? .fixed) == .fixed || model.project.autoLayout?.manualFields.contains(.sheetSize) == true) {
                             Button("Otomatik'e dön",action: model.returnToAutomaticSheet)
                         }
                         Text("Kullanılan: \(SmartAutoLayout.presetName(for: model.project.sheet.size)) · \(model.project.sheet.size.width,specifier: "%.0f")×\(model.project.sheet.size.height,specifier: "%.0f") mm")
@@ -101,7 +105,7 @@ struct InspectorView: View {
                 }
                 GroupBox("Taşma ve İşaretler") {
                     VStack(spacing: 10) {
-                        measurement(model.autoLabel("Taşma",.bleed),guide(\.bleed,field: .bleed,overlay: \.bleed),range: 0...30)
+                        if model.project.binding != .gang { measurement(model.autoLabel("Taşma",.bleed),guide(\.bleed,field: .bleed,overlay: \.bleed),range: 0...30) }
                         measurement(model.autoLabel("Kesim uzunluğu",.cropLength),guide(\.cropMarkLength,field: .cropLength,overlay: \.crop),range: 0...30)
                         if model.project.settings.cropMarkLength > 0 {
                             measurement(model.autoLabel("Kesim uzaklığı",.cropOffset),guide(\.cropMarkOffset,field: .cropOffset,overlay: \.crop),range: 0...30)
@@ -117,7 +121,7 @@ struct InspectorView: View {
                 GroupBox("Önizleme Katmanları") {
                     VStack(alignment: .leading,spacing: 8) {
                         Toggle("Kesim işaretleri",isOn: $model.overlays.crop)
-                        if model.project.binding != .stepAndRepeat { Toggle("Katlama çizgileri",isOn: $model.overlays.fold) }
+                        if model.project.binding != .stepAndRepeat && model.project.binding != .gang { Toggle("Katlama çizgileri",isOn: $model.overlays.fold) }
                         Toggle("Taşma çizgileri",isOn: $model.overlays.bleed)
                         Toggle("Güvenli alan",isOn: $model.overlays.safeArea)
                         Toggle("Sayfa numaraları",isOn: $model.overlays.pageNumbers)
@@ -141,25 +145,25 @@ struct InspectorView: View {
     private var generatedBleedControls: some View {
         GroupBox("Üretilmiş Taşma") {
             VStack(alignment: .leading,spacing: 9) {
-                if model.project.settings.bleed > 0 {
-                    Toggle(model.autoLabel("Taşma üret",.generatedEnabled),isOn: model.autoBinding($model.project.settings.generatedBleed.enabled,.generatedEnabled)).toggleStyle(.checkbox)
-                    if model.project.settings.generatedBleed.enabled {
-                        Picker(model.autoLabel("Yöntem",.generatedMethod),selection: model.autoBinding($model.project.settings.generatedBleed.method,.generatedMethod)) {
+                if (model.selectedGangJob?.bleed ?? model.project.settings.bleed) > 0 {
+                    Toggle(model.autoLabel("Taşma üret",.generatedEnabled),isOn: model.autoBinding($model.editableGeneratedBleed.enabled,.generatedEnabled)).toggleStyle(.checkbox)
+                    if model.editableGeneratedBleed.enabled {
+                        Picker(model.autoLabel("Yöntem",.generatedMethod),selection: model.autoBinding($model.editableGeneratedBleed.method,.generatedMethod)) {
                             Text("Otomatik (zemin rengi)").tag(GeneratedBleedMethod.automatic)
                             Text("Yansıt").tag(GeneratedBleedMethod.mirror)
                             Text("Renk").tag(GeneratedBleedMethod.solidColor)
                         }
-                        if model.project.settings.generatedBleed.method == .automatic {
-                            measurement("Tolerans (%)",Binding(get: { model.project.settings.generatedBleed.tolerance*100 },
-                                set: { model.project.settings.generatedBleed.tolerance = $0/100 }),autoField: .generatedTolerance,range: 0...100)
+                        if model.editableGeneratedBleed.method == .automatic {
+                            measurement("Tolerans (%)",Binding(get: { model.editableGeneratedBleed.tolerance*100 },
+                                set: { model.editableGeneratedBleed.tolerance = $0/100 }),autoField: .generatedTolerance,range: 0...100)
                             Text("Tek renk kenar: vektör dolgu. Değişken kenar: kenar piksellerini uzat.").font(.caption).foregroundStyle(.secondary)
                         }
-                        if model.project.settings.generatedBleed.method == .solidColor {
-                            Picker(model.autoLabel("Renk uzayı",.generatedColor),selection: Binding(get: { model.project.settings.generatedBleed.color.components.count == 4 },
-                                set: { model.markManual(.generatedColor); model.project.settings.generatedBleed.color = $0 ? .cmyk(0,0,0,0) : .rgb(1,1,1) })) {
+                        if model.editableGeneratedBleed.method == .solidColor {
+                            Picker(model.autoLabel("Renk uzayı",.generatedColor),selection: Binding(get: { model.editableGeneratedBleed.color.components.count == 4 },
+                                set: { model.markManual(.generatedColor); model.editableGeneratedBleed.color = $0 ? .cmyk(0,0,0,0) : .rgb(1,1,1) })) {
                                 Text("CMYK").tag(true); Text("RGB").tag(false)
                             }
-                            let names = model.project.settings.generatedBleed.color.components.count == 4 ? ["C","M","Y","K"] : ["R","G","B"]
+                            let names = model.editableGeneratedBleed.color.components.count == 4 ? ["C","M","Y","K"] : ["R","G","B"]
                             ForEach(Array(names.enumerated()),id: \.offset) { index,name in
                                 measurement(name+" (%)",colorComponent(index),autoField: .generatedColor,range: 0...100)
                             }
@@ -172,10 +176,10 @@ struct InspectorView: View {
         }
     }
     private func colorComponent(_ index: Int) -> Binding<Double> {
-        Binding(get: { model.project.settings.generatedBleed.color.components[index]*100 },set: { value in
-            var values = model.project.settings.generatedBleed.color.components
+        Binding(get: { model.editableGeneratedBleed.color.components[index]*100 },set: { value in
+            var values = model.editableGeneratedBleed.color.components
             values[index] = value/100
-            model.project.settings.generatedBleed.color = values.count == 4 ?
+            model.editableGeneratedBleed.color = values.count == 4 ?
                 .cmyk(values[0],values[1],values[2],values[3]) : .rgb(values[0],values[1],values[2])
         })
     }

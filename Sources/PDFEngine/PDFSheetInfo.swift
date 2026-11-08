@@ -16,7 +16,10 @@ public struct PDFSheetInfoContext: Sendable {
     }
     public func text(settings: SheetInfoSettings,sheet: Sheet,dateLabel: String? = nil) -> String {
         var fields: [String] = []
-        if settings.showJobName { fields.append(settings.jobName ?? jobName) }
+        if settings.showJobName {
+            if let names = sheet.gangJobNames { fields.append([settings.jobName,names].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator:" · ")) }
+            else { fields.append(settings.jobName ?? jobName) }
+        }
         if settings.date { fields.append(dateLabel ?? Self.formattedDate(date)) }
         if settings.sheetNumber { fields.append("Tabaka \(sheetNumber) / \(totalSheets)") }
         if settings.side { fields.append(side == .front ? "Ön" : "Arka") }

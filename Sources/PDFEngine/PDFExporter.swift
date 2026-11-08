@@ -63,7 +63,7 @@ public enum PDFExporter {
             if marks.sheetInfo {
                 let sides: [(SideKind,Side)] = hasBack ? [(.front,sheet.front),(.back,sheet.back)] : [(.front,sheet.front)]
                 for (kind,side) in sides {
-                    let context = PDFSheetInfoContext(jobName: jobName,date: date,sheetNumber: sheetCount,totalSheets: plan.totalPressSheets,side: kind,production: production)
+                    let context = PDFSheetInfoContext(jobName: sheet.gangJobNames ?? jobName,date: date,sheetNumber: sheetCount,totalSheets: plan.totalPressSheets,side: kind,production: production)
                     let text = context.text(settings: sheetInfo,sheet: sheet,dateLabel: dateLabel)
                     if !text.isEmpty && PDFSheetInfo.placement(text: text,side: side,sheet: sheet,marks: marks,kind: kind) == nil {
                         if !notes.contains(PDFSheetInfo.noRoomWarning) { notes.append(PDFSheetInfo.noRoomWarning) }
@@ -78,8 +78,8 @@ public enum PDFExporter {
                 if let number = slot.sourcePageNumber, number < 1 || number > document.numberOfPages { throw PDFExportError.missingPage(number) }
             }
         }
-        let generated: [any PDFSlotOverlay] = plan.generatedBleed.enabled ?
-            [GeneratedBleedOverlay(settings: plan.generatedBleed,cache: source.edgeSamples,sampleIfMissing: true)] : []
+        let generated: [any PDFSlotOverlay] = (plan.generatedBleed.enabled || plan.sheets.contains { $0.generatedBleedByJob.values.contains { $0.enabled } }) ?
+            [GeneratedBleedOverlay(settings: plan.generatedBleed,cache: source.edgeSamples,sampleIfMissing: true,jobSettings: plan.sheets.first?.generatedBleedByJob ?? [:])] : []
         let effectiveOverlays = generated+overlays
         let scope = destination.scopeURL
         let accessed = scope.startAccessingSecurityScopedResource()
@@ -102,7 +102,7 @@ public enum PDFExporter {
         for index in 0..<outputCount {
             try Task.checkCancellation()
             let file = target(index)
-            guard file.standardizedFileURL.resolvingSymlinksInPath() != source.url.standardizedFileURL.resolvingSymlinksInPath() else {
+            guard !source.protectedURLs.contains(where: { file.standardizedFileURL.resolvingSymlinksInPath() == $0.standardizedFileURL.resolvingSymlinksInPath() }) else {
                 throw PDFExportError.sourceOverwrite
             }
             if case .perSheet = destination,manager.fileExists(atPath: file.path) {
@@ -176,7 +176,7 @@ public enum PDFExporter {
                         context.clip(to: CGRect(x: 0,y: 0,width: sheet.size.width,height: sheet.size.height))
                         try PDFPlanRenderer.drawSide(side,sheet: sheet,document: document,in: context,sheetIndex: index,
                                                      kind: kind,repetition: repetition,options: .artworkOnly,overlays: overlays)
-                        let info = marks.sheetInfo ? PDFSheetInfoContext(jobName: jobName,date: date,
+                        let info = marks.sheetInfo ? PDFSheetInfoContext(jobName: sheet.gangJobNames ?? jobName,date: date,
                             sheetNumber: firstPhysical+repetition,
                             totalSheets: totalSheets,side: kind,production: production).text(settings: sheetInfo,sheet: sheet,dateLabel: dateLabel) : ""
                         PDFExportMarkRenderer.draw(side: side,sheet: sheet,in: context,settings: marks,info: info,kind: kind)
@@ -192,7 +192,7 @@ public enum PDFExporter {
         guard sheet.diagnosticBounds == nil,sheet.size.width.isFinite,sheet.size.height.isFinite,sheet.size.width > 0,sheet.size.height > 0 else {
             throw PDFExportError.invalidGeometry
         }
-        if let serials = sheet.serialPlan {
+        for serials in (sheet.serialPlan.map { [$0] } ?? [])+(sheet.gangLayout?.jobs.map(\.serialPlan) ?? []) {
             guard serials.quantity > 0,(1...20_000).contains(serials.capacity),
                   serials.sheetCount == sheet.repeatCount,serials.fields.count <= 100,
                   serials.fields.allSatisfy({ $0.isValid && (!$0.usesSerialNumber || $0.value(at: serials.quantity-1) != nil) }) else {

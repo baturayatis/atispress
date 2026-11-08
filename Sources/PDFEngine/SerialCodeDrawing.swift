@@ -88,24 +88,28 @@ public enum PDFSerialCodeValidation {
     public static func warnings(plan: ImpositionPlan) -> [String] {
         var output: [String] = []
         for (job,sheet) in plan.sheets.enumerated() {
-            guard let recipe = sheet.serialPlan else { continue }
+            let recipes = (sheet.serialPlan.map { [($0,Optional<UUID>.none)] } ?? [])+(sheet.gangLayout?.jobs.map { ($0.serialPlan,Optional($0.job.id)) } ?? [])
+            for (recipe,jobID) in recipes {
             for field in recipe.fields where field.kind != .text && !(recipe.frontOnly && field.sides == .back) {
                 let indices = field.usesSerialNumber ? Set([0,max(0,recipe.quantity-1)]) : Set([0])
                 for index in indices.sorted() {
                     let placement = SerialPlacement(field: field,slotIndex: 0,index: index,text: field.text(at: index) ?? "")
                     let relevant = [(SideKind.front,sheet.front),(.back,sheet.back)].compactMap { kind,side in
                         side.slots.first { slot in
+                            if let jobID,slot.gangJobID != jobID { return false }
                             let front = (slot.itemSide ?? kind) == .front
                             return field.sides == .both || (field.sides == .front ? front : !front)
                         }
                     }.first
                     let trim = relevant.map { PDFPreviewDrawing.localTrim($0).size }
                     for warning in PDFSerialCodeDrawing.warnings(placement,trim: trim) {
-                        let message = "İş \(sheet.repeatLayout.map { $0.jobIndex+1 } ?? job+1) · \(field.kind == .qr ? "QR kod" : "Barkod"): \(warning)"
+                        let title = jobID.flatMap { id in sheet.gangLayout?.jobs.first { $0.job.id==id }?.job.name } ?? "İş \(sheet.repeatLayout.map { $0.jobIndex+1 } ?? job+1)"
+                        let message = title+" · \(field.kind == .qr ? "QR kod" : "Barkod"): \(warning)"
                         if !output.contains(message) { output.append(message) }
                     }
                 }
             }
+        }
         }
         return output
     }

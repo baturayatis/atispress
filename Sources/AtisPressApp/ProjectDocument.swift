@@ -55,6 +55,12 @@ struct ProjectSource: Codable, Equatable {
     }
 }
 
+struct GangSourceReference: Codable, Equatable, Identifiable {
+    var id: UUID
+    var reference: ProjectSource
+    var pageCount: Int
+}
+
 /// Stores project intent, not a cached plan; the same planner reconstructs preview/export.
 struct ProjectState: Codable, Equatable {
     var project: Project
@@ -67,7 +73,9 @@ struct ProjectState: Codable, Equatable {
     var side: SideKind
     var bookletGutter: Double?
     var repetition: Int? = nil
+    var gangSources: [GangSourceReference]? = nil
     var repeatGutter: Double
+    var gangGutter: Double? = nil
 
     func validateSelection(pageCount: Int) throws {
         guard order.count == pageCount,Set(order) == Set((0..<pageCount).map { $0+1 }),
@@ -79,7 +87,7 @@ struct ProjectState: Codable, Equatable {
     }
 }
 struct ProjectDocument: Codable, Equatable {
-    static let currentVersion = 8
+    static let currentVersion = 9
     var version: Int = currentVersion
     var state: ProjectState
     static func decode(_ data: Data) throws -> ProjectDocument {
@@ -88,7 +96,10 @@ struct ProjectDocument: Codable, Equatable {
         let header = try decoder.decode(Header.self,from: data)
         guard (1...currentVersion).contains(header.version) else { throw ProjectFileError.unsupportedVersion(header.version) }
         let file = try decoder.decode(ProjectDocument.self,from: data)
-        guard file.state.source != nil || file.state.order.isEmpty else { throw ProjectFileError.invalidSelection }
+        guard file.state.source != nil || !(file.state.gangSources ?? []).isEmpty || file.state.order.isEmpty else { throw ProjectFileError.invalidSelection }
+        let sources = file.state.gangSources ?? []
+        guard Set(sources.map(\.id)).count == sources.count,sources.allSatisfy({ $0.pageCount > 0 }),
+              (file.state.project.gang?.jobs ?? []).allSatisfy({ job in sources.contains { $0.id==job.sourceID } }) else { throw ProjectFileError.invalidSelection }
         try file.state.validateSelection(pageCount: file.state.order.count)
         return file
     }

@@ -4,7 +4,7 @@ import ImpositionCore
 struct FireControlsView: View {
     @ObservedObject var model: Workspace
     private var waste: Binding<WasteSettings> {
-        Binding(get: { model.project.stepAndRepeat.waste ?? WasteSettings() },set: { model.project.stepAndRepeat.waste = $0 })
+        Binding(get: { model.selectedGangJob?.waste ?? model.project.stepAndRepeat.waste ?? WasteSettings() },set: { value in if let id = model.selectedGangJob?.id { model.editGangJob(id) { $0.waste = value } } else { model.project.stepAndRepeat.waste = value } })
     }
     var body: some View {
         VStack(alignment: .leading,spacing: 6) {

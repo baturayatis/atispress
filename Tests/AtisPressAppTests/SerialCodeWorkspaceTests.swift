@@ -45,7 +45,7 @@ final class SerialCodeWorkspaceTests: XCTestCase {
         try await settle(workspace)
         let url = folder.appendingPathComponent("codes.atispress")
         try workspace.saveProject(as: url)
-        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf: url)).version,8)
+        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf: url)).version,ProjectDocument.currentVersion)
         let restored = model(); try await restored.loadProject(at: url); try await settle(restored)
         XCTAssertEqual(restored.project,workspace.project)
         XCTAssertEqual(restored.plan.sheets,workspace.plan.sheets)

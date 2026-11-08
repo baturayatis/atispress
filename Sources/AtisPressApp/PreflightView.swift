@@ -24,7 +24,26 @@ extension Workspace {
     var preflightRows: [PreflightRow] {
         guard let source else { return [] }
         var findings = source.preflight.filter { included.contains($0.page) }
-        let pages = project.pages
+        if project.binding == .gang {
+            findings = []
+            for job in project.gang?.jobs ?? [] {
+                let pages = [job.front,job.back].compactMap { $0 },numbers = Set(pages.map(\.number))
+                let assetIndex = gangAssets.firstIndex { $0.saved.id==job.sourceID }
+                let offset = assetIndex.map { index in gangAssets.prefix(index).reduce(0) { $0+$1.saved.pageCount } } ?? 0
+                // Inspect originals: PDFKit's temporary merge may normalize fonts/resources.
+                let originalFindings = assetIndex.map { gangAssets[$0].source.preflight } ?? source.preflight
+                findings += originalFindings.filter { numbers.contains($0.page+offset) }.map { original in
+                    var f = original; f.explanation = job.name+": "+f.explanation; return f
+                }
+                if job.bleed>0 && !job.generatedBleed.enabled {
+                    findings += pages.filter { ($0.availableBleed ?? 0)<job.bleed }.map { PDFPreflightFinding("bleed",page:$0.number-offset,job.name+": Taşma payı eksik veya kontrol edilemedi.") }
+                }
+                if let back = job.back,back.trimSize != job.front.trimSize {
+                    findings += pages.map { PDFPreflightFinding("size",page:$0.number-offset,job.name+": Ön ve arka kesim ölçüleri farklı.") }
+                }
+            }
+        }
+        let pages = project.binding == .gang ? [] : project.pages
         if Set(pages.map { "\($0.trimSize.width)/\($0.trimSize.height)" }).count > 1 {
             findings += pages.map { PDFPreflightFinding("size",page: $0.number,"Sayfa boyutları farklı; sayfa düzenini ve eşleştirmeyi kontrol edin.") }
         }

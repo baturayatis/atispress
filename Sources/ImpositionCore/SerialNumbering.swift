@@ -121,6 +121,14 @@ public struct SerialNumberPlan: Equatable, Sendable {
 extension ImpositionPlanner {
     /// Updates variable artwork without recalculating any slot geometry.
     public static func updatingSerials(in plan: ImpositionPlan,project: Project) -> ImpositionPlan {
+        if project.binding == .gang,let sheet = plan.sheets.first,let layout = sheet.gangLayout {
+            // Artwork-only changes reuse the exact slicing solution; numbering stays lazy.
+            var snapshot = project
+            snapshot.gang?.mode = .manual; snapshot.gang?.blocks = layout.blocks
+            snapshot.sheet.size = sheet.size
+            snapshot.sheet.orientation = sheet.size.width > sheet.size.height ? .landscape : .portrait
+            return self.plan(snapshot)
+        }
         var next = plan
         next.issues.removeAll { $0.code == .serialNumbering }
         for index in next.sheets.indices { next.sheets[index].serialPlan = nil }
@@ -129,7 +137,7 @@ extension ImpositionPlanner {
         return next
     }
     static func applySerials(_ project: Project,to plan: inout ImpositionPlan) {
-        guard !project.serialFields.isEmpty else { return }
+        guard project.binding != .gang, !project.serialFields.isEmpty else { return }
         guard project.binding == .stepAndRepeat else {
             plan.issues.append(ValidationIssue(.warning,.serialNumbering,"Seri numara alanları tekrarlı düz iş modunda kullanılır; ciltli işte basılmaz.")); return
         }

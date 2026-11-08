@@ -28,6 +28,10 @@ public enum PDFReadError: LocalizedError {
 /// PDFKit stays on one serial queue. Main-thread vector drawing uses a separate CGPDFDocument.
 /// Reading and rasterization never mutate the source file.
 public final class PDFSource: @unchecked Sendable {
+    private var linkedSources: [PDFSource] = []
+    private var temporaryDirectory: URL?
+    public var protectedURLs: [URL] { linkedSources.isEmpty ? [url] : linkedSources.flatMap(\.protectedURLs)+[url] }
+    public var displayName: String { linkedSources.isEmpty ? url.lastPathComponent : "Karışık iş (\(linkedSources.count) PDF)" }
     public let edgeSamples = PDFEdgeSampleCache()
     public let id = UUID()
     public let url: URL
@@ -42,7 +46,35 @@ public final class PDFSource: @unchecked Sendable {
         self.url = url; self.pages = pages; self.scopedAccess = scopedAccess; self.preflight = preflight
         cache.totalCostLimit = 64 * 1024 * 1024
     }
-    deinit { if scopedAccess { url.stopAccessingSecurityScopedResource() } }
+    deinit {
+        if scopedAccess { url.stopAccessingSecurityScopedResource() }
+        if let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) }
+    }
+    /// PDFKit copies page objects without rasterizing artwork. The originals remain linked and protected.
+    public static func combine(_ sources: [PDFSource]) async throws -> PDFSource {
+        guard !sources.isEmpty else { throw PDFReadError.empty }
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("AtisPress-gang-"+UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder,withIntermediateDirectories: true)
+        do {
+            let url = folder.appendingPathComponent("Karışık iş.pdf")
+            try await Task.detached(priority: .userInitiated) {
+                let merged = PDFDocument()
+                for source in sources {
+                    try Task.checkCancellation()
+                    guard let doc = PDFDocument(url: source.url) else { throw PDFReadError.unreadable }
+                    for i in 0..<doc.pageCount {
+                        guard let page = doc.page(at: i)?.copy() as? PDFPage else { throw PDFReadError.unreadable }
+                        merged.insert(page,at: merged.pageCount)
+                    }
+                }
+                guard merged.write(to: url) else { throw PDFReadError.unreadable }
+            }.value
+            let combined = try await open(url)
+            guard combined.pages.count == sources.reduce(0,{ $0+$1.pages.count }),zip(combined.pages,sources.flatMap(\.pages)).allSatisfy({ $0.trimSize == $1.trimSize && $0.availableBleed == $1.availableBleed }) else { throw PDFReadError.unreadable }
+            combined.linkedSources = sources; combined.temporaryDirectory = folder
+            return combined
+        } catch { try? FileManager.default.removeItem(at: folder); throw error }
+    }
     public static func open(_ url: URL) async throws -> PDFSource {
         let scopedAccess = url.startAccessingSecurityScopedResource()
         do { return try await Task.detached(priority: .userInitiated) {

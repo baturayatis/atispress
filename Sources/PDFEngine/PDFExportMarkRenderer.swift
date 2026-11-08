@@ -20,7 +20,8 @@ public enum PDFExportMarkRenderer {
         for mark in side.marks {
             let selected: Bool
             switch mark.kind {
-            case .crop,.sharedCut: selected = settings.crop || settings.fullCut
+            case .crop: selected = settings.crop || settings.fullCut
+            case .sharedCut: selected = sheet.gangLayout == nil ? settings.crop || settings.fullCut : settings.fullCut
             case .fold: selected = settings.fold
             case .bleed: selected = settings.bleed
             case .safeArea: selected = settings.safeArea
@@ -33,7 +34,7 @@ public enum PDFExportMarkRenderer {
             let fixed = horizontal ? mark.start.y : mark.start.x
             var lo = horizontal ? min(mark.start.x,mark.end.x) : min(mark.start.y,mark.end.y)
             var hi = horizontal ? max(mark.start.x,mark.end.x) : max(mark.start.y,mark.end.y)
-            if settings.fullCut && (mark.kind == .crop || mark.kind == .sharedCut) {
+            if sheet.gangLayout == nil && settings.fullCut && (mark.kind == .crop || mark.kind == .sharedCut) {
                 lo = 0; hi = horizontal ? sheet.size.width : sheet.size.height
             }
             let paperLo = horizontal ? paper.minX : paper.minY, paperHi = horizontal ? paper.maxX : paper.maxY

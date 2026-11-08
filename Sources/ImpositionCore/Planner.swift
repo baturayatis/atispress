@@ -20,10 +20,10 @@ public enum ImpositionPlanner {
             return ImpositionPlan(issues: [ValidationIssue(.error,.invalidInput,"Tam sayfa toleransı 0–1 mm aralığında olmalıdır.")])
         }
         var result = layoutPlan(project)
-        addFitDiagnostics(project,to: &result)
+        if project.binding != .gang { addFitDiagnostics(project,to: &result) }
         for index in result.sheets.indices {
             result.sheets[index].gripperEdge = project.sheet.gripperEdge
-            result.sheets[index].backFlipsX = project.binding == .stepAndRepeat ? repeatMirrorsX(project) : project.settings.turnMethod != .workAndTumble
+            result.sheets[index].backFlipsX = (project.binding == .stepAndRepeat || project.binding == .gang) ? repeatMirrorsX(project) : project.settings.turnMethod != .workAndTumble
         }
         for index in result.diagnosticSheets.indices { result.diagnosticSheets[index].gripperEdge = project.sheet.gripperEdge }
         applySerials(project,to: &result)
@@ -31,6 +31,7 @@ public enum ImpositionPlanner {
         return result
     }
     private static func layoutPlan(_ project: Project) -> ImpositionPlan {
+        if project.binding == .gang { return GangPlanner.plan(project) }
         if project.binding == .stepAndRepeat { return repeatPlan(project) }
         var result = ImpositionPlan(generatedBleed: project.settings.generatedBleed)
         func error(_ code: ValidationIssue.Code, _ message: String) {

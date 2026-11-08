@@ -100,7 +100,7 @@ public enum PDFPlanRenderer {
     public static func drawSide(_ side: Side,sheet: Sheet,document: CGPDFDocument,in context: CGContext,
                                 sheetIndex: Int,kind: SideKind,repetition: Int,options: PDFRenderOptions,
                                 overlays: [any PDFSlotOverlay] = [],controlMarks: ExportMarks = .none) throws {
-        let serials: [any PDFSlotOverlay] = sheet.serialPlan.map { [SerialTextOverlay(plan: $0)] } ?? []
+        let serials: [any PDFSlotOverlay] = [GangSerialOverlay(sheet: sheet)]
         for (index,slot) in side.slots.enumerated() {
             try Task.checkCancellation()
             let page = slot.sourcePageNumber.flatMap { document.page(at: $0) }

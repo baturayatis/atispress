@@ -22,7 +22,7 @@ struct WorkspaceView: View {
         .toolbar {
             Button(action: model.openPanel) { Label("PDF Aç",systemImage: "doc.badge.plus") }
             if model.loading { ProgressView().controlSize(.small); Text("PDF okunuyor…") }
-            else if let source = model.source { Text(source.url.lastPathComponent).lineLimit(1) }
+            else if let source = model.source { Text(source.displayName).lineLimit(1) }
             Spacer()
             if model.exporting {
                 ProgressView().controlSize(.small)
@@ -39,7 +39,10 @@ struct WorkspaceView: View {
             if model.planning { ProgressView().controlSize(.small); Text("Hesaplanıyor…") }
         }
     }
-    private var sidebar: some View {
+    @ViewBuilder private var sidebar: some View {
+        if model.project.binding == .gang { GangSidebarView(model: model) } else { classicSidebar }
+    }
+    private var classicSidebar: some View {
         VSplitView {
             VStack(spacing: 0) {
                 HStack {
@@ -153,7 +156,7 @@ struct WorkspaceView: View {
                 PreviewCanvas(sheet: sheet,side: side,sheetIndex: model.sheetIndex,sideKind: model.side,source: model.source,overlays: model.overlays,generatedBleed: model.plan.generatedBleed,
                               highlighted: model.highlightedSlots,zoomAction: model.zoomAction,zoomFactor: model.zoomFactor,
                               repetition: model.repetition,selectedSerial: model.selectedSerialID,
-                              selectSerial: { model.selectedSerialID = $0 },moveSerial: { model.moveSerialField($0,to: $1) },controlMarks: model.project.exportMarks)
+                              selectSerial: model.selectSerial,moveSerial: { model.moveSerialField($0,to: $1) },controlMarks: model.project.exportMarks,moveGangBlock: { model.moveGangBlock($0,to:$1) })
                     .overlay(alignment: .topLeading) {
                         VStack(alignment: .leading,spacing: 3) {
                             Text("\(sheet.repeatLayout == nil ? "Tabaka" : "İş") \(model.sheetIndex+1) · \(model.side == .front ? "Ön" : "Arka") · \(sheet.size.width,specifier: "%.1f") × \(sheet.size.height,specifier: "%.1f") mm")

@@ -8,7 +8,7 @@ extension ImpositionPlan {
         var groups: [String:[ValidationIssue]] = [:],order: [String] = []
         for issue in issues where issue.severity == .warning {
             let normalized = issue.message.replacingOccurrences(of: "^İş [0-9]+(?:, sayfa [0-9]+)?:\\s*",with: "",options: .regularExpression)
-            let key = issue.code == .missingBleed ? "missingBleed" : "\(issue.code):\(normalized)"
+            let key = issue.code == .missingBleed ? (project?.binding == .gang ? "missingBleed:"+issue.message : "missingBleed") : "\(issue.code):\(normalized)"
             if groups[key] == nil { order.append(key) }
             groups[key,default: []].append(issue)
         }
@@ -17,6 +17,7 @@ extension ImpositionPlan {
             let refs = values.compactMap(\.slot)
             var pages = Set<Int>()
             for issue in values {
+                pages.formUnion(issue.affectedPages)
                 if let ref = issue.slot,sheets.indices.contains(ref.sheet) {
                     let side = ref.side == .front ? sheets[ref.sheet].front : sheets[ref.sheet].back
                     if side.slots.indices.contains(ref.slot),let number = side.slots[ref.slot].sourcePageNumber { pages.insert(number) }
@@ -32,7 +33,8 @@ extension ImpositionPlan {
             }
             first.affectedPages = pages.sorted(); first.affectedSlots = refs; first.occurrenceCount = values.count
             if first.code == .missingBleed {
-                first.message = "\(pages.count) sayfada taşma payı eksik: \(Self.pageRanges(pages.sorted()))"
+                let prefix = project?.binding == .gang ? String(first.message.prefix(while: { $0 != ":" }))+": " : ""
+                first.message = prefix+"\(pages.count) sayfada taşma payı eksik: \(Self.pageRanges(pages.sorted()))"
             } else if values.count > 1 {
                 let message = first.message.replacingOccurrences(of: "^İş [0-9]+(?:, sayfa [0-9]+)?:\\s*",with: "",options: .regularExpression)
                 first.message = message+" (\(values.count) kez"+(pages.isEmpty ? ")" : "; sayfalar \(Self.pageRanges(pages.sorted())))")

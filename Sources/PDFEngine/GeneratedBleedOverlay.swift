@@ -1,15 +1,18 @@
+import Foundation
 import CoreGraphics
 import ImpositionCore
 
 public struct GeneratedBleedOverlay: PDFSlotOverlay {
+    public var jobSettings: [UUID:GeneratedBleedSettings] = [:]
     public let settings: GeneratedBleedSettings
     public let cache: PDFEdgeSampleCache
     /// Preview warms the cache off-main; export may sample its own independent CGPDFPage.
     public let sampleIfMissing: Bool
-    public init(settings: GeneratedBleedSettings,cache: PDFEdgeSampleCache,sampleIfMissing: Bool = false) {
-        self.settings = settings; self.cache = cache; self.sampleIfMissing = sampleIfMissing
+    public init(settings: GeneratedBleedSettings,cache: PDFEdgeSampleCache,sampleIfMissing: Bool = false,jobSettings: [UUID:GeneratedBleedSettings] = [:]) {
+        self.settings = settings; self.cache = cache; self.sampleIfMissing = sampleIfMissing; self.jobSettings = jobSettings
     }
     public func draw(in context: CGContext,placement p: PDFSlotContext) throws {
+        let settings = p.slot.gangJobID.flatMap { jobSettings[$0] } ?? self.settings
         guard settings.enabled,p.slot.sourcePageNumber != nil,let page = p.sourcePage else { return }
         let trim = p.trimRect, art = p.artworkRect
         guard art.width > trim.width+0.000001 || art.height > trim.height+0.000001 else { return }

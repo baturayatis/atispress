@@ -18,6 +18,7 @@ struct PreviewCanvas: NSViewRepresentable {
     var selectSerial: ((UUID) -> Void)? = nil
     var moveSerial: ((UUID,Point) -> Void)? = nil
     var controlMarks = ExportMarks.none
+    var moveGangBlock: ((UUID,Point) -> Void)? = nil
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = PreviewScrollView()
@@ -44,7 +45,7 @@ struct PreviewCanvas: NSViewRepresentable {
     }
     private func update(_ canvas: SheetCanvasView) {
         canvas.repetition = repetition; canvas.selectedSerial = selectedSerial
-        canvas.selectSerial = selectSerial; canvas.moveSerial = moveSerial
+        canvas.selectSerial = selectSerial; canvas.moveSerial = moveSerial; canvas.moveGangBlock = moveGangBlock
         canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed,controlMarks: controlMarks)
     }
 }
@@ -94,6 +95,10 @@ final class SheetCanvasView: NSView {
     var selectedSerial: UUID?
     var selectSerial: ((UUID) -> Void)?
     var moveSerial: ((UUID,Point) -> Void)?
+    var moveGangBlock: ((UUID,Point) -> Void)?
+    private var gangDrag: (id: UUID,origin: Point,start: CGPoint,flipX: Bool,flipY: Bool)?
+    private var originX: CGFloat = 32
+    private var originY: CGFloat = 32
     private var serialDrag: (slot: Slot,id: UUID,offset: CGPoint)?
     private var colorControls: PDFColorControlRenderer.Geometry?
     private var generatedOverlay: GeneratedBleedOverlay?
@@ -119,15 +124,18 @@ final class SheetCanvasView: NSView {
             self.source = source; loading = []; failedRasters = []
             vectorDocument = source.flatMap { CGPDFDocument($0.url as CFURL) }
         }
-        generatedOverlay = generatedBleed.enabled ? source.map { GeneratedBleedOverlay(settings: generatedBleed,cache: $0.edgeSamples) } : nil
+        generatedOverlay = (generatedBleed.enabled || sheet.generatedBleedByJob.values.contains { $0.enabled }) ? source.map { GeneratedBleedOverlay(settings: generatedBleed,cache: $0.edgeSamples,jobSettings: sheet.generatedBleedByJob) } : nil
         var previewMarks = controlMarks
         previewMarks.colorBar = overlays.colorBar; previewMarks.registrationTargets = overlays.registrationTargets
         colorControls = overlays.colorBar || overlays.registrationTargets ? PDFColorControlRenderer.geometry(sheet: sheet,settings: previewMarks,kind: kind) : nil
         self.sheetIndex = sheetIndex; self.sideKind = kind
         self.sheet = sheet; self.side = side; self.overlays = overlays; self.highlighted = highlighted
+        originX = padding+max(0,-(side.slots.map(\.x).min() ?? 0))*pointsPerMM
+        originY = padding+max(0,-(side.slots.map(\.y).min() ?? 0))*pointsPerMM
         let width = max(sheet.size.width,(sheet.diagnosticBounds?.origin.x ?? 0)+(sheet.diagnosticBounds?.size.width ?? 0))
         let height = max(sheet.size.height,(sheet.diagnosticBounds?.origin.y ?? 0)+(sheet.diagnosticBounds?.size.height ?? 0))
-        let newSize = NSSize(width: width*pointsPerMM+2*padding,height: height*pointsPerMM+2*padding)
+        let farX = max(width,side.slots.map { $0.x+$0.size.width }.max() ?? width),farY = max(height,side.slots.map { $0.y+$0.size.height }.max() ?? height)
+        let newSize = NSSize(width: farX*pointsPerMM+originX+padding,height: farY*pointsPerMM+originY+padding)
         if frame.size != newSize { setFrameSize(newSize) }
         needsDisplay = true
     }
@@ -145,18 +153,18 @@ final class SheetCanvasView: NSView {
         NSColor.underPageBackgroundColor.setFill(); bounds.fill()
         guard let sheet, let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState()
-        context.translateBy(x: padding,y: padding); context.scaleBy(x: pointsPerMM,y: pointsPerMM)
+        context.translateBy(x: originX,y: originY); context.scaleBy(x: pointsPerMM,y: pointsPerMM)
         let paper = CGRect(x: 0,y: 0,width: sheet.size.width,height: sheet.size.height)
         context.setFillColor(NSColor.white.cgColor); context.fill(paper)
-        context.clip(to: paper)
+        if sheet.gangLayout == nil { context.clip(to: paper) }
         let scale = max(0.01,enclosingScrollView?.magnification ?? 1)
         let visible = visibleRect.insetBy(dx: -40,dy: -40)
-        let serials: [any PDFSlotOverlay] = sheet.serialPlan.map { [SerialTextOverlay(plan: $0)] } ?? []
+        let serials: [any PDFSlotOverlay] = [GangSerialOverlay(sheet: sheet)]
         let extensions: [any PDFSlotOverlay] = (generatedOverlay.map { [$0 as any PDFSlotOverlay] } ?? [])+slotOverlays+serials
         for (index,slot) in side.slots.enumerated() {
             let rect = CGRect(x: slot.x,y: slot.y,width: slot.size.width,height: slot.size.height)
             let extent = slot.artworkClip.map { CGRect(x: $0.origin.x,y: $0.origin.y,width: $0.size.width,height: $0.size.height) } ?? rect
-            let viewRect = CGRect(x: extent.minX*pointsPerMM+padding,y: extent.minY*pointsPerMM+padding,
+            let viewRect = CGRect(x: extent.minX*pointsPerMM+originX,y: extent.minY*pointsPerMM+originY,
                                   width: extent.width*pointsPerMM,height: extent.height*pointsPerMM)
             guard visible.intersects(viewRect) else { continue }
             let projectedPixels = max(viewRect.width,viewRect.height)*scale*(window?.backingScaleFactor ?? 2)
@@ -179,6 +187,10 @@ final class SheetCanvasView: NSView {
                     reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),repetition: repetition,overlays: extensions)
             }
             context.restoreGState()
+            if let id = slot.gangJobID,let job = sheet.gangLayout?.jobs.first(where: { $0.job.id==id })?.job {
+                context.setFillColor(NSColor(calibratedHue:job.tint,saturation:0.7,brightness:0.85,alpha:0.13).cgColor); context.fill(rect)
+                label(job.name,at:CGPoint(x:rect.midX,y:rect.maxY-3),size:2.5,color:NSColor(calibratedHue:job.tint,saturation:0.8,brightness:0.55,alpha:1))
+            }
             context.setStrokeColor((highlighted.contains(index) ? NSColor.systemRed : NSColor.gray).cgColor)
             context.setLineWidth((highlighted.contains(index) ? 2.5 : 0.5)/pointsPerMM/scale)
             context.stroke(rect)
@@ -187,9 +199,9 @@ final class SheetCanvasView: NSView {
                 label(text,at: CGPoint(x: rect.midX,y: rect.minY+min(5,rect.height/5)),size: 3,color: .systemPurple)
             }
         }
-        if let recipe = sheet.serialPlan,let selectedSerial {
+        if let selectedSerial {
             context.setStrokeColor(NSColor.systemCyan.cgColor); context.setLineWidth(1/pointsPerMM/scale)
-            for serial in recipe.placements(side: side,kind: sideKind,repetition: repetition) where serial.field.id == selectedSerial {
+            for serial in sheet.serialPlacements(side: side,kind: sideKind,repetition: repetition) where serial.field.id == selectedSerial {
                 let slot = side.slots[serial.slotIndex]
                 context.saveGState()
                 context.clip(to: CGRect(x: slot.x,y: slot.y,width: slot.size.width,height: slot.size.height))
@@ -204,7 +216,7 @@ final class SheetCanvasView: NSView {
         context.restoreGState()
         if let r = sheet.diagnosticBounds {
             context.saveGState(); defer { context.restoreGState() }
-            context.translateBy(x: padding,y: padding); context.scaleBy(x: pointsPerMM,y: pointsPerMM)
+            context.translateBy(x: originX,y: originY); context.scaleBy(x: pointsPerMM,y: pointsPerMM)
             context.setStrokeColor(NSColor.systemRed.cgColor)
             context.setLineWidth(2/pointsPerMM/scale)
             context.stroke(CGRect(x: r.origin.x,y: r.origin.y,width: r.size.width,height: r.size.height))
@@ -230,9 +242,9 @@ final class SheetCanvasView: NSView {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         let viewPoint = convert(event.locationInWindow,from: nil)
-        let point = CGPoint(x: (viewPoint.x-padding)/pointsPerMM,y: (viewPoint.y-padding)/pointsPerMM)
-        if let recipe = sheet?.serialPlan {
-            for serial in recipe.placements(side: side,kind: sideKind,repetition: repetition).reversed() {
+        let point = CGPoint(x: (viewPoint.x-originX)/pointsPerMM,y: (viewPoint.y-originY)/pointsPerMM)
+        if let sheet {
+            for serial in sheet.serialPlacements(side: side,kind: sideKind,repetition: repetition).reversed() {
                 let slot = side.slots[serial.slotIndex]
                 let local = point.applying(PDFPreviewDrawing.slotTransform(slot).inverted())
                 guard PDFPreviewDrawing.localTrim(slot).contains(local) else { continue }
@@ -244,12 +256,29 @@ final class SheetCanvasView: NSView {
                 }
             }
         }
+        if let sheet,let layout = sheet.gangLayout {
+            for slot in side.slots.reversed() {
+                let rect = CGRect(x:slot.x,y:slot.y,width:slot.size.width,height:slot.size.height)
+                guard rect.contains(point),let id = slot.gangBlockID,let block = layout.blocks.first(where: { $0.id==id }) else { continue }
+                // Map the viewed reverse / shared-plate half back to canonical front-block coordinates.
+                let reflected = layout.samePlate ? ((sideKind == .back) != (slot.itemSide == .back)) : sideKind == .back
+                gangDrag = (id,block.origin,event.locationInWindow,reflected && sheet.backFlipsX,reflected && !sheet.backFlipsX)
+                NSCursor.closedHand.push(); return
+            }
+        }
         dragPoint = event.locationInWindow; NSCursor.closedHand.push()
     }
     override func mouseDragged(with event: NSEvent) {
+        if let gangDrag {
+            let scale = pointsPerMM*(enclosingScrollView?.magnification ?? 1)
+            let q = event.locationInWindow
+            let dx = (q.x-gangDrag.start.x)/scale*(gangDrag.flipX ? -1 : 1),dy = (q.y-gangDrag.start.y)/scale*(gangDrag.flipY ? -1 : 1)
+            moveGangBlock?(gangDrag.id,Point((gangDrag.origin.x+dx).rounded(),(gangDrag.origin.y+dy).rounded()))
+            return
+        }
         if let serialDrag {
             let p = convert(event.locationInWindow,from: nil)
-            let point = CGPoint(x: (p.x-padding)/pointsPerMM,y: (p.y-padding)/pointsPerMM)
+            let point = CGPoint(x: (p.x-originX)/pointsPerMM,y: (p.y-originY)/pointsPerMM)
                 .applying(PDFPreviewDrawing.slotTransform(serialDrag.slot).inverted())
             let trim = PDFPreviewDrawing.localTrim(serialDrag.slot)
             let snapped = Point(max(0,min((trim.width-1).rounded(.down),(point.x-serialDrag.offset.x).rounded())),
@@ -266,7 +295,7 @@ final class SheetCanvasView: NSView {
         scroll.reflectScrolledClipView(scroll.contentView); dragPoint = now; needsDisplay = true
     }
     override func mouseUp(with event: NSEvent) {
-        if dragPoint != nil || serialDrag != nil { NSCursor.pop() }; dragPoint = nil; serialDrag = nil
+        if dragPoint != nil || serialDrag != nil || gangDrag != nil { NSCursor.pop() }; dragPoint = nil; serialDrag = nil; gangDrag = nil
     }
     override func resetCursorRects() { addCursorRect(bounds,cursor: .openHand) }
 }

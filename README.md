@@ -286,8 +286,8 @@ Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/
 
 ### Verification and current limits
 
-`swift test --disable-sandbox`: **151 XCTest tests, zero failures** (58 core,
-47 PDF reading/drawing/export, 46 workspace/project persistence regression tests). GUI smoke checks
+`swift test --disable-sandbox`: **168 XCTest tests, zero failures** (68 core,
+49 PDF reading/drawing/export, 51 workspace/project persistence regression tests). GUI smoke checks
 used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
 navigation, page selection/reordering/exclusion, binding change, front/back,
 shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
@@ -601,7 +601,7 @@ Opening an existing project preserves its own mode, preset and custom dimensions
 - **Kaydet / ⌘S** saves the current project; **Farklı Kaydet… / ⇧⌘S** writes a new
   project and switches subsequent saves to it. Source PDFs cannot be overwritten.
   Project writes are atomic. Empty projects can also be saved.
-- Version 8 is readable JSON with top-level `version: 8` and `state`; version 1–7
+- Version 9 is readable JSON with top-level `version: 9` and `state`; version 1–8
   projects remain readable. Missing serial fields default to empty; old projects
   retain their saved layout values when opened. `state.project`
   contains ordered selected source-page metadata, binding/layout mode, blank-page
@@ -821,7 +821,7 @@ Generated bleed suppresses missing-bleed warnings when enabled and needed.
 Displayed identical warnings are grouped with counts and compressed source-page
 ranges, e.g. **12 sayfada taşma payı eksik: 1-12**; detailed slot references remain
 available internally. Existing preview/export alignment and project roundtrip
-regressions remain active. Run `swift test --disable-sandbox` for all 151 tests.
+regressions remain active. Run `swift test --disable-sandbox` for all 168 tests.
 Native interactive smoke testing has not been rerun for these controls.
 
 ## Empty reverse export and repeat arrangement
@@ -1031,7 +1031,7 @@ front/back alignment, target/patch sizes, no-room warnings and partial placement
 info-strip clearance, independent preview/export output, a real AppKit preview
 pixel change, production defaults/manual overrides, and version-7 roundtrip with
 version-6 compatibility. All prior tests remain; the active-schema assertion now
-uses `ProjectDocument.currentVersion`. That feature set passed 142 tests; the current suite has 151. Interactive desktop
+uses `ProjectDocument.currentVersion`. That feature set passed 142 tests; the current suite has 168. Interactive desktop
 smoke testing has not been rerun; preview drawing is exercised in XCTest.
 
 ```sh
@@ -1116,3 +1116,90 @@ swift test --disable-sandbox
 ./scripts/build_app.sh
 open "dist/AtışPress.app"
 ```
+
+
+## Karışık iş (gang run) — schema 9
+
+Choose **Karışık iş (gang)** in **Yerleşim Yöntemi**. The current PDF becomes
+one job per front/back pair (using the existing automatic tek/çift yüz rules).
+**PDF ekle…**, PDF drag/drop, and PDF Open add more linked PDFs in this mode.
+Multiple PDFs may be selected together. Choose **İşi çoğalt** to create another
+job from the same PDF, then choose its **Ön sayfa** / **Arka sayfa**. **Yok — tek
+yüz** leaves that job's reverse blank. Each job owns its name, Adet, fire,
+rotation permission, trim size from the PDF, bleed/generated bleed settings,
+and all existing text/QR/Code 128 fields. Select a job in the sidebar before
+editing its inspector sections.
+
+**Otomatik düzenle** searches a guillotine slicing tree of rectangular job-grid
+blocks on the selected stock. Both item rotations and sheet orientations are
+considered. Every job receives copies per sheet; the common production count is
+`max(ceil((Adet + fire) / copiesPerSheet))`. The sidebar reports each job's
+copies/sheet, surplus, and current serial range; its bounded physical-sheet list
+and stepper remain lazy for large quantities. Fire numbering follows each job's
+own **Numaralı / Numarasız** choice. Artwork-only edits reuse the cutting solution.
+
+**Elle yerleştir** freezes the current automatic blocks. Drag a block on either
+face (1 mm snap), or edit X/Y, columns, rows and rotation. Blocks can be duplicated
+or deleted. Margin, gripper, bleed/gutter, overlap, missing-job and non-guillotine
+errors retain the requested coordinates, highlight artwork red, and block unsafe
+export. Zero gutter uses common trim edges with bleed clipped at neighboring
+artwork; positive gutter must be at least twice the largest job bleed. The planner
+never silently increases a manually entered gutter or moves an invalid block.
+A bent, L-shaped knife path is rejected. An L-shaped *arrangement* that can be
+separated using successive straight cuts is correctly accepted.
+
+Job tints and names drawn over the preview are proof overlays only. Serial text
+and codes use the same per-job lazy recipes in preview and vector PDF output.
+Sheetwise, work-and-turn and tumble use the existing gripper-relative reflection
+convention; front-only pieces remain blank on their reverse. Existing front-only
+and mixed-duplex export rules still apply. Crop ticks follow the rectangular
+leaf cuts; full cut guides use the slicing regions and are clipped out of every
+job's artwork/bleed. Information strips list all job names (plus an optional
+project title) when enabled and are skipped with a warning if they cannot fit.
+Preflight inspects the original PDFs and is grouped separately by job, using original PDF page numbers and each job’s own bleed policy.
+
+Schema 9 adds optional `project.gang`, `state.gangSources`, and the remembered
+`state.gangGutter` for mode switches. The latter stores
+each original PDF's path, read-only security-scoped bookmark, name, size and page
+count. Original PDFs are never embedded. A temporary PDFKit document copies their
+page objects without rasterizing them and is rebuilt on open; its temporary path
+is never saved. All linked originals are protected against output overwrite.
+Missing/changed links use the existing Turkish relink dialog, one PDF at a time.
+A failed or canceled relink leaves the active project intact. Versions 1–8 still
+open, with no gang settings, and keep their saved mode and stock.
+
+Run and validate:
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+# Optional double-clickable release bundle:
+./scripts/build_app.sh
+open "dist/AtışPress.app"
+```
+
+Known limits:
+
+- Up to 8 gang jobs, 200 rows/columns per block and 20,000 physical slots per
+  sheet. Automatic layout uses one regular rectangular block per job. For 1–4
+  jobs it minimizes sheets within this slicing/grid model; it is not a global
+  optimum over arbitrary split-block or polygon nesting. For 5–8 jobs the Pareto
+  frontier is sampled to bound search cost; a Turkish warning explicitly says
+  that the minimum sheet count is not proven. Manual layouts may use multiple
+  blocks per job.
+- A gang project uses one repeated sheet pattern and the selected stock; it does
+  not schedule separate finishing sheets or automatically change stock size.
+  Reducing surplus using a different final-sheet pattern is not implemented.
+- Removing a job retains its linked PDF in the source catalog for reuse; that
+  source must still be available or relinked when the project opens.
+- PDFKit preserves vector artwork but may normalize PDF structure. Original
+  forms/actions, interactive annotations, encryption and signatures are not
+  production-output guarantees. Existing best-effort preflight limits apply.
+
+Regression coverage includes unlike-size packing, the common sheet-count/fire
+formula, a non-slicing windmill and bent-cut rejection, manual overlap/margin
+preservation, all turn/gripper combinations with mixed backs, lazy 100,000-copy
+numbering, bounded eight-job search, mark clearance, vector multi-source serial
+and QR export, preview tint/drag behavior, linked-source overwrite protection,
+missing-link recovery, schema-9 roundtrips, and the existing legacy project tests.

@@ -52,3 +52,12 @@ public struct SerialTextOverlay: PDFSlotOverlay {
         }
     }
 }
+
+public struct GangSerialOverlay: PDFSlotOverlay {
+    public let sheet: Sheet
+    public init(sheet: Sheet) { self.sheet = sheet }
+    public func draw(in context: CGContext,placement: PDFSlotContext) {
+        guard let plan = sheet.serialRecipe(for: placement.slot) else { return }
+        SerialTextOverlay(plan: plan).draw(in: context,placement: placement)
+    }
+}

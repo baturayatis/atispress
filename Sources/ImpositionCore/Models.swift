@@ -1,3 +1,4 @@
+import Foundation
 /// All distances are millimetres. Coordinates originate at the sheet's bottom left.
 public struct Size: Equatable, Sendable, Codable {
     public var width: Double
@@ -26,7 +27,7 @@ public struct Insets: Equatable, Sendable, Codable {
         self.left = left; self.right = right; self.top = top; self.bottom = bottom
     }
 }
-public enum BindingMethod: String, Codable, Sendable { case saddleStitch, perfectBound, stepAndRepeat, sewn, spiral, wireO }
+public enum BindingMethod: String, Codable, Sendable { case saddleStitch, perfectBound, stepAndRepeat, gang, sewn, spiral, wireO }
 public enum CoverMode: String, Codable, Sendable { case included, excluded, separate }
 public enum BlankPagePolicy: String, Codable, Sendable { case append, reject }
 public enum Orientation: String, Codable, Sendable { case auto, portrait, landscape }
@@ -188,6 +189,7 @@ public struct ExportMarks: Equatable, Sendable, Codable {
     public static var none: ExportMarks { var value = ExportMarks(); value.crop = false; return value }
 }
 public struct Project: Equatable, Sendable, Codable {
+    public var gang: GangSettings? = nil
     public var sheetInfo: SheetInfoSettings? = nil
     public var includeBlankBacks: Bool? = nil
     public var autoLayout: AutoLayoutSettings? = nil
@@ -208,10 +210,11 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        gang = try c.decodeIfPresent(GangSettings.self,forKey: .gang)
         sheetInfo = try c.decodeIfPresent(SheetInfoSettings.self,forKey: .sheetInfo)
         includeBlankBacks = try c.decodeIfPresent(Bool.self,forKey: .includeBlankBacks)
         autoLayout = try c.decodeIfPresent(AutoLayoutSettings.self,forKey: .autoLayout)
@@ -234,6 +237,8 @@ public struct SlotReference: Equatable, Sendable {
     public init(sheet: Int, side: SideKind, slot: Int) { self.sheet = sheet; self.side = side; self.slot = slot }
 }
 public struct Slot: Equatable, Sendable {
+    public var gangJobID: UUID? = nil
+    public var gangBlockID: UUID? = nil
     public var sourcePageNumber: Int?
     public var origin: Point
     public var size: Size
@@ -273,6 +278,7 @@ public struct Side: Equatable, Sendable {
     public init(slots: [Slot] = [], marks: [Mark] = []) { self.slots = slots; self.marks = marks }
 }
 public struct Sheet: Equatable, Sendable {
+    public var gangLayout: GangSheetLayout? = nil
     public var gripperEdge: Edge = .bottom
     /// Back-face viewing convention: reflect X (turn) or Y (tumble / side gripper).
     public var backFlipsX = true
@@ -293,7 +299,7 @@ public struct Sheet: Equatable, Sendable {
 public struct ValidationIssue: Equatable, Sendable {
     public enum Severity: Sendable { case error, warning }
     public enum Code: Sendable {
-        case invalidInput, missingBleed, mixedPageSizes, pageCountPadding, exceedsSheet, unsupportedBinding, unsupportedCover, sharedCutBleed, insufficientGutter, serialNumbering
+        case gangLayout, invalidInput, missingBleed, mixedPageSizes, pageCountPadding, exceedsSheet, unsupportedBinding, unsupportedCover, sharedCutBleed, insufficientGutter, serialNumbering
     }
     public var severity: Severity
     public var code: Code
