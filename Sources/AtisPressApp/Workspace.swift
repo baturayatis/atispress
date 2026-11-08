@@ -12,12 +12,13 @@ final class Workspace: ObservableObject {
         var p = Project(pages: [],binding: .stepAndRepeat,
             sheet: SheetSpec(preset: .sra3,margins: Insets(left: 10,right: 10,top: 10,bottom: 10),
                              gripperWidth: 0,gutter: 0))
+        p.alignment = .center
         p.stepAndRepeat.pageLayout = PageLayoutSettings()
         p.stepAndRepeat.waste = WasteSettings()
         p.sheetInfo = SheetInfoSettings()
         p.exportMarks.colorControls = ColorControlSettings()
         p.autoLayout = AutoLayoutSettings()
-        p.autoLayout?.automaticFields.insert(.gutter)
+        p.autoLayout?.automaticFields.formUnion([.gutter,.alignment])
         return p
     }
     @Published var project = Workspace.newProject() {
@@ -626,6 +627,7 @@ extension Workspace {
 
 extension Workspace {
     func autoLabel(_ label: String,_ field: AutoLayoutField) -> String {
+        if label.contains(" · Otomatik") || label.contains(" · Manuel") { return label }
         if field == .sheetSize,(project.autoLayout?.sheetSelection ?? .fixed) == .fixed { return label+" · Manuel" }
         if project.autoLayout?.automaticFields.contains(field) == true { return label+" · Otomatik" }
         if project.autoLayout?.manualFields.contains(field) == true { return label+" · Manuel" }
@@ -673,8 +675,6 @@ extension Workspace {
     func autoArrange(resetOverrides: Bool = true) {
         guard !loading,!exporting,!autoArranging,!project.pages.isEmpty else { return }
         NSApp?.keyWindow?.makeFirstResponder(nil)
-        if project.isBooklet && project.book != nil { schedulePlan(); return }
-        if project.binding == .gang { project.gang?.mode = .automatic; project.gang?.blocks = []; schedulePlan(); return }
         let snapshot = project
         autoArranging = true
         autoTask = Task {
@@ -688,6 +688,7 @@ extension Workspace {
             guard !Task.isCancelled else { return }
             guard project == snapshot else { autoArranging = false; return }
             planTask?.cancel(); revision = UUID()
+            if resetOverrides { bookletGutter = nil; repeatGutter = 0; gangGutter = nil }
             applyAutomatic(result)
             autoArranging = false
         }
@@ -1074,5 +1075,53 @@ extension Workspace {
         if selected { setting.positions = Array(Set(setting.positions+[position])).sorted() }
         else { setting.positions.removeAll { $0==position } }
         project.blankPlacement = setting
+    }
+}
+
+extension Workspace {
+    var hasManualLayoutSettings: Bool {
+        !(project.autoLayout?.manualFields.isEmpty ?? false) || (project.autoLayout?.sheetSelection ?? .fixed) == .fixed || project.gang?.mode == .manual
+    }
+    func isManual(_ field: AutoLayoutField) -> Bool {
+        project.autoLayout?.manualFields.contains(field) == true || (field == .sheetSize && (project.autoLayout?.sheetSelection ?? .fixed) == .fixed)
+    }
+    func requestAutomaticLayout(confirm: ((String) -> Bool)? = nil) {
+        guard !loading,!exporting,!autoArranging,!project.pages.isEmpty else { return }
+        NSApp?.keyWindow?.makeFirstResponder(nil)
+        if hasManualLayoutSettings {
+            let message = "Elle yapılan ayarlar sıfırlanacak."
+            if let confirm { guard confirm(message) else { return } }
+            else {
+                let alert = NSAlert(); alert.messageText = message
+                alert.informativeText = "Tabaka, yön, kenar payları, maşa, ara boşluk, taşma, işaretler, döndürme ve hizalama yeniden otomatik hesaplanır."
+                alert.addButton(withTitle:"Sıfırla ve düzenle"); alert.addButton(withTitle:"İptal")
+                guard alert.runModal() == .alertFirstButtonReturn else { return }
+            }
+        }
+        autoArrange(resetOverrides:true)
+    }
+    func returnToAutomatic(_ field: AutoLayoutField) {
+        guard !loading,!exporting,!autoArranging else { return }
+        var next = project,state = project.autoLayout ?? .legacy
+        state.manualFields.remove(field); state.automaticFields.insert(field); state.summary = nil
+        if field == .sheetSize { state.sheetSelection = .automatic }
+        if field == .gutter { next.stepAndRepeat.arrangement = .adjacent }
+        if field == .alignment { next.blockAlignment = .center }
+        if field == .columns { next.stepAndRepeat.columns = nil }
+        if field == .rows { next.stepAndRepeat.rows = nil }
+        if let selected = selectedGangJob,let i = next.gang?.jobs.firstIndex(where:{ $0.id==selected.id }) {
+            var job = selected
+            switch field {
+            case .generatedEnabled: job.generatedBleed.enabled = [job.front,job.back].compactMap { $0 }.contains { ($0.availableBleed ?? 0)<job.bleed }
+            case .generatedMethod: job.generatedBleed.method = .automatic
+            case .generatedTolerance: job.generatedBleed.tolerance = 0.02
+            case .generatedColor: job.generatedBleed.color = .cmyk(0,0,0,0)
+            default: break
+            }
+            next.gang?.jobs[i] = job
+        }
+        next.autoLayout = state
+        applyingAutomatic = true; project = next; applyingAutomatic = false
+        autoArrange(resetOverrides:false)
     }
 }

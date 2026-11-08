@@ -85,9 +85,13 @@ public enum PDFSheetInfo {
             CGRect(x: block.maxX,y: paper.minY,width: max(0,paper.maxX-block.maxX),height: paper.height)
         ]
         for band in bands where band.width >= width && band.height >= height {
-            let xs = [band.midX-width/2,band.minX,band.maxX-width]
+            let xs = [sheet.alignment == .center && !block.isNull ? block.midX-width/2 : band.midX-width/2,band.minX,band.maxX-width]
             var ys = [band.minY,band.maxY-height]
             ys += protected.flatMap { [$0.minY-height-0.01,$0.maxY+0.01] }.filter { $0 >= band.minY && $0+height <= band.maxY }
+            if sheet.alignment == .center,!block.isNull {
+                let near = band.maxY<=block.minY ? band.maxY-height : band.minY
+                ys.sort { abs($0-near)<abs($1-near) }
+            }
             var seenY = Set<Double>()
             for y in ys where seenY.insert(y).inserted {
                 for x in xs {

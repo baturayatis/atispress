@@ -385,8 +385,10 @@ final class PDFExportTests: XCTestCase {
     func testSerialExportVectorTextAndPositionsMatchEveryPlannedPhysicalSheet() async throws {
         let folder = try directory(), input = try fixture(in: folder)
         let source = try await PDFSource.open(input)
+        for alignment in [BlockAlignment.gripper,.center] {
         for mode in [SerialField.Mode.sequential,.stack] {
             var p = project(source,binding: .stepAndRepeat)
+            p.blockAlignment = alignment
             p.sheet.size = Size(100,100); p.sheet.gutter = 3
             p.stepAndRepeat = StepAndRepeatSettings(columns: 2,rows: 2,allowRotation: false,quantity: 10)
             p.serialFields = [SerialField(start: 101,digits: 4,prefix: "SER-",suffix: "-X",font: "Helvetica",size: 9,
@@ -432,6 +434,7 @@ final class PDFExportTests: XCTestCase {
                     }
                 }
             }
+        }
         }
     }
 

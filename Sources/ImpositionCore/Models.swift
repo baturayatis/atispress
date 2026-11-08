@@ -190,6 +190,7 @@ public struct ExportMarks: Equatable, Sendable, Codable {
 }
 public struct Project: Equatable, Sendable, Codable {
     var bookCoverTemplate = false
+    public var alignment: BlockAlignment? = nil
     public var blankPlacement: BlankPlacement? = nil
     public var book: BookSettings? = nil
     public var gang: GangSettings? = nil
@@ -213,10 +214,11 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        alignment = try c.decodeIfPresent(BlockAlignment.self,forKey:.alignment)
         blankPlacement = try c.decodeIfPresent(BlankPlacement.self,forKey:.blankPlacement)
         book = try c.decodeIfPresent(BookSettings.self,forKey:.book)
         gang = try c.decodeIfPresent(GangSettings.self,forKey: .gang)
@@ -288,6 +290,7 @@ public struct Side: Equatable, Sendable {
     public init(slots: [Slot] = [], marks: [Mark] = []) { self.slots = slots; self.marks = marks }
 }
 public struct Sheet: Equatable, Sendable {
+    public var alignment: BlockAlignment = .gripper
     public var bookInfo: BookSheetInfo? = nil
     public var gangLayout: GangSheetLayout? = nil
     public var gripperEdge: Edge = .bottom

@@ -113,7 +113,7 @@ public enum PDFColorControlRenderer {
             let length = horizontal ? size.width : size.height,thickness = horizontal ? size.height : size.width
             let lo = horizontal ? area.minX : area.minY,hi = horizontal ? area.maxX : area.maxY
             let normalLo = horizontal ? area.minY : area.minX,normalHi = horizontal ? area.maxY : area.maxX
-            let midpoint = horizontal ? sheet.size.width/2 : sheet.size.height/2
+            let midpoint = sheet.alignment == .center && !block.isNull ? (horizontal ? block.midX : block.midY) : (horizontal ? sheet.size.width/2 : sheet.size.height/2)
             var along = [midpoint-length/2]
             if !centered {
                 along += [lo,hi-length]
@@ -126,8 +126,14 @@ public enum PDFColorControlRenderer {
             var normals = [normalLo,normalHi-thickness]
             normals += protected.flatMap { rect in [
                 (horizontal ? rect.minY : rect.minX)-thickness-0.01,(horizontal ? rect.maxY : rect.maxX)+0.01 ] }
+            let nearBlock = edge == .bottom || edge == .left ? normalHi-thickness : normalLo
             normals = Array(Set(normals)).filter { $0 >= normalLo && $0+thickness <= normalHi }
-                .sorted { edge == .bottom || edge == .left ? $0 < $1 : $0 > $1 }
+                .sorted {
+                    if sheet.alignment == .center,!block.isNull {
+                        if abs($0-nearBlock) != abs($1-nearBlock) { return abs($0-nearBlock)<abs($1-nearBlock) }
+                    }
+                    return edge == .bottom || edge == .left ? $0 < $1 : $0 > $1
+                }
             for normal in normals {
                 for start in along where start >= lo && start+length <= hi {
                     let rect = CGRect(x: horizontal ? start : normal,y: horizontal ? normal : start,width: size.width,height: size.height)

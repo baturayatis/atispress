@@ -1475,3 +1475,63 @@ swift test --disable-sandbox --filter SignatureFourTests
 ./scripts/build_app.sh
 open "dist/AtışPress.app"
 ```
+
+## Hizalama ve tüm düzen ayarlarını sıfırlama (schema 12)
+
+Yeni uygulama oturumu ve **Yeni Proje**, **Hizalama → Ortala** ile başlar.
+Ürünler, ara boşluklar ve simetrik dış kesim işareti rezervinden oluşan blok,
+kenar boşlukları ve maşa payı çıkarılmış kullanılabilir alanın iki ekseninde
+ortalanır. Maşa payı yalnız bir kez çıkarılır. Örneğin 480×330 mm tabakada,
+10 mm kenarlar, alt maşa 0, sıfır ara boşluk ve 86,7×54 mm ürünün 5×5 düzeninde
+kesim bloğu **x=23,25, y=30 mm** konumundadır; kullanılabilir alanda sağ/sol
+13,25 mm ve üst/alt 20 mm boşluk kalır.
+
+**Maşa kenarına yasla**, önceki yerleşim algoritmasını aynen korur. Hizalama
+alanı bulunmayan eski `.atispress` dosyaları bu davranışla açılır; mevcut
+otomatik ayar metadatasında hizalama manuel işaretlenir. Dosyayı açmak yeniden
+otomatik yerleşim başlatmaz. Şema **12**, hizalamayı ve otomatik/manuel sahipliğini
+kaydeder; **1–11** sürümleri okunur. Çekirdek API'nin eski `Project` kurucusu da
+hizalama belirtilmezse eski davranışı korur; yeni uygulama projeleri açıkça
+`center` seçer.
+
+Ön/arka yerleşimler aynı fiziksel kesim konumlarını paylaşır. Work-and-turn ve
+work-and-tumble için aynı kalıbın iki yüzü, çevrilen eksendeki kullanılabilir
+alanların simetrik kesişiminde ortalanır; bu baskı hizalaması için gereklidir.
+Seri/QR konumları kesim köşesine bağlıdır; kesim işaretleri, bilgi şeridi ve renk
+kontrolleri yeni blok konumunu izler. Yer bulamayan bilgi/renk kontrolleri mevcut
+uyarılarla atlanır. Karışık işte otomatik blok bütünü ortalanır; elle sürüklenen
+blokların açık koordinatları korunur. Yeniden otomatik yerleştirme bu blokları
+çözücüye geri verir.
+
+**Otomatik düzenle**, sabit/en-verimli tabaka politikasını da **Otomatik** yapar;
+tabaka, yön, dört kenar, maşa, ara boşluk/dizilim, taşma üretimi, çıktı işaretleri,
+döndürme, satır/sütun sınırları ve hizalamayı tekrar hesaplar. Manuel ayar varsa
+**“Elle yapılan ayarlar sıfırlanacak.”** onayı gösterilir. İptal projeyi değiştirmez.
+Adet/fire, kaynaklar, sayfa/kapak seçimi, ölçülmüş kâğıt kalınlıkları ve seri
+alanları korunur. **Manuel** etiketli alanların yanındaki **Otomatik'e dön** yalnız
+ilgili alanın manuel sahipliğini kaldırır; diğer manuel değerleri korur.
+
+SRA3 yatayda 86,7×54 mm kart dönüş regresyonu önce başarısız testle üretildi:
+L1'de 5 mm kesim çizgisi + 3,5 mm uzaklık iki kenarda toplam 17 mm ayırıyordu;
+450−17=433 mm, dik 5 sütunun 433,5 mm enini dışarıda bırakıyordu. Böylece yalnız
+90° 8×3=24 seçiliyordu. Otomatik çözücü artık rahat uzaklığın yanında taşmanın
+dışında en az 0,1 mm (ve çizgi yarı kalınlığından fazla) güvenli mesafeyi de
+karşılaştırır; bu örnekte 3,1 mm uzaklıkla 5×5=25 dik sığar. Eşit kapasitede dik,
+eşit yön/kapasitede rahat işaret mesafesi tercih edilir. Manuel kesim uzaklığı
+asla azaltılmaz; gerçekten sığmayan 25'li düzen zorlanmaz.
+
+Doğrulama: **206 test**; iki eksende 0,01 mm merkezleme, maşa payının tek sayımı,
+eski konum/şema göçü, tüm çevirme/maşa kombinasyonları, döndürülmüş kitap
+arkası, karışık blok merkezleme, reset onay/iptali ve tek-alan reseti kapsanır.
+Vektör seri çıktı testi her iki hizalamada PDF metni/konumu ve önizleme piksellerini
+karşılaştırır; renk kontrol/bilgi şeridi testi blokla taşınmayı ve arka hizasını
+denetler. Fiziksel baskı kaydı yine prova ile doğrulanmalıdır.
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+swift test --disable-sandbox --filter Alignment
+./scripts/build_app.sh
+open "dist/AtışPress.app"
+```

@@ -3,9 +3,10 @@ import Foundation
 public enum SheetSelection: String, Codable, Sendable, CaseIterable { case fixed, efficient, automatic }
 public enum ProductionType: String, Codable, Sendable, CaseIterable { case digital, offset }
 public enum AutoLayoutField: String, Codable, Sendable, CaseIterable {
-    case sheetSize, orientation, allowRotation, marginLeft, marginRight, marginTop, marginBottom, gripperEdge, gripperWidth, gutter, cropLength, cropOffset, bleed, safeArea, generatedEnabled, generatedMethod, generatedTolerance, generatedColor, columns, rows, exportCrop, exportFold, exportBleed, exportSafeArea, exportPageNumbers, exportSheetInfo, exportFullCut, exportLineWidth, exportColor, exportColorBar, exportTargets, exportTargetSize, exportPatchSize, exportBarSide
+    case alignment, sheetSize, orientation, allowRotation, marginLeft, marginRight, marginTop, marginBottom, gripperEdge, gripperWidth, gutter, cropLength, cropOffset, bleed, safeArea, generatedEnabled, generatedMethod, generatedTolerance, generatedColor, columns, rows, exportCrop, exportFold, exportBleed, exportSafeArea, exportPageNumbers, exportSheetInfo, exportFullCut, exportLineWidth, exportColor, exportColorBar, exportTargets, exportTargetSize, exportPatchSize, exportBarSide
     public static func changes(from old: Project,to new: Project) -> Set<AutoLayoutField> {
         var result = Set<AutoLayoutField>()
+        if old.blockAlignment != new.blockAlignment { result.insert(.alignment) }
         if old.sheet.size != new.sheet.size { result.insert(.sheetSize) }
         if old.sheet.orientation != new.sheet.orientation { result.insert(.orientation) }
         if old.stepAndRepeat.allowRotation != new.stepAndRepeat.allowRotation { result.insert(.allowRotation) }
@@ -82,23 +83,38 @@ public enum SmartAutoLayout {
         var rotations: Int
     }
     public static func arrange(_ original: Project,resetOverrides: Bool = false) -> AutoLayoutResult {
-        if original.isBooklet && original.book != nil {
-            let plan = ImpositionPlanner.plan(original)
-            let summary = plan.sheets.first?.bookInfo?.summary ?? "Kitap ayarlarını ve tabaka ölçülerini kontrol edin."
-            return AutoLayoutResult(project:original,presetName:presetName(for:original.sheet.size),summary:summary,plan:plan)
-        }
-        if original.binding == .gang {
-            var next = original
-            if resetOverrides { next.gang?.mode = .automatic; next.gang?.blocks = [] }
-            let plan = ImpositionPlanner.plan(next)
-            let summary = plan.sheets.first?.gangLayout?.summary ?? "Karışık düzen için işleri ve tabakayı kontrol edin."
-            next.autoLayout?.summary = summary
-            return AutoLayoutResult(project:next,presetName:presetName(for:next.sheet.size),summary:summary,plan:plan)
-        }
         var state = original.autoLayout ?? AutoLayoutSettings()
         if resetOverrides {
-            if state.sheetSelection == .fixed { state.sheetSelection = .automatic }
-            state.manualFields = []; state.automaticFields = []
+            state.sheetSelection = .automatic
+            state.manualFields = []; state.automaticFields = Set(AutoLayoutField.allCases)
+        }
+        if original.binding == .gang {
+            let fixed = state.manualFields.contains(.sheetSize) || state.sheetSelection == .fixed
+            let defaultPaper: SheetPreset = state.production == .digital ? .sra3 : .cm33x48
+            let sizes = fixed ? [original.sheet.size] : [defaultPaper.size]+presets.filter { $0 != defaultPaper }.map(\.size)
+            var fallback: AutoLayoutResult?
+            for size in sizes {
+                var seed = original; seed.autoLayout = state
+                if resetOverrides { seed.stepAndRepeat.arrangement = .adjacent }
+                var next = configured(seed,size:size,level:.full,orientation:.auto,tolerance:0)
+                if resetOverrides {
+                    next.gang?.mode = .automatic; next.gang?.blocks = []
+                    for i in next.gang?.jobs.indices ?? 0..<0 {
+                        next.gang?.jobs[i].allowRotation = true; next.gang?.jobs[i].bleed = next.settings.bleed
+                        let job = next.gang!.jobs[i]
+                        var generated = next.settings.generatedBleed
+                        generated.enabled = [job.front,job.back].compactMap { $0 }.contains { ($0.availableBleed ?? 0)<job.bleed }
+                        next.gang?.jobs[i].generatedBleed = generated
+                    }
+                }
+                let plan = ImpositionPlanner.plan(next)
+                let summary = plan.sheets.first?.gangLayout?.summary ?? "Karışık düzen için işleri ve tabakayı kontrol edin."
+                next.autoLayout?.summary = summary
+                let result = AutoLayoutResult(project:next,presetName:presetName(for:size),summary:summary,plan:plan)
+                if fallback == nil { fallback = result }
+                if !plan.sheets.isEmpty,!plan.issues.contains(where:{ $0.severity == .error && $0.code == .gangLayout }) { return result }
+            }
+            return fallback ?? AutoLayoutResult(project:original,presetName:presetName(for:original.sheet.size),summary:"İş ekleyin.",plan:ImpositionPlanner.plan(original))
         }
         guard !original.pages.isEmpty,original.pages.allSatisfy({
             $0.trimSize.width.isFinite && $0.trimSize.height.isFinite &&
@@ -113,22 +129,37 @@ public enum SmartAutoLayout {
         let levels: [AutoLayoutSettings.Level] = [.full,.reduced,.clipped,.fullSheet]
         func candidates(_ size: Size,_ name: String,_ level: AutoLayoutSettings.Level,_ tolerance: Double = 0) -> [Candidate] {
             let orientations: [Orientation] = state.manualFields.contains(.orientation) ? [original.sheet.orientation] : [.portrait,.landscape]
-            return orientations.compactMap { orientation in
-                let p = configured(base,size: size,level: level,orientation: orientation,tolerance: tolerance)
-                let probe = evaluationProject(p)
-                let plan = ImpositionPlanner.plan(probe)
-                let expected = probe.binding == .stepAndRepeat ? (probe.pages.count+1)/2 : 1
-                guard plan.sheets.count >= expected,!plan.issues.contains(where: { $0.code == .exceedsSheet }) else { return nil }
-                let score = plan.sheets.reduce(0) { $0+($1.repeatLayout?.copiesPerSheet ?? $1.front.slots.count) }
-                return Candidate(project: p,score: score,name: name,rotations: plan.sheets.reduce(0) { $0+($1.front.slots.first?.rotation ?? 0) })
+            return orientations.flatMap { orientation -> [Candidate] in
+                let p = configured(base,size:size,level:level,orientation:orientation,tolerance:tolerance)
+                var variants = [p]
+                // Comfort clearance is preferred on ties. Also compare the minimum
+                // safe automatic offset before discarding an upright extra copy.
+                if p.binding == .stepAndRepeat,p.exportMarks.crop,p.settings.cropMarkLength>0,
+                   !state.manualFields.contains(.cropOffset) {
+                    let clearance = max(0.1,p.exportMarks.lineWidth*25.4/72/2+0.01)
+                    let minimum = p.settings.bleed+clearance
+                    if minimum<p.settings.cropMarkOffset {
+                        var tight = p; tight.settings.cropMarkOffset = minimum; variants.append(tight)
+                    }
+                }
+                return variants.compactMap { candidate in
+                    let probe = evaluationProject(candidate)
+                    let plan = ImpositionPlanner.plan(probe)
+                    let expected = probe.binding == .stepAndRepeat ? (probe.pages.count+1)/2 : 1
+                    guard plan.sheets.count>=expected,!plan.issues.contains(where:{ $0.code == .exceedsSheet }) else { return nil }
+                    let score = plan.sheets.reduce(0) { $0+($1.repeatLayout?.copiesPerSheet ?? $1.front.slots.count) }
+                    return Candidate(project:candidate,score:score,name:name,rotations:plan.sheets.reduce(0) { $0+($1.front.slots.first?.rotation ?? 0) })
+                }
             }
         }
+
         func best(_ values: [Candidate]) -> Candidate? {
             values.sorted {
                 if $0.score != $1.score { return $0.score > $1.score }
                 let a = $0.project.sheet.size, b = $1.project.sheet.size
                 if a.width*a.height != b.width*b.height { return a.width*a.height < b.width*b.height }
                 if $0.rotations != $1.rotations { return $0.rotations < $1.rotations }
+                if $0.project.settings.cropMarkOffset != $1.project.settings.cropMarkOffset { return $0.project.settings.cropMarkOffset > $1.project.settings.cropMarkOffset }
                 return $0.project.sheet.orientation == .portrait && $1.project.sheet.orientation != .portrait
             }.first
         }
@@ -205,6 +236,7 @@ public enum SmartAutoLayout {
         let margin: Double = level == .full ? 10 : level == .reduced ? 5 : level == .clipped ? (state.production == .digital ? 3 : 5) : 0
         set(.sheetSize,\.sheet.size,size)
         set(.orientation,\.sheet.orientation,orientation)
+        set(.alignment,\.blockAlignment,.center)
         set(.allowRotation,\.stepAndRepeat.allowRotation,true)
         set(.columns,\.stepAndRepeat.columns,nil)
         set(.rows,\.stepAndRepeat.rows,nil)
@@ -217,7 +249,7 @@ public enum SmartAutoLayout {
         set(.exportCrop,\.exportMarks.crop,marks)
         set(.cropLength,\.settings.cropMarkLength,marks ? 5 : 0)
         set(.cropOffset,\.settings.cropMarkOffset,marks ? p.settings.bleed+0.5 : 0)
-        if p.binding != .stepAndRepeat {
+        if p.isBooklet {
             set(.gutter,\.sheet.gutter,2*p.settings.bleed)
         } else {
             switch p.stepAndRepeat.arrangement {
@@ -241,6 +273,7 @@ public enum SmartAutoLayout {
         set(.generatedMethod,\.settings.generatedBleed.method,.automatic)
         set(.generatedTolerance,\.settings.generatedBleed.tolerance,0.02)
         set(.generatedColor,\.settings.generatedBleed.color,.cmyk(0,0,0,0))
+        state.automaticFields = Set(AutoLayoutField.allCases).subtracting(state.manualFields)
         state.level = level; state.clipBleedToSheet = level == .clipped || level == .fullSheet
         state.trimTolerance = level == .fullSheet ? tolerance : 0
         p.autoLayout = state

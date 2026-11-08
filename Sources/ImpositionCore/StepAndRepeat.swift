@@ -69,13 +69,27 @@ extension ImpositionPlanner {
                     let copy = row*grid.columns+column
                     frontSlots.append(Slot(sourcePageNumber: page,origin: origin(position),size: grid.item,
                         rotation: rotation,signature: job,gridPosition: position,copyIndex: copy,itemSide: reverseHalf ? .back : .front))
-                    backSlots.append(Slot(sourcePageNumber: reversePage,origin: origin(inverse),size: grid.item,
+                    var backOrigin = origin(inverse)
+                    if project.blockAlignment == .center {
+                        let usedWidth = Double(grid.columns)*grid.item.width+Double(grid.columns-1)*grid.spacing
+                        let usedHeight = Double(grid.rows)*grid.item.height+Double(grid.rows-1)*grid.spacing
+                        if grid.mirrorX { backOrigin.x += grid.sheet.width-2*grid.origin.x-usedWidth }
+                        else { backOrigin.y += grid.sheet.height-2*grid.origin.y-usedHeight }
+                    }
+                    backSlots.append(Slot(sourcePageNumber: reversePage,origin: backOrigin,size: grid.item,
                         rotation: reverseRotation(rotation,mirrorX: grid.mirrorX),signature: job,gridPosition: inverse,copyIndex: copy,itemSide: reverseHalf ? .front : .back))
                 }
             }
             // The array stays in copy order. GridPosition expresses each face's row/column order.
             let frontSide = repeatSide(frontSlots,grid: grid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet)
-            let backSide = repeatSide(backSlots,grid: grid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet)
+            var backGrid = grid
+            if project.blockAlignment == .center {
+                let width = Double(grid.columns)*grid.item.width+Double(grid.columns-1)*grid.spacing
+                let height = Double(grid.rows)*grid.item.height+Double(grid.rows-1)*grid.spacing
+                backGrid.origin = Point(grid.mirrorX ? grid.sheet.width-grid.origin.x-width : grid.origin.x,
+                                        grid.mirrorX ? grid.origin.y : grid.sheet.height-grid.origin.y-height)
+            }
+            let backSide = repeatSide(backSlots,grid: backGrid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet)
             if settings.generatedBleed.enabled {
                 for slot in frontSide.slots+backSide.slots {
                     if let clip = slot.artworkClip,
@@ -159,7 +173,7 @@ extension ImpositionPlanner {
         let spacing = spec.gutter == 0 ? 0 : 2*settings.bleed+spec.gutter
         var best: RepeatGrid?
         for sheet in sheets {
-            let m = repeatMargins(spec,mirrorX: mirrorX)
+            let m = project.blockAlignment == .center && settings.turnMethod == .sheetwise ? usableMargins(spec) : repeatMargins(spec,mirrorX:mirrorX)
             let width = sheet.width-m.left-m.right-2*reserve
             let height = sheet.height-m.top-m.bottom-2*reserve
             for rotation in (options.allowRotation ? [0,90] : [0]) {
@@ -177,8 +191,13 @@ extension ImpositionPlanner {
                 guard columns > 0,rows > 0,Double(columns) <= max(tolerance > 0 ? 1 : 0,fitColumns),Double(rows) <= max(tolerance > 0 ? 1 : 0,fitRows) else { continue }
                 let usedWidth = Double(columns)*item.width+Double(columns-1)*spacing
                 let usedHeight = Double(rows)*item.height+Double(rows-1)*spacing
-                let origin = !mirrorX ?
-                    Point(m.left+reserve,(sheet.height-usedHeight)/2) : Point((sheet.width-usedWidth)/2,m.bottom+reserve)
+                let origin: Point
+                if project.blockAlignment == .center {
+                    origin = Point(m.left+(sheet.width-m.left-m.right-usedWidth)/2,
+                                   m.bottom+(sheet.height-m.bottom-m.top-usedHeight)/2)
+                } else {
+                    origin = !mirrorX ? Point(m.left+reserve,(sheet.height-usedHeight)/2) : Point((sheet.width-usedWidth)/2,m.bottom+reserve)
+                }
                 let candidate = RepeatGrid(sheet: sheet,origin: origin,item: item,columns: columns,rows: rows,rotation: rotation,spacing: spacing,mirrorX: mirrorX)
                 if best == nil || candidate.capacity > best!.capacity ||
                     (candidate.capacity == best!.capacity && candidate.rotation < best!.rotation) { best = candidate }

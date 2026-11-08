@@ -88,7 +88,7 @@ struct ProjectState: Codable, Equatable {
     }
 }
 struct ProjectDocument: Codable, Equatable {
-    static let currentVersion = 11
+    static let currentVersion = 12
     var version: Int = currentVersion
     var state: ProjectState
     static func decode(_ data: Data) throws -> ProjectDocument {
@@ -96,7 +96,13 @@ struct ProjectDocument: Codable, Equatable {
         let decoder = JSONDecoder()
         let header = try decoder.decode(Header.self,from: data)
         guard (1...currentVersion).contains(header.version) else { throw ProjectFileError.unsupportedVersion(header.version) }
-        let file = try decoder.decode(ProjectDocument.self,from: data)
+        var file = try decoder.decode(ProjectDocument.self,from: data)
+        if header.version < 12,file.state.project.alignment == nil,var state = file.state.project.autoLayout {
+            // Legacy projects retain their press-edge geometry even on a later
+            // re-import or production change. Explicit auto/reset opts into centering.
+            state.manualFields.insert(.alignment); state.automaticFields.remove(.alignment)
+            file.state.project.autoLayout = state
+        }
         guard file.state.source != nil || !(file.state.linkedSources ?? file.state.gangSources ?? []).isEmpty || file.state.order.isEmpty else { throw ProjectFileError.invalidSelection }
         let sources = file.state.linkedSources ?? file.state.gangSources ?? []
         guard Set(sources.map(\.id)).count == sources.count,sources.allSatisfy({ $0.pageCount > 0 }),

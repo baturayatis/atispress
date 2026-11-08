@@ -186,7 +186,9 @@ public enum GangPlanner {
         let samePlate = project.settings.turnMethod != .sheetwise,factor = samePlate ? 2 : 1
         var m = spec.margins
         switch spec.gripperEdge { case .left: m.left += spec.gripperWidth; case .right: m.right += spec.gripperWidth; case .top: m.top += spec.gripperWidth; case .bottom: m.bottom += spec.gripperWidth }
-        if mirrorsX { m.left = max(m.left,m.right); m.right = m.left } else { m.top = max(m.top,m.bottom); m.bottom = m.top }
+        if project.blockAlignment == .gripper || samePlate {
+            if mirrorsX { m.left = max(m.left,m.right); m.right = m.left } else { m.top = max(m.top,m.bottom); m.bottom = m.top }
+        }
         // Positive gutters must protect both jobs' bleeds. Zero gutter means common trim, perimeter bleed only.
         let bleed = jobs.map(\.bleed).max() ?? 0
         let gap = spec.gutter
@@ -215,7 +217,12 @@ public enum GangPlanner {
                 }
                 if let c = pack(jobs: jobs,required: required,sheets: low,factor: factor,area: r.size,gutter: gap),best == nil || low<best!.0 { best = (low,stock,c) }
             }
-            if let best { size = best.1; area = region(size); blocks = best.2.blocks.map { var b = $0; b.origin.x += area.origin.x; b.origin.y += area.origin.y; return b } }
+            if let best { size = best.1; area = region(size); blocks = best.2.blocks.map {
+                var b = $0
+                b.origin.x += area.origin.x+(project.blockAlignment == .center ? (area.size.width-best.2.size.width)/2 : 0)
+                b.origin.y += area.origin.y+(project.blockAlignment == .center ? (area.size.height-best.2.size.height)/2 : 0)
+                return b
+            } }
             else {
                 issue("İşler aynı tabakaya sığmıyor: kullanılabilir alan \(String(format: "%.1f × %.1f",area.size.width,area.size.height)) mm; "+jobs.map { "\($0.name) \(String(format: "%.1f × %.1f",$0.front.trimSize.width,$0.front.trimSize.height)) mm" }.joined(separator:"; ")+". Tabakayı büyütün veya işleri ayırın.")
                 blocks = jobs.enumerated().map { GangBlock(jobID: $0.element.id,origin: Point(area.origin.x+Double($0.offset)*10,area.origin.y)) }

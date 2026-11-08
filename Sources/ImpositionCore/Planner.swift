@@ -13,6 +13,7 @@ public enum ImpositionPlanner {
         var rows: Int
         var rotated: Bool
         var unitSize: Size
+        var available: Size
         var capacity: Int { columns * rows }
     }
     /// Produces the sole geometry source for both preview and future PDF export.
@@ -23,6 +24,7 @@ public enum ImpositionPlanner {
         var result = project.isBooklet && project.book != nil ? BookPlanner.plan(project) : layoutPlan(project)
         if project.binding != .gang && !(project.isBooklet && project.book != nil) { addFitDiagnostics(project,to: &result) }
         for index in result.sheets.indices {
+            result.sheets[index].alignment = project.blockAlignment
             result.sheets[index].gripperEdge = project.sheet.gripperEdge
             result.sheets[index].backFlipsX = (project.binding == .stepAndRepeat || project.binding == .gang) ? repeatMirrorsX(project) : project.settings.turnMethod != .workAndTumble
         }
@@ -121,14 +123,22 @@ public enum ImpositionPlanner {
         }
         for offset in stride(from: 0, to: units.count, by: layout.capacity) {
             var front = Side(); var back = Side()
+            let used = min(layout.capacity,units.count-offset)
+            let usedColumns = min(layout.columns,used),usedRows = (used+layout.columns-1)/layout.columns
+            let usedWidth = Double(usedColumns)*layout.unitSize.width+Double(usedColumns-1)*spec.gutter
+            let usedHeight = Double(usedRows)*layout.unitSize.height+Double(usedRows-1)*spec.gutter
+            let centered = Point(layout.origin.x+(layout.available.width-usedWidth)/2,layout.origin.y+(layout.available.height-usedHeight)/2)
+            let gridOrigin = project.blockAlignment == .center ? centered : layout.origin
             for index in 0..<min(layout.capacity, units.count - offset) {
                 let unit = units[offset + index]
-                let origin = Point(layout.origin.x + Double(index % layout.columns) * (layout.unitSize.width + spec.gutter),
-                                   layout.origin.y + Double(index / layout.columns) * (layout.unitSize.height + spec.gutter))
+                let origin = Point(gridOrigin.x + Double(index % layout.columns) * (layout.unitSize.width + spec.gutter),
+                                   gridOrigin.y + Double(index / layout.columns) * (layout.unitSize.height + spec.gutter))
                 let rawSize = Size(Double(unit.columns) * trim.width + Double(unit.columns - 1) * spec.gutter,
                                    Double(unit.rows) * trim.height + Double(unit.rows - 1) * spec.gutter)
-                func placed(_ slots: [Slot], shift: Point = Point(0, 0)) -> [Slot] {
-                    slots.map { slot in
+                func placed(_ slots: [Slot], backFace: Bool = false) -> [Slot] {
+                    let reversed = backFace && project.blockAlignment == .center && s.turnMethod == .sheetwise
+                    let placementOrigin = reversed ? Point(layout.size.width-origin.x-layout.unitSize.width,origin.y) : origin
+                    return slots.map { slot in
                         var p = slot
                         p.bookLeafIndex = unit.leafIndex
                         p.bookPanelIsLeft = unit.leafIndex == nil ? nil : slot.x == 0
@@ -141,23 +151,29 @@ public enum ImpositionPlanner {
                         p.origin.x += reserve; p.origin.y += reserve
                         if layout.rotated {
                             let old = p.origin
-                            p.origin = Point(old.y, rawSize.width + 2*reserve - old.x - p.size.width)
-                            p.size = Size(slot.size.height, slot.size.width)
-                            p.rotation = (p.rotation + 90) % 360
-                            clip = Rect(x: clip.origin.y,y: rawSize.width+2*reserve-clip.origin.x-clip.size.width,
-                                        width: clip.size.height,height: clip.size.width)
+                            if reversed {
+                                p.origin = Point(rawSize.height+2*reserve-old.y-p.size.height,old.x)
+                                p.rotation = (p.rotation+270)%360
+                                clip = Rect(x:rawSize.height+2*reserve-clip.origin.y-clip.size.height,y:clip.origin.x,width:clip.size.height,height:clip.size.width)
+                            } else {
+                                p.origin = Point(old.y,rawSize.width+2*reserve-old.x-p.size.width)
+                                p.rotation = (p.rotation+90)%360
+                                clip = Rect(x:clip.origin.y,y:rawSize.width+2*reserve-clip.origin.x-clip.size.width,width:clip.size.height,height:clip.size.width)
+                            }
+                            p.size = Size(slot.size.height,slot.size.width)
                         }
-                        p.origin.x += origin.x + shift.x; p.origin.y += origin.y + shift.y
-                        clip.origin.x += origin.x+shift.x; clip.origin.y += origin.y+shift.y
+                        p.origin.x += placementOrigin.x; p.origin.y += placementOrigin.y
+                        clip.origin.x += placementOrigin.x; clip.origin.y += placementOrigin.y
                         // Shared-cut units need the same bleed protection as panels
                         // within a unit. With no exterior reserve, adjacent signatures
                         // must not paint their native bleed over one another's trim.
                         let used = min(layout.capacity,units.count-offset)
                         let col = index%layout.columns,row = index/layout.columns
-                        var clipLeft = col>0 ? origin.x-spec.gutter/2 : -Double.infinity
-                        var clipRight = col+1<layout.columns && index+1<used ? origin.x+layout.unitSize.width+spec.gutter/2 : Double.infinity
-                        var clipBottom = row>0 ? origin.y-spec.gutter/2 : -Double.infinity
-                        var clipTop = index+layout.columns<used ? origin.y+layout.unitSize.height+spec.gutter/2 : Double.infinity
+                        let before = col>0,after = col+1<layout.columns && index+1<used
+                        var clipLeft = (reversed ? after : before) ? placementOrigin.x-spec.gutter/2 : -Double.infinity
+                        var clipRight = (reversed ? before : after) ? placementOrigin.x+layout.unitSize.width+spec.gutter/2 : Double.infinity
+                        var clipBottom = row>0 ? placementOrigin.y-spec.gutter/2 : -Double.infinity
+                        var clipTop = index+layout.columns<used ? placementOrigin.y+layout.unitSize.height+spec.gutter/2 : Double.infinity
                         if s.turnMethod == .workAndTurn { clipRight = min(clipRight,layout.size.width/2) }
                         if s.turnMethod == .workAndTumble { clipTop = min(clipTop,layout.size.height/2) }
                         clipLeft = max(clipLeft,clip.origin.x); clipBottom = max(clipBottom,clip.origin.y)
@@ -168,7 +184,7 @@ public enum ImpositionPlanner {
                     }
                 }
                 let f = placed(unit.front)
-                let b = placed(unit.back)
+                let b = placed(unit.back,backFace:true)
                 if s.turnMethod == .sheetwise {
                     front.slots += f; back.slots += b
                 } else {
@@ -194,7 +210,7 @@ public enum ImpositionPlanner {
                 }
                 let fm = folds.map { Mark(kind: .fold, start: point($0.start), end: point($0.end)) }
                 front.marks += fm
-                if s.turnMethod == .sheetwise { back.marks += fm }
+                if s.turnMethod == .sheetwise { back.marks += project.blockAlignment == .center ? fm.map { reflectMark($0,layout.size,.workAndTurn) } : fm }
                 else { front.marks += fm.map { reflectMark($0, layout.size, s.turnMethod) } }
             }
             if s.turnMethod != .sheetwise {
@@ -341,7 +357,7 @@ public enum ImpositionPlanner {
                 let ny = (h+spec.gutter+fitTolerance)/(u.height+spec.gutter)
                 // Bound conversion and allocation even for hostile custom dimensions.
                 guard nx.isFinite, ny.isFinite else { continue }
-                let candidate = Layout(size: size, origin: Point(m.left,m.bottom), columns: Int(min(nx,100_000)), rows: Int(min(ny,100_000)), rotated: rotate, unitSize: u)
+                let candidate = Layout(size: size, origin: Point(m.left,m.bottom), columns: Int(min(nx,100_000)), rows: Int(min(ny,100_000)), rotated: rotate, unitSize: u,available:Size(w,h))
                 if best == nil || candidate.capacity > best!.capacity ||
                     (candidate.capacity == best!.capacity && best!.rotated && !candidate.rotated) { best = candidate }
             }

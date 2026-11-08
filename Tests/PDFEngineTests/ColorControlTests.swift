@@ -185,4 +185,28 @@ final class ColorControlTests: XCTestCase {
         let exported = Operators(); exported.scan(try XCTUnwrap(CGPDFDocument(result.files[0] as CFURL)?.page(at: 1)))
         XCTAssertTrue(exported.fills.isEmpty); XCTAssertTrue(exported.strokes.isEmpty)
     }
+    func testCenteredControlsFollowBlockTranslationAndBackReflection() throws {
+        var sheet = Sheet(size:Size(300,400),front:Side(slots:[Slot(sourcePageNumber:1,origin:Point(60,120),size:Size(100,150))]),back:Side())
+        sheet.alignment = .center; sheet.gripperEdge = .bottom; sheet.backFlipsX = true
+        let first = PDFColorControlRenderer.geometry(sheet:sheet,settings:marks)
+        let firstBar = try XCTUnwrap(first.barBounds)
+        let firstInfo = try XCTUnwrap(PDFSheetInfo.placement(text:"İş",side:sheet.front,sheet:sheet,marks:.none))
+        sheet.front.slots[0].origin.x += 20; sheet.front.slots[0].origin.y += 15
+        let moved = PDFColorControlRenderer.geometry(sheet:sheet,settings:marks)
+        let bar = try XCTUnwrap(moved.barBounds)
+        XCTAssertEqual(bar.minX-firstBar.minX,20,accuracy:0.00001)
+        XCTAssertEqual(bar.minY-firstBar.minY,15,accuracy:0.00001)
+        let info = try XCTUnwrap(PDFSheetInfo.placement(text:"İş",side:sheet.front,sheet:sheet,marks:.none))
+        XCTAssertEqual(info.bounds.minX-firstInfo.bounds.minX,20,accuracy:0.00001)
+        XCTAssertEqual(info.bounds.minY-firstInfo.bounds.minY,15,accuracy:0.00001)
+        XCTAssertFalse(info.bounds.intersects(CGRect(x:80,y:135,width:100,height:150)))
+        let back = try XCTUnwrap(PDFColorControlRenderer.geometry(sheet:sheet,settings:marks,kind:.back).barBounds)
+        XCTAssertEqual(back.minX,300-bar.maxX,accuracy:0.00001)
+        XCTAssertEqual(back.minY,bar.minY,accuracy:0.00001)
+        XCTAssertEqual(moved.targets.count,4)
+        for target in moved.targets where target.edge == .bottom || target.edge == .top {
+            XCTAssertEqual(target.center.x,130,accuracy:0.00001)
+        }
+    }
+
 }

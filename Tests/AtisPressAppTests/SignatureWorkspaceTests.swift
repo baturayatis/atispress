@@ -48,7 +48,7 @@ final class SignatureWorkspaceTests: XCTestCase {
         XCTAssertTrue(workspace.currentSheet?.bookInfo?.summary.contains("27 forma (4 sayfa)") == true)
         XCTAssertTrue(workspace.currentSheet?.bookInfo?.summary.contains("PDF yüzü: 56") == true)
         let saved = folder.appendingPathComponent("sewn.atispress"); try workspace.saveProject(as:saved)
-        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:saved)).version,11)
+        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:saved)).version,ProjectDocument.currentVersion)
         let restored = model(); try await restored.loadProject(at:saved); try await settle(restored)
         XCTAssertEqual(restored.project,workspace.project); XCTAssertEqual(restored.plan.sheets,workspace.plan.sheets)
         XCTAssertEqual(restored.plan.readingOrder,workspace.plan.readingOrder); XCTAssertFalse(restored.isModified)

@@ -11,7 +11,9 @@ extension ImpositionPlanner {
             spec.orientation == .portrait ? Size(min(spec.size.width,spec.size.height),max(spec.size.width,spec.size.height)) : spec.size
         let reserve = project.layoutExteriorReserve
         var margins = spec.margins
-        if project.binding == .stepAndRepeat { margins = repeatMargins(spec,mirrorX: repeatMirrorsX(project)) }
+        if project.binding == .stepAndRepeat {
+            margins = project.blockAlignment == .center && s.turnMethod == .sheetwise ? usableMargins(spec) : repeatMargins(spec,mirrorX:repeatMirrorsX(project))
+        }
         else {
             switch spec.gripperEdge {
             case .left: margins.left += spec.gripperWidth
