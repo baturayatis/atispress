@@ -52,6 +52,9 @@ public struct AutoLayoutSettings: Equatable, Codable, Sendable {
         get { selectionPolicy ?? (manualFields.contains(.sheetSize) ? .fixed : .efficient) }
         set { selectionPolicy = newValue }
     }
+    public var presetFields: Set<AutoLayoutField>? = nil
+    public var presetName: String? = nil
+    public func isFixed(_ field: AutoLayoutField) -> Bool { manualFields.contains(field) || presetFields?.contains(field) == true }
     public var manualFields = Set<AutoLayoutField>()
     public var automaticFields = Set<AutoLayoutField>()
     public var level: Level?
@@ -86,10 +89,11 @@ public enum SmartAutoLayout {
         var state = original.autoLayout ?? AutoLayoutSettings()
         if resetOverrides {
             state.sheetSelection = .automatic
+            state.presetFields = nil; state.presetName = nil
             state.manualFields = []; state.automaticFields = Set(AutoLayoutField.allCases)
         }
         if original.binding == .gang {
-            let fixed = state.manualFields.contains(.sheetSize) || state.sheetSelection == .fixed
+            let fixed = state.isFixed(.sheetSize) || state.sheetSelection == .fixed
             let defaultPaper: SheetPreset = state.production == .digital ? .sra3 : .cm33x48
             let sizes = fixed ? [original.sheet.size] : [defaultPaper.size]+presets.filter { $0 != defaultPaper }.map(\.size)
             var fallback: AutoLayoutResult?
@@ -122,20 +126,20 @@ public enum SmartAutoLayout {
         }) else { return AutoLayoutResult(project: original,presetName: presetName(for: original.sheet.size),summary: "Otomatik düzen için geçerli PDF ölçüleri gerekli.",plan: ImpositionPlanner.plan(original)) }
         var base = original; base.autoLayout = state
         if resetOverrides { base.stepAndRepeat.arrangement = .adjacent }
-        let fixedSheet = state.manualFields.contains(.sheetSize) || state.sheetSelection == .fixed
+        let fixedSheet = state.isFixed(.sheetSize) || state.sheetSelection == .fixed
         let match = original.binding == .stepAndRepeat ? presets.first { paper in
             original.pages.allSatisfy { matches($0.trimSize,paper.size) }
         } : nil
         let levels: [AutoLayoutSettings.Level] = [.full,.reduced,.clipped,.fullSheet]
         func candidates(_ size: Size,_ name: String,_ level: AutoLayoutSettings.Level,_ tolerance: Double = 0) -> [Candidate] {
-            let orientations: [Orientation] = state.manualFields.contains(.orientation) ? [original.sheet.orientation] : [.portrait,.landscape]
+            let orientations: [Orientation] = state.isFixed(.orientation) ? [original.sheet.orientation] : [.portrait,.landscape]
             return orientations.flatMap { orientation -> [Candidate] in
                 let p = configured(base,size:size,level:level,orientation:orientation,tolerance:tolerance)
                 var variants = [p]
                 // Comfort clearance is preferred on ties. Also compare the minimum
                 // safe automatic offset before discarding an upright extra copy.
                 if p.binding == .stepAndRepeat,p.exportMarks.crop,p.settings.cropMarkLength>0,
-                   !state.manualFields.contains(.cropOffset) {
+                   !state.isFixed(.cropOffset) {
                     let clearance = max(0.1,p.exportMarks.lineWidth*25.4/72/2+0.01)
                     let minimum = p.settings.bleed+clearance
                     if minimum<p.settings.cropMarkOffset {
@@ -231,7 +235,7 @@ public enum SmartAutoLayout {
         var state = p.autoLayout ?? AutoLayoutSettings()
         state.automaticFields = []
         func set<T>(_ field: AutoLayoutField,_ key: WritableKeyPath<Project,T>,_ value: T) {
-            guard !state.manualFields.contains(field),field != .sheetSize || state.sheetSelection != .fixed else { return }
+            guard !state.isFixed(field),field != .sheetSize || state.sheetSelection != .fixed else { return }
             p[keyPath: key] = value; state.automaticFields.insert(field)
         }
         let margin: Double = level == .full ? 10 : level == .reduced ? 5 : level == .clipped ? (state.production == .digital ? 3 : 5) : 0
@@ -246,7 +250,7 @@ public enum SmartAutoLayout {
         set(.gripperEdge,\.sheet.gripperEdge,.bottom)
         set(.gripperWidth,\.sheet.gripperWidth,state.production == .offset ? 10 : 0)
         set(.bleed,\.settings.bleed,level == .fullSheet ? 0 : 3)
-        let marks = (level == .full || level == .reduced) && (!state.manualFields.contains(.exportCrop) || p.exportMarks.crop)
+        let marks = (level == .full || level == .reduced) && (!state.isFixed(.exportCrop) || p.exportMarks.crop)
         set(.exportCrop,\.exportMarks.crop,marks)
         set(.cropLength,\.settings.cropMarkLength,marks ? 5 : 0)
         set(.cropOffset,\.settings.cropMarkOffset,marks ? p.settings.bleed+0.5 : 0)
@@ -275,9 +279,12 @@ public enum SmartAutoLayout {
         set(.generatedMethod,\.settings.generatedBleed.method,.automatic)
         set(.generatedTolerance,\.settings.generatedBleed.tolerance,0.02)
         set(.generatedColor,\.settings.generatedBleed.color,.cmyk(0,0,0,0))
-        state.automaticFields = Set(AutoLayoutField.allCases).subtracting(state.manualFields)
-        state.level = level; state.clipBleedToSheet = level == .clipped || level == .fullSheet
-        state.trimTolerance = level == .fullSheet ? tolerance : 0
+        state.automaticFields = Set(AutoLayoutField.allCases).subtracting(state.manualFields).subtracting(state.presetFields ?? [])
+        state.level = level
+        if state.presetFields?.isEmpty != false {
+            state.clipBleedToSheet = level == .clipped || level == .fullSheet
+            state.trimTolerance = level == .fullSheet ? tolerance : 0
+        }
         p.autoLayout = state
         return p
     }

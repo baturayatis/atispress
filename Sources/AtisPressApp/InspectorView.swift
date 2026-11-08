@@ -31,6 +31,7 @@ struct InspectorView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }.padding(5)
                 }
+                PresetInspectorView(model:model)
                 Text("Tüm ölçüler mm").font(.caption).foregroundStyle(.secondary)
                 GroupBox("Yerleşim Yöntemi") {
                     VStack(alignment: .leading,spacing: 10) {

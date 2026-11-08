@@ -63,6 +63,7 @@ struct GangSourceReference: Codable, Equatable, Identifiable {
 
 /// Stores project intent, not a cached plan; the same planner reconstructs preview/export.
 struct ProjectState: Codable, Equatable {
+    var projectID: UUID? = nil
     var project: Project
     var source: ProjectSource?
     var order: [Int]
@@ -88,7 +89,7 @@ struct ProjectState: Codable, Equatable {
     }
 }
 struct ProjectDocument: Codable, Equatable {
-    static let currentVersion = 14
+    static let currentVersion = 15
     var version: Int = currentVersion
     var state: ProjectState
     static func decode(_ data: Data) throws -> ProjectDocument {

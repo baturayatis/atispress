@@ -19,6 +19,8 @@ struct PreviewCanvas: NSViewRepresentable {
     var moveSerial: ((UUID,Point) -> Void)? = nil
     var controlMarks = ExportMarks.none
     var moveGangBlock: ((UUID,Point) -> Void)? = nil
+    var beginEdit: (() -> Void)? = nil
+    var endEdit: (() -> Void)? = nil
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = PreviewScrollView()
@@ -45,7 +47,7 @@ struct PreviewCanvas: NSViewRepresentable {
     }
     private func update(_ canvas: SheetCanvasView) {
         canvas.repetition = repetition; canvas.selectedSerial = selectedSerial
-        canvas.selectSerial = selectSerial; canvas.moveSerial = moveSerial; canvas.moveGangBlock = moveGangBlock
+        canvas.selectSerial = selectSerial; canvas.moveSerial = moveSerial; canvas.moveGangBlock = moveGangBlock; canvas.beginEdit = beginEdit; canvas.endEdit = endEdit
         canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed,controlMarks: controlMarks)
     }
 }
@@ -96,6 +98,8 @@ final class SheetCanvasView: NSView {
     var selectSerial: ((UUID) -> Void)?
     var moveSerial: ((UUID,Point) -> Void)?
     var moveGangBlock: ((UUID,Point) -> Void)?
+    var beginEdit: (() -> Void)?
+    var endEdit: (() -> Void)?
     private var gangDrag: (id: UUID,origin: Point,start: CGPoint,flipX: Bool,flipY: Bool)?
     private var originX: CGFloat = 32
     private var originY: CGFloat = 32
@@ -253,6 +257,7 @@ final class SheetCanvasView: NSView {
                 guard PDFPreviewDrawing.localTrim(slot).contains(local) else { continue }
                 if PDFSerialDrawing.bounds(serial).insetBy(dx: -1.5,dy: -1.5)
                     .contains(local.applying(PDFSerialDrawing.transform(serial).inverted())) {
+                    beginEdit?()
                     selectedSerial = serial.field.id; selectSerial?(serial.field.id)
                     serialDrag = (slot,serial.field.id,CGPoint(x: local.x-serial.position.x,y: local.y-serial.position.y))
                     NSCursor.crosshair.push(); needsDisplay = true; return
@@ -265,6 +270,7 @@ final class SheetCanvasView: NSView {
                 guard rect.contains(point),let id = slot.gangBlockID,let block = layout.blocks.first(where: { $0.id==id }) else { continue }
                 // Map the viewed reverse / shared-plate half back to canonical front-block coordinates.
                 let reflected = layout.samePlate ? ((sideKind == .back) != (slot.itemSide == .back)) : sideKind == .back
+                beginEdit?()
                 gangDrag = (id,block.origin,event.locationInWindow,reflected && sheet.backFlipsX,reflected && !sheet.backFlipsX)
                 NSCursor.closedHand.push(); return
             }
@@ -298,6 +304,7 @@ final class SheetCanvasView: NSView {
         scroll.reflectScrolledClipView(scroll.contentView); dragPoint = now; needsDisplay = true
     }
     override func mouseUp(with event: NSEvent) {
+        if serialDrag != nil || gangDrag != nil { endEdit?() }
         if dragPoint != nil || serialDrag != nil || gangDrag != nil { NSCursor.pop() }; dragPoint = nil; serialDrag = nil; gangDrag = nil
     }
     override func resetCursorRects() { addCursorRect(bounds,cursor: .openHand) }

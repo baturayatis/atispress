@@ -126,7 +126,7 @@ final class LeafWorkspaceTests: XCTestCase {
             let url = folder.appendingPathComponent("behavior-\(behavior).atispress")
             try workspace.saveProject(as:url)
             let file = try ProjectDocument.decode(Data(contentsOf:url))
-            XCTAssertEqual(file.version,14); XCTAssertEqual(file.state.project.leafSettings.behavior,behavior)
+            XCTAssertEqual(file.version,ProjectDocument.currentVersion); XCTAssertEqual(file.state.project.leafSettings.behavior,behavior)
             let opened = model(); try await opened.loadProject(at:url); try await settle(opened)
             XCTAssertEqual(opened.project,workspace.project)
             XCTAssertEqual(opened.plan.sheets,workspace.plan.sheets); XCTAssertFalse(opened.isModified)

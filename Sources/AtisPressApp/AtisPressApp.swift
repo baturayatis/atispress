@@ -34,7 +34,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let workspace else { return .terminateNow }
         guard !workspace.loading,!workspace.exporting,!workspace.autoArranging else { return .terminateCancel }
-        return workspace.closeApproved || workspace.confirmDiscard() ? .terminateNow : .terminateCancel
+        let approved = workspace.closeApproved || workspace.confirmDiscard()
+        if approved { workspace.cleanRecoveryForNormalQuit() }
+        return approved ? .terminateNow : .terminateCancel
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -61,6 +63,8 @@ struct AtisPressApp: App {
                 .background(ProjectWindowControl(model: workspace))
                 .onOpenURL { delegate.receiveOpenURLs([$0]) }
                 .task {
+                    workspace.startPersistence()
+                    await workspace.offerRecoveryOnLaunch()
                     delegate.workspace = workspace
                     // A file argument is useful with `swift run AtisPressApp /path/book.pdf`.
                     if let path = CommandLine.arguments.dropFirst().first, !path.hasPrefix("-") {
@@ -70,6 +74,26 @@ struct AtisPressApp: App {
         }
         .defaultSize(width: 1440,height: 920)
         .commands {
+            CommandGroup(replacing:.undoRedo) {
+                Button("Geri Al") { workspace.undoEdit() }.keyboardShortcut("z").disabled((!workspace.canUndo && !(NSApp?.keyWindow?.firstResponder is NSTextView)) || workspace.loading || workspace.autoArranging || workspace.exporting)
+                Button("Yinele") { workspace.redoEdit() }.keyboardShortcut("z",modifiers:[.command,.shift]).disabled(!workspace.canRedo || workspace.loading || workspace.autoArranging || workspace.exporting)
+            }
+            CommandMenu("Hazır ayarlar") {
+                Menu("Hazır ayar uygula") {
+                    ForEach(workspace.presets) { preset in Button(preset.name) { workspace.applyPreset(preset) } }
+                }
+                Button("Yeni hazır ayar kaydet…",action:workspace.promptSavePreset)
+                Button("Yeniden adlandır…",action:workspace.promptRenamePreset).disabled(workspace.selectedPresetID == nil)
+                Button("Çoğalt") {
+                    if let id = workspace.selectedPresetID { do { try workspace.duplicatePreset(id) } catch { workspace.error = error.localizedDescription } }
+                }.disabled(workspace.selectedPresetID == nil)
+                Button("Sil") {
+                    if let id = workspace.selectedPresetID { do { try workspace.deletePreset(id) } catch { workspace.error = error.localizedDescription } }
+                }.disabled(workspace.selectedPresetID == nil)
+                Divider()
+                Button("Paket içe aktar…",action:workspace.choosePresetImport)
+                Button("Paket dışa aktar…",action:workspace.choosePresetExport)
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Yeni Proje") { workspace.createNewProject() }.keyboardShortcut("n")
                     .disabled(workspace.loading || workspace.exporting || workspace.autoArranging)

@@ -31,14 +31,14 @@ final class Workspace: ObservableObject {
                     if changed.contains(.gutter) {
                         trackingManual = true; project.stepAndRepeat.arrangement = .custom; trackingManual = false
                     } else if changed.contains(.bleed), project.stepAndRepeat.arrangement == .spaced,
-                              project.autoLayout?.manualFields.contains(.gutter) != true {
+                              project.autoLayout?.isFixed(.gutter) != true {
                         trackingManual = true; project.sheet.gutter = 2*project.settings.bleed; trackingManual = false
                     }
                 }
                 if !changed.isEmpty {
                     var state = project.autoLayout ?? .legacy
                     if changed.contains(.sheetSize) { state.sheetSelection = .fixed }
-                    state.manualFields.formUnion(changed); state.automaticFields.subtract(changed); state.summary = nil
+                    state.manualFields.formUnion(changed); state.automaticFields.subtract(changed); state.presetFields?.subtract(changed); state.summary = nil
                     trackingManual = true; project.autoLayout = state; trackingManual = false
                 }
             }
@@ -95,6 +95,20 @@ final class Workspace: ObservableObject {
     @Published private(set) var projectURL: URL?
     private var sourceReference: ProjectSource?
     private var savedState: ProjectState?
+    private var projectIdentifier = UUID()
+    private let journal = WorkspaceJournal()
+    @Published private(set) var canUndo = false
+    @Published private(set) var canRedo = false
+    private var captureEditTask: Task<Void,Never>?
+    private var finishEditTask: Task<Void,Never>?
+    private var autosaveTask: Task<Void,Never>?
+    private var autosaveTimer: Timer?
+    private var persistenceEnabled = false
+    private var recoveryStore = RecoveryStore()
+    private var presetStore = PresetStore()
+    @Published private(set) var presets: [JobPreset] = []
+    @Published var selectedPresetID: UUID?
+    private var checkedRecovery = false
     private var restoring = false
     private var applyingAutomatic = false
     private var trackingManual = false
@@ -118,6 +132,7 @@ final class Workspace: ObservableObject {
         self.filePicker = filePicker
         recentFiles = self.recentStore.files()
         savedState = state
+        journal.reset(editSnapshot)
     }
     @Published var loading = false
     @Published var planning = false
@@ -351,6 +366,7 @@ final class Workspace: ObservableObject {
                 }
                 guard !Task.isCancelled,importRevision == token else { return }
                 planTask?.cancel(); revision = UUID()
+                clearRecovery(); projectIdentifier = UUID()
                 projectURL = nil; projectAccess = nil
                 sourceReference = try? ProjectSource.capture(source.url,createBookmark: bookmarkCreator)
                 self.source = source
@@ -359,6 +375,7 @@ final class Workspace: ObservableObject {
                 sheetIndex = 0; repetition = 0
                 applyAutomatic(prepared)
                 loading = false
+                resetJournal(); queueAutosave()
                 recordRecentFile(source.url)
                 refreshModified()
             } catch {
@@ -440,7 +457,7 @@ final class Workspace: ObservableObject {
 
 extension Workspace {
     var state: ProjectState {
-        ProjectState(project: project,source: sourceReference,order: order,included: included,
+        ProjectState(projectID:projectIdentifier,project: project,source: sourceReference,order: order,included: included,
                      overlays: overlays,sheetPreset: sheetPreset,sheetIndex: sheetIndex,side: side,
                      bookletGutter: bookletGutter,repetition: repetition,gangSources: gangAssets.isEmpty || project.book?.coverSourceID != nil ? nil : gangAssets.map(\.saved),repeatGutter: repeatGutter,gangGutter: project.binding == .gang ? project.sheet.gutter : gangGutter,linkedSources: project.book?.coverSourceID == nil ? nil : gangAssets.map(\.saved))
     }
@@ -451,11 +468,14 @@ extension Workspace {
         current.sheetIndex = savedState?.sheetIndex ?? 0; current.side = savedState?.side ?? .front
         current.repetition = savedState?.repetition
         isModified = current != savedState
+        queueEditingCapture()
+        queueAutosave()
     }
     func createNewProject() {
         guard !loading,!exporting,!autoArranging,confirmDiscard() else { return }
         importTask?.cancel(); autoTask?.cancel(); autoArranging = false; planTask?.cancel(); bleedTask?.cancel()
-        restoring = true
+        clearRecovery()
+        restoring = true; projectIdentifier = UUID()
         gangAssets = []; selectedGangJobID = nil; selectedGangBlockID = nil
         source = nil; sourceReference = nil; projectURL = nil; projectAccess = nil
         order = []; included = []; selectedPages = []; overlays = PreviewOverlays(); sheetPreset = Self.automaticSheetTitle
@@ -465,6 +485,7 @@ extension Workspace {
         plan = ImpositionPlan(); sheetIndex = 0; side = .front; repetition = 0; selectedSerialID = nil
         planning = false; exportSummary = nil; exportedFiles = []; error = nil
         restoring = false; savedState = state; isModified = false
+        resetJournal()
         zoomFactor = 0; zoomAction += 1
     }
     @discardableResult
@@ -473,6 +494,7 @@ extension Workspace {
         if let source, source.protectedURLs.contains(where: { url.standardizedFileURL.resolvingSymlinksInPath() == $0.standardizedFileURL.resolvingSymlinksInPath() }) {
             throw ProjectFileError.sourceOverwrite
         }
+        flushUndoEdits()
         let access = ProjectFileAccess(url)
         var snapshot = state
         if let source,gangAssets.isEmpty { snapshot.source = try ProjectSource.capture(source.url,createBookmark: bookmarkCreator) }
@@ -480,6 +502,7 @@ extension Workspace {
         try ProjectDocument(state: snapshot).encoded().write(to: url,options: .atomic)
         sourceReference = snapshot.source; projectURL = url; projectAccess = access
         savedState = snapshot; refreshModified()
+        clearRecovery(); journal.rebase(editSnapshot)
         recordRecentFile(url)
         return url
     }
@@ -531,9 +554,10 @@ extension Workspace {
         return panel.runModal() == .OK ? panel.url : nil
     }
     /// Loads into temporary values first: failure/cancel never replaces the active project.
-    func loadProject(at url: URL,relink: ((ProjectSource) -> URL?)? = nil) async throws {
-        let access = ProjectFileAccess(url)
-        let file = try ProjectDocument.decode(Data(contentsOf: url))
+    func loadProject(at url: URL,relink: ((ProjectSource) -> URL?)? = nil,recovery: RecoveryRecord? = nil) async throws {
+        let represented = recovery?.originalProjectPath.map { URL(fileURLWithPath:$0) }
+        let access = ProjectFileAccess(represented ?? url)
+        let file = try recovery?.document ?? ProjectDocument.decode(Data(contentsOf: url))
         var snapshot = file.state
         var loadedSource: PDFSource?
         var relinked = false
@@ -584,11 +608,13 @@ extension Workspace {
             snapshot.source = try ProjectSource.capture(sourceURL!,createBookmark: bookmarkCreator)
         } else { try snapshot.validateSelection(pageCount: 0) }
         try Task.checkCancellation()
-        restoring = true
+        clearRecovery()
+        snapshot.projectID = snapshot.projectID ?? recovery?.id ?? UUID()
+        restoring = true; projectIdentifier = snapshot.projectID!
         planTask?.cancel(); bleedTask?.cancel(); plan = ImpositionPlan()
         gangAssets = assets; selectedGangJobID = snapshot.project.gang?.jobs.first?.id; selectedGangBlockID = nil
         source = loadedSource; sourceReference = snapshot.source
-        projectURL = url; projectAccess = access
+        projectURL = recovery == nil ? url : represented; projectAccess = access
         order = snapshot.order; included = snapshot.included; selectedPages = []
         bookletGutter = snapshot.bookletGutter; repeatGutter = snapshot.repeatGutter; gangGutter = snapshot.gangGutter
         sheetPreset = snapshot.sheetPreset; project = snapshot.project; overlays = snapshot.overlays
@@ -597,11 +623,13 @@ extension Workspace {
         exportSummary = nil; exportedFiles = []; error = nil
         restoring = false
         // Refreshing a valid/stale bookmark alone is not a user edit; relinking is.
-        savedState = snapshot; isModified = relinked
+        savedState = recovery == nil ? snapshot : nil; isModified = relinked || recovery != nil
+        resetJournal()
         if relinked { savedState?.source = file.state.source; savedState?.gangSources = file.state.gangSources; savedState?.linkedSources = file.state.linkedSources }
         schedulePlan()
         zoomFactor = 0; zoomAction += 1
-        recordRecentFile(url)
+        if recovery == nil { recordRecentFile(url) }
+        else { try recoveryStore.write(RecoveryRecord(id:projectIdentifier,originalProjectPath:projectURL?.path,document:ProjectDocument(state:state))) }
     }
 }
 
@@ -625,7 +653,8 @@ extension Workspace {
 
 extension Workspace {
     func autoLabel(_ label: String,_ field: AutoLayoutField) -> String {
-        if label.contains(" · Otomatik") || label.contains(" · Manuel") { return label }
+        if label.contains(" · Otomatik") || label.contains(" · Manuel") || label.contains(" · Hazır ayar") { return label }
+        if project.autoLayout?.presetFields?.contains(field) == true { return label+" · Hazır ayar" }
         if field == .sheetSize,(project.autoLayout?.sheetSelection ?? .fixed) == .fixed { return label+" · Manuel" }
         if project.autoLayout?.automaticFields.contains(field) == true { return label+" · Otomatik" }
         if project.autoLayout?.manualFields.contains(field) == true { return label+" · Manuel" }
@@ -635,7 +664,7 @@ extension Workspace {
         guard !restoring,!applyingAutomatic else { return }
         var state = project.autoLayout ?? .legacy
         if field == .sheetSize { state.sheetSelection = .fixed }
-        state.manualFields.insert(field); state.automaticFields.remove(field); state.summary = nil
+        state.manualFields.insert(field); state.automaticFields.remove(field); state.presetFields?.remove(field); state.summary = nil
         project.autoLayout = state
         if field == .gutter,project.binding == .stepAndRepeat { project.stepAndRepeat.arrangement = .custom }
         if field == .sheetSize,sheetPreset == Self.automaticSheetTitle { sheetPreset = SmartAutoLayout.presetName(for: project.sheet.size) }
@@ -651,10 +680,10 @@ extension Workspace {
             // choice adopts their defaults without treating them as old overrides.
             state.manualFields.subtract([.exportColorBar,.exportTargets])
         }
-        if !state.manualFields.contains(.exportColorBar) {
+        if !state.isFixed(.exportColorBar) {
             next.exportMarks.colorBar = production == .offset; state.automaticFields.insert(.exportColorBar)
         }
-        if !state.manualFields.contains(.exportTargets) {
+        if !state.isFixed(.exportTargets) {
             next.exportMarks.registrationTargets = production == .offset; state.automaticFields.insert(.exportTargets)
         }
         next.autoLayout = state
@@ -665,7 +694,7 @@ extension Workspace {
         else if state.sheetSelection == .automatic {
             applyingAutomatic = true
             project.sheet.size = production == .digital ? SheetPreset.sra3.size : SheetPreset.cm33x48.size
-            if !state.manualFields.contains(.gripperWidth) { project.sheet.gripperWidth = production == .digital ? 0 : 10 }
+            if !state.isFixed(.gripperWidth) { project.sheet.gripperWidth = production == .digital ? 0 : 10 }
             applyingAutomatic = false
         }
         refreshModified()
@@ -1082,7 +1111,8 @@ extension Workspace {
         !(project.autoLayout?.manualFields.isEmpty ?? false) || (project.autoLayout?.sheetSelection ?? .fixed) == .fixed || project.gang?.mode == .manual
     }
     func isManual(_ field: AutoLayoutField) -> Bool {
-        project.autoLayout?.manualFields.contains(field) == true || (field == .sheetSize && (project.autoLayout?.sheetSelection ?? .fixed) == .fixed)
+        if project.autoLayout?.presetFields?.contains(field) == true { return false }
+        return project.autoLayout?.manualFields.contains(field) == true || (field == .sheetSize && (project.autoLayout?.sheetSelection ?? .fixed) == .fixed)
     }
     func requestAutomaticLayout(confirm: ((String) -> Bool)? = nil) {
         guard !loading,!exporting,!autoArranging,!project.pages.isEmpty else { return }
@@ -1102,7 +1132,7 @@ extension Workspace {
     func returnToAutomatic(_ field: AutoLayoutField) {
         guard !loading,!exporting,!autoArranging else { return }
         var next = project,state = project.autoLayout ?? .legacy
-        state.manualFields.remove(field); state.automaticFields.insert(field); state.summary = nil
+        state.manualFields.remove(field); state.presetFields?.remove(field); state.automaticFields.insert(field); state.summary = nil
         if field == .sheetSize { state.sheetSelection = .automatic }
         if field == .gutter { next.stepAndRepeat.arrangement = .adjacent }
         if field == .alignment { next.blockAlignment = .center }
@@ -1142,5 +1172,184 @@ extension Workspace {
             plan.issues += warnings; plan.refreshWarningSummary(project:project)
             checkingBindingStrips = false
         }
+    }
+}
+
+// Editing services are inactive on disk until the real app starts them. Tests can
+// inject isolated directories; creating a Workspace alone never writes recovery.
+extension Workspace {
+    private var editSnapshot: EditSnapshot { EditSnapshot(state:state,source:source,assets:gangAssets) }
+    private func updateUndoAvailability() { canUndo = journal.canUndo; canRedo = journal.canRedo }
+    private func queueEditingCapture() {
+        guard captureEditTask == nil else { return }
+        captureEditTask = Task { [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled,let self else { return }
+            self.captureEditTask = nil
+            self.captureCurrentEdit()
+        }
+    }
+    private func captureCurrentEdit() {
+        guard !restoring else { return }
+        journal.observe(editSnapshot); updateUndoAvailability()
+        finishEditTask?.cancel()
+        finishEditTask = Task { [weak self] in
+            try? await Task.sleep(for:.milliseconds(650))
+            guard !Task.isCancelled,let self else { return }
+            self.journal.flush(); self.updateUndoAvailability()
+        }
+    }
+    private func resetJournal() {
+        captureEditTask?.cancel(); captureEditTask = nil; finishEditTask?.cancel()
+        journal.reset(editSnapshot); updateUndoAvailability()
+    }
+    func flushUndoEdits() {
+        captureEditTask?.cancel(); captureEditTask = nil; finishEditTask?.cancel()
+        journal.observe(editSnapshot); journal.flush(); updateUndoAvailability()
+    }
+    func beginUndoGroup() { flushUndoEdits(); journal.beginGroup() }
+    func endUndoGroup() { captureCurrentEdit(); journal.endGroup(); updateUndoAvailability() }
+    func undoEdit() {
+        NSApp?.keyWindow?.makeFirstResponder(nil)
+        guard !loading,!exporting,!autoArranging else { return }
+        flushUndoEdits(); if let snapshot = journal.undo() { restoreEdit(snapshot) }; updateUndoAvailability()
+    }
+    func redoEdit() {
+        NSApp?.keyWindow?.makeFirstResponder(nil)
+        guard !loading,!exporting,!autoArranging else { return }
+        flushUndoEdits(); if let snapshot = journal.redo() { restoreEdit(snapshot) }; updateUndoAvailability()
+    }
+    private func restoreEdit(_ snapshot: EditSnapshot) {
+        restoring = true
+        planTask?.cancel(); bleedTask?.cancel(); bindingStripTask?.cancel()
+        source = snapshot.source; gangAssets = snapshot.assets; sourceReference = snapshot.state.source
+        order = snapshot.state.order; included = snapshot.state.included
+        bookletGutter = snapshot.state.bookletGutter; repeatGutter = snapshot.state.repeatGutter; gangGutter = snapshot.state.gangGutter
+        project = snapshot.state.project; overlays = snapshot.state.overlays; sheetPreset = snapshot.state.sheetPreset
+        sheetIndex = snapshot.state.sheetIndex; side = snapshot.state.side; repetition = snapshot.state.repetition ?? 0
+        selectedSerialID = nil; selectedGangBlockID = nil; selectedGangJobID = project.gang?.jobs.first?.id
+        restoring = false
+        journal.rebase(editSnapshot); refreshModified(); schedulePlan()
+    }
+    func startPersistence(recovery: RecoveryStore? = nil,presetLibrary: PresetStore? = nil,autosaveInterval: TimeInterval = 30) {
+        guard !persistenceEnabled else { return }
+        if let recovery { recoveryStore = recovery }; if let presetLibrary { presetStore = presetLibrary }
+        persistenceEnabled = true
+        do { presets = try presetStore.load(); selectedPresetID = presets.first?.id } catch { self.error = error.localizedDescription }
+        autosaveTimer = Timer.scheduledTimer(withTimeInterval:autosaveInterval,repeats:true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.performAutosave() }
+        }
+    }
+    private func queueAutosave() {
+        guard persistenceEnabled else { return }
+        autosaveTask?.cancel()
+        autosaveTask = Task { [weak self] in
+            try? await Task.sleep(for:.milliseconds(900))
+            guard !Task.isCancelled else { return }
+            self?.performAutosave()
+        }
+    }
+    private func performAutosave() {
+        do { try autosaveNow() } catch { self.error = "Kurtarma kaydı yazılamadı: "+error.localizedDescription }
+    }
+    func autosaveNow() throws {
+        guard persistenceEnabled,!loading,!restoring else { return }
+        guard isModified else { try recoveryStore.remove(projectIdentifier); return }
+        var snapshot = state
+        if let source,gangAssets.isEmpty { snapshot.source = try ProjectSource.capture(source.url,createBookmark:bookmarkCreator) }
+        try snapshot.validateSelection(pageCount:source?.pages.count ?? 0)
+        try recoveryStore.write(RecoveryRecord(id:projectIdentifier,originalProjectPath:projectURL?.path,document:ProjectDocument(state:snapshot)))
+    }
+    private func clearRecovery() {
+        autosaveTask?.cancel()
+        guard persistenceEnabled else { return }
+        do { try recoveryStore.remove(projectIdentifier) } catch { self.error = "Kurtarma kaydı temizlenemedi: "+error.localizedDescription }
+    }
+    func cleanRecoveryForNormalQuit() {
+        autosaveTask?.cancel(); autosaveTimer?.invalidate(); autosaveTimer = nil
+        clearRecovery(); persistenceEnabled = false
+    }
+    func restoreRecovery(_ record: RecoveryRecord,relink: ((ProjectSource)->URL?)? = nil) async throws {
+        try await loadProject(at:recoveryStore.url(record.id),relink:relink ?? { [weak self] in self?.chooseRelink($0) },recovery:record)
+    }
+    func offerRecoveryOnLaunch() async {
+        guard !checkedRecovery else { return }; checkedRecovery = true
+        do {
+            for record in try recoveryStore.records() {
+                let alert = NSAlert(); alert.messageText = "Kurtarılan proje bulundu"
+                alert.informativeText = (record.originalProjectPath.map { URL(fileURLWithPath:$0).lastPathComponent } ?? "Kaydedilmemiş yeni proje")+" · "+record.savedAt.formatted()
+                alert.addButton(withTitle:"Geri yükle"); alert.addButton(withTitle:"Sil")
+                if alert.runModal() == .alertFirstButtonReturn { try await restoreRecovery(record); break }
+                try recoveryStore.remove(record.id)
+            }
+        } catch is CancellationError { } catch { self.error = "Kurtarma açılamadı: "+error.localizedDescription }
+    }
+    func applyPreset(_ preset: JobPreset) {
+        NSApp?.keyWindow?.makeFirstResponder(nil)
+        guard !loading,!exporting,!autoArranging else { return }
+        beginUndoGroup()
+        applyingAutomatic = true
+        project = preset.settings.apply(to:project,name:preset.name); overlays = preset.settings.overlays
+        sheetPreset = SmartAutoLayout.presetName(for:project.sheet.size)
+        if project.binding == .stepAndRepeat || project.isLeafBinding { repeatGutter = project.sheet.gutter }
+        if project.binding == .gang { gangGutter = project.sheet.gutter }
+        applyingAutomatic = false
+        selectedPresetID = preset.id; refreshModified(); schedulePlan(); endUndoGroup()
+    }
+    @discardableResult
+    func savePreset(name: String) throws -> JobPreset {
+        let name = name.trimmingCharacters(in:.whitespacesAndNewlines)
+        guard !name.isEmpty else { throw PresetError.invalidPack }
+        let preset = JobPreset(name:name,settings:PresetSettings(project:project,overlays:overlays))
+        let next = presets+[preset]; try presetStore.save(next); presets = next; selectedPresetID = preset.id; return preset
+    }
+    func renamePreset(_ id: UUID,to name: String) throws {
+        guard let index = presets.firstIndex(where:{ $0.id==id }),!name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else { throw PresetError.invalidPack }
+        var next = presets; next[index].name = name.trimmingCharacters(in:.whitespacesAndNewlines)
+        try presetStore.save(next); presets = next
+    }
+    func deletePreset(_ id: UUID) throws {
+        let next = presets.filter { $0.id != id }; try presetStore.save(next); presets = next; selectedPresetID = next.first?.id
+    }
+    func duplicatePreset(_ id: UUID) throws {
+        guard var preset = presets.first(where:{ $0.id==id }) else { return }
+        preset.id = UUID(); preset.name += " kopyası"
+        let next = presets+[preset]; try presetStore.save(next); presets = next; selectedPresetID = preset.id
+    }
+    func exportPresets(to url: URL) throws { try PresetPack(presets:presets).encoded().write(to:url,options:.atomic) }
+    func importPresets(from url: URL) throws {
+        let access = url.startAccessingSecurityScopedResource(); defer { if access { url.stopAccessingSecurityScopedResource() } }
+        let imported = try PresetPack.decode(Data(contentsOf:url)).presets.map { original in var p = original; p.id = UUID(); return p }
+        guard presets.count+imported.count<=1000 else { throw PresetError.invalidPack }
+        let next = presets+imported; try presetStore.save(next); presets = next
+    }
+}
+
+extension Workspace {
+    func promptSavePreset() {
+        guard let name = presetNameDialog(title:"Yeni hazır ayar kaydet",initial:"") else { return }
+        do { _ = try savePreset(name:name) } catch { self.error = error.localizedDescription }
+    }
+    func promptRenamePreset() {
+        guard let preset = presets.first(where:{ $0.id==selectedPresetID }),let name = presetNameDialog(title:"Hazır ayarı yeniden adlandır",initial:preset.name) else { return }
+        do { try renamePreset(preset.id,to:name) } catch { self.error = error.localizedDescription }
+    }
+    private func presetNameDialog(title: String,initial: String) -> String? {
+        NSApp?.keyWindow?.makeFirstResponder(nil)
+        let alert = NSAlert(); alert.messageText = title
+        let field = NSTextField(string:initial); field.frame = NSRect(x:0,y:0,width:300,height:24); field.placeholderString = "Hazır ayar adı"
+        alert.accessoryView = field; alert.addButton(withTitle:"Kaydet"); alert.addButton(withTitle:"İptal")
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }; return field.stringValue
+    }
+    func choosePresetExport() {
+        let panel = NSSavePanel(); panel.title = "Hazır ayar paketini dışa aktar"; panel.allowedContentTypes = [.atispresetpack]
+        panel.nameFieldStringValue = "Hazır ayarlar.atispresetpack"
+        guard panel.runModal() == .OK,let url = panel.url else { return }
+        do { try exportPresets(to:url) } catch { self.error = error.localizedDescription }
+    }
+    func choosePresetImport() {
+        let panel = NSOpenPanel(); panel.title = "Hazır ayar paketi seçin"; panel.allowedContentTypes = [.atispresetpack]; panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK,let url = panel.url else { return }
+        do { try importPresets(from:url) } catch { self.error = error.localizedDescription }
     }
 }

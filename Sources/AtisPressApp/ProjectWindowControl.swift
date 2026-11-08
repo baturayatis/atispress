@@ -17,7 +17,27 @@ struct ProjectWindowControl: NSViewRepresentable {
         let model: Workspace
         weak var window: NSWindow?
         weak var original: NSWindowDelegate?
-        init(model: Workspace) { self.model = model }
+        private var editingObservers: [NSObjectProtocol] = []
+        init(model: Workspace) {
+            self.model = model
+            super.init()
+            let center = NotificationCenter.default
+            editingObservers = [
+                center.addObserver(forName:NSControl.textDidBeginEditingNotification,object:nil,queue:.main) { [weak self] note in
+                    MainActor.assumeIsolated {
+                        guard let self,let control = note.object as? NSControl,control.window === self.window else { return }
+                        self.model.beginUndoGroup()
+                    }
+                },
+                center.addObserver(forName:NSControl.textDidEndEditingNotification,object:nil,queue:.main) { [weak self] note in
+                    MainActor.assumeIsolated {
+                        guard let self,let control = note.object as? NSControl,control.window === self.window else { return }
+                        self.model.endUndoGroup()
+                    }
+                }
+            ]
+        }
+        deinit { for observer in editingObservers { NotificationCenter.default.removeObserver(observer) } }
         func attach(_ window: NSWindow) {
             guard self.window !== window else { return }
             self.window = window; original = window.delegate; window.delegate = self
@@ -33,6 +53,7 @@ struct ProjectWindowControl: NSViewRepresentable {
             guard !model.loading,!model.exporting,!model.autoArranging,model.confirmDiscard() else { return false }
             if let original,original.windowShouldClose?(sender) == false { return false }
             model.closeApproved = true
+            model.cleanRecoveryForNormalQuit()
             return true
         }
         override func responds(to selector: Selector!) -> Bool {

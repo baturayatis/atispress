@@ -1744,3 +1744,124 @@ swift test --disable-sandbox --filter Binding
 ./scripts/build_app.sh
 open "dist/AtışPress.app"
 ```
+
+## Otomatik kurtarma, Geri Al/Yinele ve Hazır ayarlar — şema 15
+
+### Otomatik kayıt ve çökme kurtarması
+
+Gerçek uygulama açılışında kurtarma servisi etkinleşir. Değişmiş proje **30
+saniyede bir**, ayrıca ayar değişikliklerinden **900 ms** sonra otomatik kaydedilir.
+Kaydedilmemiş yeni proje de buna dahildir; kaynak PDF'nin yolu, bookmark'u ve
+varsa çoklu PDF/kapak kataloğu kayda girer. Kayıt PDF'yi gömmez veya değiştirmez.
+Kullanıcının `.atispress` dosyası yalnız açık **Kaydet/Farklı Kaydet** işlemiyle
+yazılır; otomatik kayıt bu dosyanın üstüne hiçbir zaman yazmaz.
+
+Kurtarma dosyaları atomik JSON olarak aşağıda tutulur:
+
+```
+~/Library/Application Support/AtisPress/Recovery/<proje UUID>.recovery.json
+```
+
+Proje kimliği normal kaydet/aç boyunca korunur. Yeni proje/PDF değişimi yeni bir
+kimlik başlatır; kullanıcı eski değişiklikleri saklama/silme kararını mevcut
+onay akışında verir. Normal kaydetme ve onaylanmış pencere kapatma/çıkış, aktif
+projenin kurtarma dosyasını temizler ve bekleyen yazmayı iptal eder. Save panelinin
+iptali veya uygulamanın çıkış onayının iptali kurtarma kaydını silmez.
+
+Çökme/force quit sonrası dosya kalır. Bir sonraki açılışta **“Kurtarılan proje
+bulundu”**, **Geri yükle / Sil** gösterilir. Geri yükleme kaynakları mevcut
+Aç/yeniden bağlama doğrulamasıyla okur ve projeyi değiştirilmiş olarak açar.
+Kayıtlı projeyse normal Kaydet özgün proje dosyasına gider; hiç kaydedilmemişse
+Kaydet ad ister. Birden çok eski kayıt varsa en yenisi önce sunulur; geri
+yüklenmeyen diğer kayıtlar kendiliğinden silinmez. Bozuk/desteklenmeyen kayıtta
+hata gösterilir, dosya otomatik silinmez.
+
+Sınırlar: son 900 ms'lik henüz kayda geçmemiş düzenleme çökmede kaybolabilir.
+Kaynak PDF dosyaları hâlâ gereklidir; kayıp/değişmiş dosyalar yeniden bağlanır.
+Kurtarma bir sürüm arşivi veya çok pencereli belge sistemi değildir; uygulamanın
+mevcut tek çalışma alanını korur.
+
+### Düzenle → Geri Al / Yinele
+
+**⌘Z / ⇧⌘Z**, proje ayarları, kaynak sayfa dahil etme/sıralama, iş düzenlemeleri,
+seri/QR alanları, hazır ayar uygulama ve manuel blok hareketlerini geri alır /
+yineler. İşlem öncesi proje durumu, PDF kaynak kataloğu ve ayar sahiplikleri
+birlikte saklanır; plan tek planlayıcıyla yeniden üretilir. Önizleme aynı
+planı kullanır. Geri alma kaydedilmiş dosyayı yazmaz; gerektiğinde projeyi yeniden
+“değişmiş” yapar.
+
+Ana penceredeki metin/sayı alanları native düzenleme başlangıcı/bitişiyle tek
+adımda birleşir; yazarken türeyen basamak/adet düzeltmeleri de aynı adımdadır.
+Odak bildirimi olmayan programatik girişler **650 ms** duraklamaya kadar birleşir. Farklı alan, checkbox, yöntem değişimi veya sayfa seçimi ayrı
+adımdır. Seri/QR ya da blok sürüklemesi açık fare-bas/fare-bırak sınırlarıyla,
+süresi ne olursa olsun **tek adım** olur. Düzenleme geri alınmadan önce etkin
+metin alanı tamamlanır. Yalnız görünümde tabaka/ön-arka gezinmesi geçmişe girmez.
+Yeni Proje, yeni ana PDF ve Proje Aç bir geçmiş sınırıdır; mevcut işlere eklenen
+PDF'ler ve kapak değişimleri proje düzenlemesi olarak geri alınabilir.
+
+Geçmiş oturum içindir, `.atispress` içine yazılmaz; son **100 tamamlanmış adım**
+tutulur. Hazır ayar kitaplığının adlandırma/silme işlemleri proje geçmişinden
+ayrıdır; hazır ayarın projeye uygulanması ise tek geri alma adımıdır.
+
+### Hazır ayarlar
+
+Denetçideki **Hazır ayarlar** bölümü ve aynı adlı menü: **Hazır ayar uygula**,
+**Yeni hazır ayar kaydet**, yeniden adlandırma, çoğaltma, silme ve paket
+ithalat/ihracatı sunar. Kitaplık JSON sürümü 1'dir:
+
+```
+~/Library/Application Support/AtisPress/Presets/library.json
+```
+
+İlk kullanımda dört örnek eklenir; kullanıcı bunları silebilir ve silinenler
+sonraki açılışta yeniden eklenmez:
+
+- Kartvizit 33x48 ofset
+- A4 form dijital
+- A4 spiral form
+- Amerikan cilt A5 forma 4
+
+Hazır ayar alanları açık bir izin listesiyle saklanır: yöntem/ciltleme, forma ve
+çevirme, tabaka/yön/hizalama, marj/maşa/ara boşluk, satır/sütun/döndürme tercihleri,
+taşma ve üretimi, kılavuzlar/çıktı işaretleri, renk skalası/dizler, iş bilgi şeridi,
+Dijital/Ofset ve cilt payı/davranışı. Taşma kırpma ve sayısal sığma toleransı da
+aynı görünümü korur. **Kaynak PDF/bookmark, sayfa seçimi/sırası, adet/fire, seri/QR
+alanları ve işlerin PDF kimlikleri kaydedilmez veya uygulanırken değiştirilmez.**
+Kapak PDF rol seçimi ve ölçülmüş kitap kâğıdı girdileri de hedef projede kalır.
+Gang'a uygulamada mevcut işler korunur; ortak taşma/taşma üretimi/dönüş tercihleri
+uygulanır ve bloklar otomatik planlanır.
+
+Uygulanan değerler **Hazır ayar** etiketlidir, **Manuel** değildir. Sonraki PDF
+ithalatı bu değerleri sabit kabul eder; alanı elle değiştirmek o alanı Manuel
+hale getirir. **Otomatik düzenle**, önceki davranış gibi işin yöntemini/kâğıt
+ölçümlerini/adet/seri içeriğini koruyarak bütün yerleşim alanlarının sahipliğini
+sıfırlar ve yeniden hesaplar; hazır ayar bayrakları da temizlenir.
+
+Taşınabilir **.atispresetpack** dosyası sürümlü JSON'dur. Paket içe aktarma mevcut
+kitaplığı değiştirmeden yeni kimliklerle kopyalar ekler; geçersiz veya gelecek
+sürüm paketi mevcut kitaplığı değiştirmez. Bunlar üretim başlangıç örnekleridir;
+makinenizin maşa, cilt payı ve kâğıt gereksinimlerini kontrol edin. Örneğin spiral
+hazır ayarı ölçülmemiş cilt payı için değer uydurmaz; girilene kadar 0 ve uyarı
+kalır.
+
+`.atispress` şeması **15**, isteğe bağlı proje kimliğini ve hazır ayar alan
+sahipliğini saklar. **1–14** projeleri açılır; kaynaklar, mevcut yerleşim ve
+ayarlar korunur. Eski dosyaya ilk açılışta kimlik atanması tek başına projeyi
+“değişmiş” yapmaz.
+
+Doğrulama: **239 test**. Kurtarma dosyası ve kaynaklarının geri yüklenmesi,
+kullanıcı dosyasının değişmemesi, debounced ve periyodik kayıt, temiz kapanıştan
+sonra dosyanın kalmaması, gang katalog/seri/blok kurtarması; ayar/sayfa/seri/iş
+undo-redo plan eşitliği, uzun sürüklemenin tek adımı, yazı gruplama ve checkbox
+ayrımı; hazır ayar uygulama/geri alma/kaydetme, CRUD/paket turu, kaynak/adet/fire/
+seri korunması, dört örneğin adlandırdığı ürüne sığması ve eski şema doğrulanır.
+Mevcut testler korunmuştur; sürüm sabiti kullanan beklentiler şema 15'i izler.
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+swift test --disable-sandbox --filter EditingServicesTests
+./scripts/build_app.sh
+open "dist/AtışPress.app"
+```
