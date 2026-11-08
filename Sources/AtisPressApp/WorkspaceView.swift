@@ -57,6 +57,7 @@ struct WorkspaceView: View {
                     Button { model.moveSelected(up: true) } label: { Image(systemName: "arrow.up") }.help("Seçili sayfaları yukarı taşı")
                     Button { model.moveSelected(up: false) } label: { Image(systemName: "arrow.down") }.help("Seçili sayfaları aşağı taşı")
                 }.buttonStyle(.borderless).disabled(model.source == nil).padding(.horizontal,12).padding(.bottom,8)
+                if model.project.isBooklet && model.blankSettings.mode == .manual { BlankPageOrderView(model:model).padding(.horizontal,8) }
                 List(selection: $model.selectedPages) {
                     if let source = model.source {
                         ForEach(model.order,id: \.self) { number in
@@ -90,9 +91,10 @@ struct WorkspaceView: View {
                                 if let summary = sheet.productionSummary { Text(summary).font(.caption).foregroundStyle(.secondary) }
                             } else {
                                 Text("\(sheet.bookInfo?.label ?? "Tabaka") \(index+1)").fontWeight(.medium)
-                                Text("\(sheet.size.width,specifier: "%.0f") × \(sheet.size.height,specifier: "%.0f") mm · Forma \(signatures)")
+                                Text("\(sheet.size.width,specifier: "%.0f") × \(sheet.size.height,specifier: "%.0f") mm · \(sheet.bookInfo?.section == .cover ? "Kapak" : "Forma "+signatures)")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
+                            if !sheet.blankPositions.isEmpty { Text("Boş konumlar: "+sheet.blankPositions.map(String.init).joined(separator:", ")).font(.caption).foregroundStyle(.orange) }
                             if let serials = sheet.serialPlan {
                                 ForEach(serials.fields) { field in
                                     Text("Seri: \(serials.range(field: field,repetition: index == model.sheetIndex ? model.repetition : 0) ?? "—")")
@@ -197,7 +199,7 @@ struct WorkspaceView: View {
                     if let sheet = model.currentSheet, let layout = sheet.repeatLayout {
                         Text("\(layout.copiesPerSheet) adet/tabaka · \(sheet.repeatCount) tabaka · Toplam \(model.plan.totalPressSheets)")
                     } else { Text("Eklenen boş: \(model.plan.addedBlankPages)") }
-                    if model.project.binding == .perfectBound { Text("Forma: \(model.plan.signaturePageCount) sayfa") }
+                    if model.project.isBooklet { Text(model.plan.paginationSummary+" · PDF yüzü: \(model.plan.pdfSideCount(includeBlankBacks:model.project.includeBlankBacks ?? true))").font(.caption) }
                 }
                 if model.plan.displayIssues.isEmpty {
                     Label(model.source == nil ? "Henüz PDF yüklenmedi" : "Sorun bulunamadı",systemImage: "checkmark.circle").foregroundStyle(.secondary)

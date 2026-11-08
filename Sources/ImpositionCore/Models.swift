@@ -34,9 +34,9 @@ public enum Orientation: String, Codable, Sendable { case auto, portrait, landsc
 public enum Edge: String, Codable, Sendable { case left, right, top, bottom }
 public enum TurnMethod: String, Codable, Sendable { case sheetwise, workAndTurn, workAndTumble }
 public enum SignatureSize: String, Codable, Sendable {
-    case automatic, eight, sixteen, thirtyTwo
+    case automatic, four, eight, sixteen, thirtyTwo
     public var pageCount: Int? {
-        switch self { case .automatic: return nil; case .eight: return 8; case .sixteen: return 16; case .thirtyTwo: return 32 }
+        switch self { case .automatic: return nil; case .four: return 4; case .eight: return 8; case .sixteen: return 16; case .thirtyTwo: return 32 }
     }
 }
 public enum SheetPreset: Sendable {
@@ -190,6 +190,7 @@ public struct ExportMarks: Equatable, Sendable, Codable {
 }
 public struct Project: Equatable, Sendable, Codable {
     var bookCoverTemplate = false
+    public var blankPlacement: BlankPlacement? = nil
     public var book: BookSettings? = nil
     public var gang: GangSettings? = nil
     public var sheetInfo: SheetInfoSettings? = nil
@@ -212,10 +213,11 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        blankPlacement = try c.decodeIfPresent(BlankPlacement.self,forKey:.blankPlacement)
         book = try c.decodeIfPresent(BookSettings.self,forKey:.book)
         gang = try c.decodeIfPresent(GangSettings.self,forKey: .gang)
         sheetInfo = try c.decodeIfPresent(SheetInfoSettings.self,forKey: .sheetInfo)
@@ -240,6 +242,7 @@ public struct SlotReference: Equatable, Sendable {
     public init(sheet: Int, side: SideKind, slot: Int) { self.sheet = sheet; self.side = side; self.slot = slot }
 }
 public struct Slot: Equatable, Sendable {
+    public var logicalPageIndex: Int? = nil
     public var artworkOffset = Point(0,0)
     public var bookLeafIndex: Int? = nil
     public var bookPanelIsLeft: Bool? = nil
@@ -323,6 +326,9 @@ public struct ValidationIssue: Equatable, Sendable {
 }
 public struct ImpositionPlan: Sendable {
     public var sheets: [Sheet]
+    public var readingOrder: [Int?] = []
+    public var blankPositions: [Int] = []
+    public var signatureCount = 0
     public var diagnosticSheets: [Sheet] = []
     public var issues: [ValidationIssue] { didSet { groupedIssues = nil } }
     public var groupedIssues: [ValidationIssue]? = nil

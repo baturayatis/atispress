@@ -40,10 +40,12 @@ struct InspectorView: View {
                             Text("Karışık iş (gang)").tag(BindingMethod.gang)
                             Text("Tel dikiş").tag(BindingMethod.saddleStitch)
                             Text("Tutkallı cilt").tag(BindingMethod.perfectBound)
+                            Text("Dikişli cilt").tag(BindingMethod.sewn)
                         }
-                        if model.project.binding == .perfectBound {
+                        if model.project.binding == .perfectBound || model.project.binding == .sewn {
                             Picker("Forma",selection: $model.project.settings.signatureSize) {
                                 Text("Otomatik").tag(SignatureSize.automatic)
+                                Text("4 sayfa (tek kat)").tag(SignatureSize.four)
                                 Text("8 sayfa").tag(SignatureSize.eight)
                                 Text("16 sayfa").tag(SignatureSize.sixteen)
                                 Text("32 sayfa").tag(SignatureSize.thirtyTwo)
@@ -61,7 +63,7 @@ struct InspectorView: View {
                 }
                 if model.project.binding == .stepAndRepeat { repeatControls }
                 if model.project.binding == .gang { GangInspectorView(model: model) }
-                if model.project.isBooklet { BookInspectorView(model: model) }
+                if model.project.isBooklet { BookInspectorView(model: model); BlankPlacementInspector(model:model) }
                 GroupBox("Baskı Tabakası") {
                     VStack(spacing: 10) {
                         if !explicitStock {

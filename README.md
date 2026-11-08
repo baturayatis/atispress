@@ -287,8 +287,8 @@ Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/
 
 ### Verification and current limits
 
-`swift test --disable-sandbox`: **185 XCTest tests, zero failures** (77 core,
-51 PDF reading/drawing/export, 57 workspace/project persistence regression tests). GUI smoke checks
+`swift test --disable-sandbox`: **194 XCTest tests, zero failures** (83 core,
+52 PDF reading/drawing/export, 59 workspace/project persistence regression tests). GUI smoke checks
 used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
 navigation, page selection/reordering/exclusion, binding change, front/back,
 shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
@@ -604,7 +604,7 @@ Opening an existing project preserves its own mode, preset and custom dimensions
 - **Kaydet / ⌘S** saves the current project; **Farklı Kaydet… / ⇧⌘S** writes a new
   project and switches subsequent saves to it. Source PDFs cannot be overwritten.
   Project writes are atomic. Empty projects can also be saved.
-- Version 10 is readable JSON with top-level `version: 10` and `state`; version 1–9
+- Version 11 is readable JSON with top-level `version: 11` and `state`; version 1–10
   projects remain readable. Missing serial fields default to empty; old projects
   retain their saved layout values when opened. `state.project`
   contains ordered selected source-page metadata, binding/layout mode, blank-page
@@ -824,7 +824,7 @@ Generated bleed suppresses missing-bleed warnings when enabled and needed.
 Displayed identical warnings are grouped with counts and compressed source-page
 ranges, e.g. **12 sayfada taşma payı eksik: 1-12**; detailed slot references remain
 available internally. Existing preview/export alignment and project roundtrip
-regressions remain active. Run `swift test --disable-sandbox` for all 185 tests.
+regressions remain active. Run `swift test --disable-sandbox` for all 194 tests.
 Native interactive smoke testing has not been rerun for these controls.
 
 ## Empty reverse export and repeat arrangement
@@ -1034,7 +1034,7 @@ front/back alignment, target/patch sizes, no-room warnings and partial placement
 info-strip clearance, independent preview/export output, a real AppKit preview
 pixel change, production defaults/manual overrides, and version-7 roundtrip with
 version-6 compatibility. All prior tests remain; the active-schema assertion now
-uses `ProjectDocument.currentVersion`. That feature set passed 142 tests; the current suite has 185. Interactive desktop
+uses `ProjectDocument.currentVersion`. That feature set passed 142 tests; the current suite has 194. Interactive desktop
 smoke testing has not been rerun; preview drawing is exercised in XCTest.
 
 ```sh
@@ -1321,7 +1321,7 @@ sheet), fixed trim/clip geometry, all turn styles, cover selection and independe
 ordering, spread/flap sizes, native-scale mismatch warnings, diagnostic section
 links, vector text export positions and image-XObject absence, live preview pixel
 changes, schema-10 roundtrips, separate-cover relinking/overwrite protection, and
-schema-9 compatibility. The complete suite has **185 tests**.
+schema-9 compatibility. The complete suite has **194 tests**.
 
 
 ### A5 / 106-page / separate-cover / A4 zero-gutter regression
@@ -1369,4 +1369,109 @@ schema remains 10.
 ```sh
 swift test --disable-sandbox --filter testA5Booklet106
 swift test --disable-sandbox --filter testExplicitZeroGutter
+```
+
+
+## Four-page forms, sewn binding and blank placement — schema 11
+
+### Zero-length crop-mark reserve regression
+
+A failing test first reproduced the exact report: A5 × 106 pages on manual A4
+landscape, every margin/gripper/gutter/bleed at zero, crop length zero, saved crop
+offset 3.5 mm, export crop enabled (**Açık · Otomatik**). The diagnostic was
+**gereken 303.00×217.00; kullanılabilir 290.00×203.00; tabaka 297×210**.
+
+The booklet reserve used `max(bleed, cropOffset + cropLength)` even when length
+was zero or export crop was disabled. Thus a nonexistent mark reserved 3.5 mm on
+each edge. The fitter compared that padded size against the sheet once; the
+*diagnostic* then added the same padding to the required size and subtracted it
+from usable space, presenting incompatible dimensions. Crop reserve is now zero
+unless export crop is enabled **and** crop length is positive. Required dimensions
+include exterior reserve once; usable dimensions exclude only margins/gripper.
+Bleed is still accounted for independently, or clipped at the explicit full-sheet
+boundary. Inactive crop settings do not require disabling the **Açık** checkbox.
+Zero-reserve booklet fits retain 0.0001 mm numerical slack for native PDF point serialization.
+
+Allowing true zero reserve also exposed native bleed crossing between adjacent
+signature units on a larger press sheet. Per-unit clips now stop at shared cuts /
+gutter midpoints, including shared-plate halves. The existing pixel-level export
+corner tests remain active and pass with this protection.
+
+### Four pages / one fold
+
+Choose **Tutkallı cilt** (amerikan cilt) or **Dikişli cilt**, then **Forma → 4 sayfa
+(tek kat)**. Existing 8/16/32 options remain. **Otomatik** now also considers 4;
+its existing priority remains fewest press sheets, least padding, then the larger
+signature. As a result, an old *automatic* choice may improve its blank count
+(e.g. 106 pages can need 2 instead of 6 blanks); explicit saved 8/16/32 choices
+retain their fold schemes.
+
+A four-page signature starting at reading position `a` has:
+
+```
+front: [a+3 | a]
+back:  [a+1 | a+2]
+```
+
+These independent bifolia are **stacked in signature order**, rather than nested
+as saddle-stitch leaves. On an A4 sheet, two A5 panels per face produce four pages
+per folded form. On larger stock the existing grid can impose several distinct
+forms per press sheet. The sheet list identifies their **Forma 1, 2, …** numbers;
+an independently imposed cover is labeled **Kapak**. Preview/export share exactly
+the same slots. Sewn binding uses these same 4/8/16/32 folded/gathered forms;
+thread-, compression- and sewn-spine calibration is not modeled. The measured
+perfect-bound spine formula remains specific to **Tutkallı cilt**.
+
+For 106 interior pages plus a separate four-face cover on fitting A4 stock:
+**108 padded interior positions → 2 blanks → 27 four-page forms → 27 interior
+sheets + 1 cover sheet → 56 PDF sides**. These counts and blank positions appear
+in the summary and sheet list. A measured perfect-bound spine/flaps can make the
+cover wider than A4; that still produces a genuine fit error and blocks export.
+The program never shrinks a spine or switches stock silently to force a fit.
+
+### Boş sayfalar nereye
+
+The **Boş sayfalar** inspector applies to saddle stitch, perfect binding and sewn
+binding:
+
+- **Sona** is the default, including when older project files omit the setting.
+- **Başa** places all padding before the first selected interior PDF page.
+- **Elle seç** shows a checkbox list of the final padded **İç okuma sırası** in
+  the source sidebar. Select the required number of blank positions. Positions
+  are one-based final interior reading positions, after cover extraction; they
+  are not original PDF page numbers. The rows show both the reading position and
+  source PDF/page. Manual choices are remembered when switching placement modes.
+
+Required padding still comes from the signature size; this setting moves those
+blanks, not arbitrary extra pages. Duplicate, out-of-range or incomplete manual
+selections block export. A provisional preview keeps every source page and puts
+unassigned blanks at the end, labeled **Boş (geçici)** in the chooser. The project
+intent is never silently rewritten. **Seçimi temizle** lets a stale selection be
+replaced after a signature/page-count change. The existing reject-blank policy
+remains effective; the inspector offers an explicit action to permit padding.
+
+Only generated blank slots are introduced; linked source PDFs and their page
+metadata/order are not modified. `Project.blankPlacement` persists placement mode
+and manual positions in schema **11**. Schemas **1–10** remain readable, defaulting
+to end padding. Four-page signature and sewn mode values also roundtrip. Derived
+logical page indices, blank locations, form counts and PDF-side counts are rebuilt
+by the planner, including after source relinking.
+
+Tests include the original failing mark-offset case, the positive-mark reserve
+comparison, exact four-page face order, an independent physical fold-and-stack
+simulation for both bindings, **every pair** of manual blank positions in a
+12-position book, start/end placement, invalid-position validation, automatic-4
+selection, 106-page separate-cover vector PDF export in all three blank modes,
+active UI-model changes, schema-11 roundtrips, and schema-10 defaults. Existing
+8/16/32 fold, pixel/rotation, bleed, export, serial/QR, gang and save/open tests
+remain. The old unsupported-binding assertion now covers spiral/wire-O; sewn is
+covered by positive folding/export tests. The complete suite has **194 tests**.
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+swift test --disable-sandbox --filter SignatureFourTests
+./scripts/build_app.sh
+open "dist/AtışPress.app"
 ```

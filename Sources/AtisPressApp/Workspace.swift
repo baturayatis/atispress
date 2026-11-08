@@ -47,7 +47,7 @@ final class Workspace: ObservableObject {
             previous.exportMarks = project.exportMarks
             previous.includeBlankBacks = project.includeBlankBacks
             previous.sheetInfo = project.sheetInfo
-            let clipChanged = oldValue.usesFullSheetBooklet != project.usesFullSheetBooklet || previous.autoLayout?.clipBleedToSheet != project.autoLayout?.clipBleedToSheet || previous.autoLayout?.trimTolerance != project.autoLayout?.trimTolerance
+            let clipChanged = (project.isBooklet && oldValue.includeBlankBacks != project.includeBlankBacks) || oldValue.usesFullSheetBooklet != project.usesFullSheetBooklet || (project.isBooklet && oldValue.hasActiveCropMarks != project.hasActiveCropMarks) || previous.autoLayout?.clipBleedToSheet != project.autoLayout?.clipBleedToSheet || previous.autoLayout?.trimTolerance != project.autoLayout?.trimTolerance
             previous.autoLayout = project.autoLayout
             let serialChanged = previous.serialFields != project.serialFields
             previous.serialFields = project.serialFields
@@ -1061,5 +1061,18 @@ extension Workspace {
 extension Workspace {
     func showBookSection(_ section: BookSheetInfo.Section) {
         if let index = displaySheets.firstIndex(where:{ $0.bookInfo?.section == section }) { sheetIndex = index }
+    }
+}
+
+extension Workspace {
+    var blankSettings: BlankPlacement {
+        get { project.blankPlacement ?? BlankPlacement() }
+        set { project.blankPlacement = newValue }
+    }
+    func setBlankPosition(_ position: Int,selected: Bool) {
+        var setting = blankSettings
+        if selected { setting.positions = Array(Set(setting.positions+[position])).sorted() }
+        else { setting.positions.removeAll { $0==position } }
+        project.blankPlacement = setting
     }
 }

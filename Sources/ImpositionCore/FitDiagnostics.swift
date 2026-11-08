@@ -32,7 +32,7 @@ extension ImpositionPlanner {
             if project.binding == .stepAndRepeat { columns = max(1,project.stepAndRepeat.columns ?? (s.turnMethod != .sheetwise && repeatMirrorsX(project) ? 2 : 1))
                 rows = max(1,project.stepAndRepeat.rows ?? (s.turnMethod != .sheetwise && !repeatMirrorsX(project) ? 2 : 1)) }
             else if project.binding == .saddleStitch { columns = 2; rows = 1 }
-            else { let n = project.settings.signatureSize.pageCount ?? 8; columns = n == 8 ? 2 : 4; rows = n == 32 ? 4 : 2 }
+            else { let n = project.settings.signatureSize.pageCount ?? 4; (columns,rows) = signatureGrid(n) }
             let spacing = project.binding == .stepAndRepeat && spec.gutter > 0 ? 2*s.bleed+spec.gutter : spec.gutter
             var grid = Size(Double(columns)*page.trimSize.width+Double(columns-1)*spacing,
                             Double(rows)*page.trimSize.height+Double(rows-1)*spacing)
@@ -50,7 +50,7 @@ extension ImpositionPlanner {
             plan.diagnosticSheets.append(sheet)
             let text = String(format: "İş %d: ürün %.2f×%.2f mm; ızgara %d×%d (0°), gereken %.2f×%.2f mm; tabaka %.2f×%.2f mm; kullanılabilir %.2f×%.2f mm.",
                 job+1,page.trimSize.width,page.trimSize.height,columns,rows,needed.width,needed.height,stock.width,stock.height,
-                max(0,stock.width-margins.left-margins.right-2*reserve),max(0,stock.height-margins.top-margins.bottom-2*reserve))
+                max(0,stock.width-margins.left-margins.right),max(0,stock.height-margins.top-margins.bottom))
             plan.issues.append(ValidationIssue(.error,.exceedsSheet,text,
                 slot: SlotReference(sheet: plan.sheets.isEmpty ? index : plan.sheets.count+index,side: .front,slot: 0)))
         }

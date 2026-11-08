@@ -164,7 +164,7 @@ extension ImpositionPlanner {
             let height = sheet.height-m.top-m.bottom-2*reserve
             for rotation in (options.allowRotation ? [0,90] : [0]) {
                 let item = rotation == 0 ? trim : Size(trim.height,trim.width)
-                let tolerance = max(project.autoLayout?.trimTolerance ?? 0,project.usesFullSheetBooklet ? 0.0001 : 0)
+                let tolerance = max(project.autoLayout?.trimTolerance ?? 0,(project.usesFullSheetBooklet || (project.bookCoverTemplate && reserve == 0)) ? 0.0001 : 0)
                 guard width+tolerance >= item.width, height+tolerance >= item.height else { continue }
                 let fitColumns = ((width+spacing)/(item.width+spacing)).rounded(.down)
                 let fitRows = ((height+spacing)/(item.height+spacing)).rounded(.down)

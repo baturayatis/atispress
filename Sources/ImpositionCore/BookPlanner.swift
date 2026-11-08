@@ -41,7 +41,7 @@ public enum BookPlanner {
         let spread = spreadSize(trim:trim,spine:spine ?? 0,leftFlap:original.binding == .perfectBound ? book.leftFlap : 0,rightFlap:original.binding == .perfectBound ? book.rightFlap : 0)
         var maximumCreep = 0.0
         if book.creepEnabled {
-            if original.binding != .saddleStitch { issue("Creep yalnız tel dikişte uygulanır; amerikan cilt için kapatın.") }
+            if original.binding != .saddleStitch { issue("Creep yalnız tel dikişte uygulanır; bu ciltleme için kapatın.") }
             else if let inside = book.interiorPaper.millimetres,let cover = book.coverPaper.millimetres {
                 let leaves = max(1,(pageCount+3)/4)
                 let calculator: any CreepCalculating = LinearCreepCalculator(interiorThickness:inside,coverThickness:cover)
@@ -195,6 +195,12 @@ public enum BookPlanner {
             }
         }
         result.issues += issues
+        let pagination = result.paginationSummary,sides = result.pdfSideCount(includeBlankBacks:original.includeBlankBacks ?? true)
+        for i in result.sheets.indices {
+            result.sheets[i].bookInfo?.pagination = pagination
+            result.sheets[i].bookInfo?.pdfSides = sides
+        }
+        for i in result.diagnosticSheets.indices { result.diagnosticSheets[i].bookInfo?.pagination = pagination }
         return result
     }
 }

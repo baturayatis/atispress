@@ -88,6 +88,8 @@ public struct LinearCreepCalculator: CreepCalculating, Sendable {
 }
 public struct BookSheetInfo: Equatable, Sendable {
     public enum Section: Sendable { case interior, cover }
+    public var pagination = ""
+    public var pdfSides = 0
     public var section: Section
     public var interiorPageCount: Int
     public var spine: Double?
@@ -111,12 +113,12 @@ public struct BookSheetInfo: Equatable, Sendable {
         if spine == nil { bleedText = " · Taşmalı açılım hesaplanamadı" }
         else if bleedClippedToSheet { bleedText = String(format:" · Taşma %.2f mm: tabaka sınırında kırpılır",bleed) }
         else { bleedText = String(format:" · Taşma dahil %.2f × %.2f mm",spreadSize.width+2*bleed,spreadSize.height+2*bleed) }
-        return "\(label) · İç: \(interiorPageCount) sayfa · Sırt: \(spineText) · Açılım: "+spreadText+bleedText+" · İç kâğıt: \(interiorPaper.description) · Kapak: \(coverPaper.description) · En çok creep: "+creepText+String(format:" · Sırt payları: %.3f + %.3f mm · Kulaklar: %.2f / %.2f mm",coverAllowance,adhesiveAllowance,leftFlap,rightFlap)
+        return "\(pagination) · PDF yüzü: \(pdfSides) · \(label) · İç: \(interiorPageCount) sayfa · Sırt: \(spineText) · Açılım: "+spreadText+bleedText+" · İç kâğıt: \(interiorPaper.description) · Kapak: \(coverPaper.description) · En çok creep: "+creepText+String(format:" · Sırt payları: %.3f + %.3f mm · Kulaklar: %.2f / %.2f mm",coverAllowance,adhesiveAllowance,leftFlap,rightFlap)
     }
 }
 
 extension Project {
-    public var isBooklet: Bool { binding == .saddleStitch || binding == .perfectBound }
+    public var isBooklet: Bool { binding == .saddleStitch || binding == .perfectBound || binding == .sewn }
     public var bookCoverPages: [SourcePage] {
         guard let book else { return [] }
         if coverMode == .separate { return book.coverPDFPages.compactMap { n in pages.first { $0.number == n } } }
@@ -155,15 +157,16 @@ extension Project {
         guard isBooklet || bookCoverTemplate else { return false }
         let m = sheet.margins,e = exportMarks
         return sheet.gripperWidth == 0 && [m.left,m.right,m.top,m.bottom].allSatisfy { $0 == 0 } &&
-            !e.crop && !e.fold && !e.bleed && !e.safeArea && !e.pageNumbers && !e.sheetInfo && !e.fullCut && !e.colorBar && !e.registrationTargets
+            !hasActiveCropMarks && !e.fold && !e.bleed && !e.safeArea && !e.pageNumbers && !e.sheetInfo && !e.fullCut && !e.colorBar && !e.registrationTargets
     }
+    public var hasActiveCropMarks: Bool { exportMarks.crop && settings.cropMarkLength>0 }
     var clipsArtworkToSheet: Bool { usesFullSheetBooklet || autoLayout?.clipBleedToSheet == true }
     /// Keep fit calculations, placement and diagnostics on the same exterior reserve.
     var layoutExteriorReserve: Double {
         if usesFullSheetBooklet { return 0 }
         let s = settings
-        let crop = s.cropMarkLength>0 ? s.cropMarkOffset+s.cropMarkLength : 0
+        let crop = s.cropMarkLength>0 && (!(isBooklet || bookCoverTemplate) || exportMarks.crop) ? s.cropMarkOffset+s.cropMarkLength : 0
         if binding == .stepAndRepeat { return max(clipsArtworkToSheet ? 0 : s.bleed,crop) }
-        return clipsArtworkToSheet ? crop : max(s.bleed,s.cropMarkOffset+s.cropMarkLength)
+        return max(clipsArtworkToSheet ? 0 : s.bleed,crop)
     }
 }

@@ -50,7 +50,7 @@ final class BookWorkspaceTests: XCTestCase {
         XCTAssertEqual(workspace.currentSheet?.bookInfo?.section,.cover)
         XCTAssertTrue(workspace.plan.canExport,"\(workspace.plan.issues)")
         let url = folder.appendingPathComponent("book.atispress"); try workspace.saveProject(as:url)
-        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:url)).version,10)
+        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:url)).version,ProjectDocument.currentVersion)
         let opened = model(); try await opened.loadProject(at:url); try await settle(opened)
         XCTAssertEqual(opened.project,workspace.project); XCTAssertEqual(opened.plan.sheets,workspace.plan.sheets); XCTAssertFalse(opened.isModified)
         XCTAssertEqual(opened.currentSheet?.bookInfo?.section,.cover)

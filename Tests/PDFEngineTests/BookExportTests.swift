@@ -92,4 +92,38 @@ final class BookExportTests: XCTestCase {
         for i in 1...cg.numberOfPages { XCTAssertEqual(Self.images(cg.page(at:i)?.dictionary),0) }
         for i in 0..<pdf.pageCount { XCTAssertEqual(try XCTUnwrap(pdf.page(at:i)).bounds(for:.mediaBox).width,plan.sheets[i/2].size.width*unit,accuracy:0.01) }
     }
+    func testSewnFourPage106WithSeparateCoverAndEveryBlankModeExportsPlannedVectorFaces() async throws {
+        let folder = try folder(),bodyURL = folder.appendingPathComponent("inside106.pdf"),coverURL = folder.appendingPathComponent("cover4.pdf")
+        try fixture(bodyURL,count:106,size:Size(148,210),prefix:"BODY")
+        try fixture(coverURL,count:4,size:Size(148,210),prefix:"COVER")
+        let body = try await PDFSource.open(bodyURL),cover = try await PDFSource.open(coverURL),source = try await PDFSource.combine([body,cover])
+        var p = Project(pages:source.pages.map(\.sourcePage),binding:.sewn,sheet:SheetSpec(preset:.a4,orientation:.landscape))
+        p.settings.signatureSize = .four; p.settings.bleed = 0; p.settings.cropMarkLength = 0; p.settings.cropMarkOffset = 3.5
+        var book = BookSettings(); book.coverSourceID = UUID(); book.coverPDFPages = Array(107...110); book.auxiliaryPages = book.coverPDFPages
+        p.book = book; p.coverMode = .separate
+        for mode in [BlankPlacement.Mode.end,.start,.manual] {
+            var setting = BlankPlacement(); setting.mode = mode; setting.positions = [1,55]; p.blankPlacement = setting
+            let plan = ImpositionPlanner.plan(p); XCTAssertTrue(plan.canExport,plan.issues.map(\.message).joined(separator:"\n"))
+            XCTAssertEqual(plan.signatureCount,27); XCTAssertEqual(plan.addedBlankPages,2)
+            let output = folder.appendingPathComponent("four-\(mode).pdf")
+            let result = try PDFExporter.export(plan:plan,source:source,destination:.singlePDF(output),marks:.none)
+            XCTAssertEqual(result.pageCount,56); XCTAssertEqual(result.sheetCount,28)
+            let pdf = try XCTUnwrap(PDFDocument(url:output)),cg = try XCTUnwrap(CGPDFDocument(output as CFURL))
+            for (index,sheet) in plan.sheets.enumerated() {
+                for (face,side) in [(0,sheet.front),(1,sheet.back)] {
+                    let page = try XCTUnwrap(pdf.page(at:index*2+face)),text = page.string ?? ""
+                    for slot in side.slots {
+                        guard let n = slot.sourcePageNumber else { continue }
+                        let label = n<=106 ? String(format:"BODY%02d",n) : String(format:"COVER%02d",n-106)
+                        XCTAssertTrue(text.contains(label),"Missing \(label) in form \(index+1)")
+                    }
+                    XCTAssertFalse(text.contains("Boş"),"Blank-position proof labels must not enter artwork")
+                    XCTAssertEqual(page.bounds(for:.mediaBox).width,297*unit,accuracy:0.01)
+                    XCTAssertEqual(page.bounds(for:.mediaBox).height,210*unit,accuracy:0.01)
+                    XCTAssertEqual(Self.images(cg.page(at:index*2+face+1)?.dictionary),0)
+                }
+            }
+        }
+    }
+
 }

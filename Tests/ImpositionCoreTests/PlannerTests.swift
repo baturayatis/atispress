@@ -87,7 +87,8 @@ final class PlannerTests: XCTestCase {
         }
         let auto = ImpositionPlanner.plan(project(106,binding: .perfectBound,size: Size(1000,1000),signature: .automatic))
         XCTAssertTrue(auto.canExport)
-        XCTAssertEqual(auto.addedBlankPages,6)
+        XCTAssertEqual(auto.signaturePageCount,4)
+        XCTAssertEqual(auto.addedBlankPages,2)
     }
     func testPackingAndOrientation() {
         var p = project(12,size: Size(210,150),page: Size(50,70))
@@ -135,7 +136,7 @@ final class PlannerTests: XCTestCase {
     }
     func testValidationAndSelection() {
         var p = project(4)
-        for binding in [BindingMethod.sewn,.spiral,.wireO] {
+        for binding in [BindingMethod.spiral,.wireO] {
             p.binding = binding
             let plan = ImpositionPlanner.plan(p)
             XCTAssertFalse(plan.canExport); XCTAssertEqual(plan.issues.first?.code,.unsupportedBinding)

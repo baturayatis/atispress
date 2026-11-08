@@ -38,7 +38,7 @@ public enum ImpositionPlanner {
         func error(_ code: ValidationIssue.Code, _ message: String) {
             result.issues.append(ValidationIssue(.error, code, message))
         }
-        guard project.binding == .saddleStitch || project.binding == .perfectBound else {
+        guard project.isBooklet else {
             error(.unsupportedBinding, "Bu ciltleme yöntemi henüz desteklenmiyor."); return result
         }
         guard project.coverMode == .included else {
@@ -57,15 +57,15 @@ public enum ImpositionPlanner {
             error(.invalidInput, "Sayfa, ölçü veya ayarlar geçersiz."); return result
         }
         let reserve = project.layoutExteriorReserve
-        if project.usesFullSheetBooklet {
-            result.issues.append(ValidationIssue(.warning,.bookSettings,"Sıfır kenar/maşa ve kapalı çıktı işaretleri: taşma tabaka sınırında kırpılır; katlama ara boşluğu \(spec.gutter) mm korunur."))
-        }
         let trim = project.pages[0].trimSize
         guard project.pages.allSatisfy({ $0.trimSize == trim }) else {
             error(.mixedPageSizes, "Karışık sayfa boyutları desteklenmiyor."); return result
         }
         guard s.safeAreaInset * 2 < min(trim.width, trim.height) else {
             error(.invalidInput, "Güvenli alan payı sayfa boyutunu aşıyor."); return result
+        }
+        if project.usesFullSheetBooklet && s.bleed>0 {
+            result.issues.append(ValidationIssue(.warning,.bookSettings,"Sıfır kenar/maşa ve etkin çıktı işareti yok: taşma tabaka sınırında kırpılır; katlama ara boşluğu \(spec.gutter) mm korunur."))
         }
         if s.bleed > 0 && !s.generatedBleed.enabled && project.pages.contains(where: { ($0.availableBleed ?? -1) < s.bleed }) {
             result.issues.append(ValidationIssue(.warning, .missingBleed, "Bazı sayfalarda taşma payı eksik veya bilinmiyor."))
@@ -75,9 +75,9 @@ public enum ImpositionPlanner {
         else if let fixed = s.signatureSize.pageCount { signature = fixed }
         else {
             // Minimize press sheets, then padding, then prefer the larger signature.
-            let choices = [8, 16, 32].compactMap { count -> (Int, Int, Int)? in
+            let choices = [4, 8, 16, 32].compactMap { count -> (Int, Int, Int)? in
                 let grid = signatureGrid(count)
-                guard let fit = bestLayout(spec, trim, grid.0, grid.1, s,reserve: reserve,fitTolerance: project.usesFullSheetBooklet ? 0.0001 : 0) else { return nil }
+                guard let fit = bestLayout(spec, trim, grid.0, grid.1, s,reserve: reserve,fitTolerance: reserve == 0 ? 0.0001 : 0) else { return nil }
                 let units = (project.pages.count + count - 1) / count
                 return ((units + fit.capacity - 1) / fit.capacity, units * count - project.pages.count, count)
             }.sorted { a, b in a.0 != b.0 ? a.0 < b.0 : (a.1 != b.1 ? a.1 < b.1 : a.2 > b.2) }
@@ -93,15 +93,22 @@ public enum ImpositionPlanner {
             result.issues.append(ValidationIssue(project.blankPagePolicy == .append ? .warning : .error,
                 .pageCountPadding, "\(result.addedBlankPages) boş sayfa eklenmesi gerekiyor."))
         }
-        let pages: [Int?] = project.pages.map { Optional($0.number) } + Array(repeating: nil, count: result.addedBlankPages)
+        let padding = PaddingOrder.make(project:project,total:total)
+        result.readingOrder = padding.pages; result.blankPositions = padding.positions
+        result.signatureCount = project.binding == .saddleStitch ? 1 : total/signature
+        result.issues += padding.issues
+        let pages = padding.pages
         let units: [Unit]
         if project.binding == .saddleStitch {
             units = (0..<(total / 4)).map { i in
-                Unit(columns: 2, rows: 1,leafIndex: i,
+                var unit = Unit(columns: 2, rows: 1,leafIndex: i,
                      front: [makeSlot(pages[total - 1 - 2*i], 0, 0, trim, spec.gutter, 0),
                              makeSlot(pages[2*i], 1, 0, trim, spec.gutter, 0)],
                      back: [makeSlot(pages[2*i + 1], 0, 0, trim, spec.gutter, 0),
                             makeSlot(pages[total - 2 - 2*i], 1, 0, trim, spec.gutter, 0)])
+                unit.front[0].logicalPageIndex = total-1-2*i; unit.front[1].logicalPageIndex = 2*i
+                unit.back[0].logicalPageIndex = 2*i+1; unit.back[1].logicalPageIndex = total-2-2*i
+                return unit
             }
         } else {
             units = stride(from: 0, to: total, by: signature).map {
@@ -109,7 +116,7 @@ public enum ImpositionPlanner {
             }
         }
         guard let first = units.first,
-              let layout = bestLayout(spec, trim, first.columns, first.rows, s,reserve: reserve,fitTolerance: project.usesFullSheetBooklet ? 0.0001 : 0) else {
+              let layout = bestLayout(spec, trim, first.columns, first.rows, s,reserve: reserve,fitTolerance: reserve == 0 ? 0.0001 : 0) else {
             error(.exceedsSheet, "Forma ve baskı işaretleri tabakaya sığmıyor."); return result
         }
         for offset in stride(from: 0, to: units.count, by: layout.capacity) {
@@ -142,6 +149,20 @@ public enum ImpositionPlanner {
                         }
                         p.origin.x += origin.x + shift.x; p.origin.y += origin.y + shift.y
                         clip.origin.x += origin.x+shift.x; clip.origin.y += origin.y+shift.y
+                        // Shared-cut units need the same bleed protection as panels
+                        // within a unit. With no exterior reserve, adjacent signatures
+                        // must not paint their native bleed over one another's trim.
+                        let used = min(layout.capacity,units.count-offset)
+                        let col = index%layout.columns,row = index/layout.columns
+                        var clipLeft = col>0 ? origin.x-spec.gutter/2 : -Double.infinity
+                        var clipRight = col+1<layout.columns && index+1<used ? origin.x+layout.unitSize.width+spec.gutter/2 : Double.infinity
+                        var clipBottom = row>0 ? origin.y-spec.gutter/2 : -Double.infinity
+                        var clipTop = index+layout.columns<used ? origin.y+layout.unitSize.height+spec.gutter/2 : Double.infinity
+                        if s.turnMethod == .workAndTurn { clipRight = min(clipRight,layout.size.width/2) }
+                        if s.turnMethod == .workAndTumble { clipTop = min(clipTop,layout.size.height/2) }
+                        clipLeft = max(clipLeft,clip.origin.x); clipBottom = max(clipBottom,clip.origin.y)
+                        clipRight = min(clipRight,clip.origin.x+clip.size.width); clipTop = min(clipTop,clip.origin.y+clip.size.height)
+                        clip = Rect(x:clipLeft,y:clipBottom,width:clipRight-clipLeft,height:clipTop-clipBottom)
                         p.artworkClip = clip
                         return p
                     }
@@ -234,13 +255,21 @@ public enum ImpositionPlanner {
         marks.append(Mark(kind: .gripper,start: start,end: end,label: "Maşa \(w) mm"))
         return marks
     }
-    private static func signatureGrid(_ n: Int) -> (Int, Int) { n == 8 ? (2, 2) : (4, n / 8) }
+    static func signatureGrid(_ n: Int) -> (Int, Int) { n == 4 ? (2,1) : n == 8 ? (2,2) : (4,n/8) }
     private static func makeSlot(_ page: Int?, _ x: Int, _ y: Int, _ size: Size, _ gutter: Double, _ signature: Int) -> Slot {
         Slot(sourcePageNumber: page, origin: Point(Double(x)*(size.width+gutter), Double(y)*(size.height+gutter)), size: size, signature: signature)
     }
     private struct Layer { var cell: Int; var up = true; var rotation = 0 }
     private static func foldedUnit(_ pages: [Int?], _ size: Size, _ gutter: Double, _ signature: Int) -> Unit {
         let (columns, rows) = signatureGrid(pages.count)
+        if pages.count == 4 {
+            var unit = Unit(columns:2,rows:1,
+                front:[makeSlot(pages[3],0,0,size,gutter,signature),makeSlot(pages[0],1,0,size,gutter,signature)],
+                back:[makeSlot(pages[1],0,0,size,gutter,signature),makeSlot(pages[2],1,0,size,gutter,signature)])
+            unit.front[0].logicalPageIndex = signature*4+3; unit.front[1].logicalPageIndex = signature*4
+            unit.back[0].logicalPageIndex = signature*4+1; unit.back[1].logicalPageIndex = signature*4+2
+            return unit
+        }
         var grid = (0..<rows).map { y in (0..<columns).map { x in [Layer(cell: y*columns+x)] } }
         var width = columns; var height = rows
         // Left half folds over right; bottom half folds over top. Each moving stack reverses.
@@ -268,6 +297,8 @@ public enum ImpositionPlanner {
         var back = front
         for (i, layer) in grid[0][0].enumerated() {
             let cell = layer.cell
+            front[cell].logicalPageIndex = signature*pages.count+2*i+(layer.up ? 0 : 1)
+            back[cell].logicalPageIndex = signature*pages.count+2*i+(layer.up ? 1 : 0)
             front[cell].sourcePageNumber = pages[2*i + (layer.up ? 0 : 1)]
             back[cell].sourcePageNumber = pages[2*i + (layer.up ? 1 : 0)]
             front[cell].rotation = layer.rotation; back[cell].rotation = layer.rotation
@@ -301,7 +332,7 @@ public enum ImpositionPlanner {
             if s.turnMethod == .workAndTurn { w = (w-spec.gutter)/2 }
             if s.turnMethod == .workAndTumble { h = (h-spec.gutter)/2 }
             // PDF point serialization can put an exact A5 edge a sub-micrometre amount
-            // above 210 mm. Full-sheet jobs allow only 0.0001 mm numerical slack;
+            // above 210 mm. Zero-reserve booklets allow only 0.0001 mm numerical slack;
             // their artwork remains clipped to the exact physical sheet.
             for rotate in [false, true] {
                 let u = rotate ? Size(raw.height,raw.width) : raw
@@ -371,7 +402,7 @@ public enum ImpositionPlanner {
                 }
             }
         }
-        result.append(Mark(kind: .pageLabel, start: Point(x+w/2,y+h/2), end: Point(x+w/2,y+h/2), label: p.sourcePageNumber.map(String.init) ?? "Boş"))
+        result.append(Mark(kind: .pageLabel, start: Point(x+w/2,y+h/2), end: Point(x+w/2,y+h/2), label: p.sourcePageNumber.map(String.init) ?? p.logicalPageIndex.map { "Boş \($0+1)" } ?? "Boş"))
         return result
     }
 }

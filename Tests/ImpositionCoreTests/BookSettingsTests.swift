@@ -152,4 +152,21 @@ final class BookSettingsTests: XCTestCase {
         XCTAssertTrue(spaced.issues.contains { $0.message.contains("gereken 302.00×210.00") })
     }
 
+    func testA5Booklet106ManualA4ZeroBleedAndZeroLengthCropDoesNotReserveOffset() {
+        var p = Project(pages:(1...106).map { SourcePage(number:$0,trimSize:Size(148,210),availableBleed:0) },binding:.saddleStitch,
+                        sheet:SheetSpec(preset:.a4,margins:Insets(),gripperWidth:0,gutter:0,orientation:.landscape))
+        p.settings.bleed = 0; p.settings.cropMarkLength = 0; p.settings.cropMarkOffset = 3.5
+        p.exportMarks.crop = true // Açık · Otomatik; no actual stroke when length is zero.
+        let plan = ImpositionPlanner.plan(p)
+        XCTAssertTrue(plan.canExport,plan.issues.map(\.message).joined(separator:"\n"))
+        XCTAssertEqual(p.layoutExteriorReserve,0)
+        XCTAssertEqual(plan.sheets.count,27)
+        p.settings.cropMarkLength = 5
+        let marked = ImpositionPlanner.plan(p)
+        XCTAssertFalse(marked.canExport)
+        XCTAssertTrue(marked.issues.contains { $0.message.contains("gereken 313.00×227.00") && $0.message.contains("kullanılabilir 297.00×210.00") },"Required size includes marks once; usable size must exclude margins only")
+        p.exportMarks.crop = false
+        XCTAssertTrue(ImpositionPlanner.plan(p).canExport,"Disabled crop marks must reserve nothing even with a saved nonzero length/offset")
+    }
+
 }
