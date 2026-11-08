@@ -61,6 +61,7 @@ public enum PDFSheetInfo {
         }
         let edge = max(0.01,marks.lineWidth.isFinite ? marks.lineWidth : 0.25)/unit/2+0.25
         var protected = artwork
+        protected += side.punchMarks.map { let b = $0.bounds; return CGRect(x:b.origin.x,y:b.origin.y,width:b.size.width,height:b.size.height).insetBy(dx:-0.25,dy:-0.25) }
         protected += PDFColorControlRenderer.geometry(sheet: sheet,settings: marks,kind: kind).bounds.map { $0.insetBy(dx: -0.25,dy: -0.25) }
         protected += PDFExportMarkRenderer.geometry(side: side,sheet: sheet,settings: marks).segments.map {
             CGRect(x: min($0.start.x,$0.end.x)-edge,y: min($0.start.y,$0.end.y)-edge,

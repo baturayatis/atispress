@@ -29,7 +29,7 @@ final class AlignmentWorkspaceTests: XCTestCase {
         XCTAssertEqual(model.project.blockAlignment,.center)
         XCTAssertEqual(Workspace.newProject().blockAlignment,.center)
         let current = ProjectDocument(state:model.state)
-        XCTAssertEqual(current.version,12)
+        XCTAssertEqual(current.version,ProjectDocument.currentVersion)
         XCTAssertEqual(try ProjectDocument.decode(current.encoded()).state.project.blockAlignment,.center)
         var data = try XCTUnwrap(JSONSerialization.jsonObject(with:current.encoded()) as? [String:Any])
         data["version"] = 11

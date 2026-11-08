@@ -1,7 +1,36 @@
 import SwiftUI
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    weak var workspace: Workspace?
+    weak var workspace: Workspace? { didSet { drainOpenRequests() } }
+    private var pendingOpenURLs: [URL] = []
+    private var openTask: Task<Void,Never>?
+    private var lastRequest: (URL,Date)?
+    func application(_ application: NSApplication,open urls: [URL]) { receiveOpenURLs(urls) }
+    func receiveOpenURLs(_ urls: [URL]) {
+        for url in urls where OpenFileKind.any.accepts(url) {
+            // AppKit and SwiftUI may both deliver the same native event.
+            if let lastRequest,lastRequest.0 == url,Date().timeIntervalSince(lastRequest.1)<0.5 { continue }
+            lastRequest = (url,Date()); pendingOpenURLs.append(url)
+        }
+        if !pendingOpenURLs.isEmpty { NSApplication.shared.activate(ignoringOtherApps:true) }
+        drainOpenRequests()
+    }
+    private func drainOpenRequests() {
+        guard workspace != nil,openTask == nil,!pendingOpenURLs.isEmpty else { return }
+        openTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.openTask = nil }
+            while !self.pendingOpenURLs.isEmpty,let workspace = self.workspace {
+                if workspace.loading || workspace.exporting || workspace.autoArranging {
+                    try? await Task.sleep(for:.milliseconds(30)); continue
+                }
+                let url = self.pendingOpenURLs.removeFirst()
+                workspace.open(url)
+                await Task.yield()
+            }
+        }
+    }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let workspace else { return .terminateNow }
         guard !workspace.loading,!workspace.exporting,!workspace.autoArranging else { return .terminateCancel }
@@ -30,7 +59,7 @@ struct AtisPressApp: App {
             WorkspaceView(model: workspace)
                 .frame(minWidth: 1080,minHeight: 700)
                 .background(ProjectWindowControl(model: workspace))
-                .onOpenURL { workspace.open($0) }
+                .onOpenURL { delegate.receiveOpenURLs([$0]) }
                 .task {
                     delegate.workspace = workspace
                     // A file argument is useful with `swift run AtisPressApp /path/book.pdf`.

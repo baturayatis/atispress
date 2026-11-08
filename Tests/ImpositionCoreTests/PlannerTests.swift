@@ -139,7 +139,7 @@ final class PlannerTests: XCTestCase {
         for binding in [BindingMethod.spiral,.wireO] {
             p.binding = binding
             let plan = ImpositionPlanner.plan(p)
-            XCTAssertFalse(plan.canExport); XCTAssertEqual(plan.issues.first?.code,.unsupportedBinding)
+            XCTAssertTrue(plan.canExport); XCTAssertFalse(plan.issues.contains { $0.code == .unsupportedBinding })
         }
         p.binding = .saddleStitch
         p.pages[0].trimSize.width = 99

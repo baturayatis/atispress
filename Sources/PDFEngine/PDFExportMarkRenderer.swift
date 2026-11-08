@@ -65,13 +65,14 @@ public enum PDFExportMarkRenderer {
         return Geometry(segments: output,warnings: warnings)
     }
     public static func draw(side: Side,sheet: Sheet,in context: CGContext,settings: ExportMarks,info: String,kind: SideKind = .front) {
-        guard settings.crop || settings.fold || settings.bleed || settings.safeArea || settings.pageNumbers || settings.sheetInfo || settings.fullCut || settings.colorBar || settings.registrationTargets else { return }
+        guard !side.punchMarks.isEmpty || settings.crop || settings.fold || settings.bleed || settings.safeArea || settings.pageNumbers || settings.sheetInfo || settings.fullCut || settings.colorBar || settings.registrationTargets else { return }
         context.saveGState(); defer { context.restoreGState() }
         let width = max(0.01,settings.lineWidth.isFinite ? settings.lineWidth : 0.25)/PDFPreviewDrawing.pointsPerMM
         let color = CGColor(colorSpace: CGColorSpaceCreateDeviceCMYK(),components:
             settings.color == .black ? [0,0,0,1,1] : [1,1,1,1,1])!
         context.setStrokeColor(color); context.setFillColor(color)
         context.setLineWidth(width); context.setLineCap(.butt); context.setLineDash(phase: 0,lengths: [])
+        PDFPlanRenderer.drawPunchMarks(side.punchMarks,in:context,color:color)
         for mark in geometry(side: side,sheet: sheet,settings: settings).segments {
             context.move(to: CGPoint(x: mark.start.x,y: mark.start.y))
             context.addLine(to: CGPoint(x: mark.end.x,y: mark.end.y)); context.strokePath()

@@ -190,6 +190,7 @@ public struct ExportMarks: Equatable, Sendable, Codable {
 }
 public struct Project: Equatable, Sendable, Codable {
     var bookCoverTemplate = false
+    public var leafBinding: LeafBindingSettings? = nil
     public var alignment: BlockAlignment? = nil
     public var blankPlacement: BlankPlacement? = nil
     public var book: BookSettings? = nil
@@ -214,10 +215,11 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        leafBinding = try c.decodeIfPresent(LeafBindingSettings.self,forKey:.leafBinding)
         alignment = try c.decodeIfPresent(BlockAlignment.self,forKey:.alignment)
         blankPlacement = try c.decodeIfPresent(BlankPlacement.self,forKey:.blankPlacement)
         book = try c.decodeIfPresent(BookSettings.self,forKey:.book)
@@ -244,6 +246,8 @@ public struct SlotReference: Equatable, Sendable {
     public init(sheet: Int, side: SideKind, slot: Int) { self.sheet = sheet; self.side = side; self.slot = slot }
 }
 public struct Slot: Equatable, Sendable {
+    public var bindingEdge: Edge? = nil
+    public var bindingAllowance: Double = 0
     public var logicalPageIndex: Int? = nil
     public var artworkOffset = Point(0,0)
     public var bookLeafIndex: Int? = nil
@@ -285,11 +289,14 @@ public struct Mark: Equatable, Sendable {
     }
 }
 public struct Side: Equatable, Sendable {
+    public var punchMarks: [PunchMark] = []
     public var slots: [Slot]
     public var marks: [Mark]
     public init(slots: [Slot] = [], marks: [Mark] = []) { self.slots = slots; self.marks = marks }
 }
 public struct Sheet: Equatable, Sendable {
+    public var requiresDuplexBack = false
+    public var leafInfo: LeafSheetInfo? = nil
     public var alignment: BlockAlignment = .gripper
     public var bookInfo: BookSheetInfo? = nil
     public var gangLayout: GangSheetLayout? = nil

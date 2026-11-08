@@ -40,6 +40,8 @@ struct InspectorView: View {
                             Text("Tel dikiş").tag(BindingMethod.saddleStitch)
                             Text("Tutkallı cilt").tag(BindingMethod.perfectBound)
                             Text("Dikişli cilt").tag(BindingMethod.sewn)
+                            Text("Spiral").tag(BindingMethod.spiral)
+                            Text("Wire-O").tag(BindingMethod.wireO)
                         }
                         if model.project.binding == .perfectBound || model.project.binding == .sewn {
                             Picker("Forma",selection: $model.project.settings.signatureSize) {
@@ -62,6 +64,7 @@ struct InspectorView: View {
                 }
                 if model.project.binding == .stepAndRepeat { repeatControls }
                 if model.project.binding == .gang { GangInspectorView(model: model) }
+                if model.project.isLeafBinding { LeafInspectorView(model:model) }
                 if model.project.isBooklet { BookInspectorView(model: model); BlankPlacementInspector(model:model) }
                 GroupBox("Baskı Tabakası") {
                     VStack(spacing: 10) {
@@ -128,6 +131,7 @@ struct InspectorView: View {
                 GroupBox("Önizleme Katmanları") {
                     VStack(alignment: .leading,spacing: 8) {
                         Toggle("Kesim işaretleri",isOn: $model.overlays.crop)
+                        if model.project.isLeafBinding { Toggle("Delik kılavuzları",isOn:$model.overlays.punch) }
                         if model.project.binding != .stepAndRepeat && model.project.binding != .gang { Toggle("Katlama çizgileri",isOn: $model.overlays.fold) }
                         Toggle("Taşma çizgileri",isOn: $model.overlays.bleed)
                         Toggle("Güvenli alan",isOn: $model.overlays.safeArea)

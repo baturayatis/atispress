@@ -77,6 +77,11 @@ public enum PDFColorControlRenderer {
         // Reserve planned crop ticks even when hidden; toggles never relocate controls.
         reserved.crop = true
         for (side,back) in faces {
+            protected += side.punchMarks.map { mark in
+                let b = mark.bounds
+                let rect = CGRect(x:b.origin.x,y:b.origin.y,width:b.size.width,height:b.size.height).insetBy(dx:-0.25,dy:-0.25)
+                return back ? reflected(rect) : rect
+            }
             protected += PDFExportMarkRenderer.geometry(side: side,sheet: sheet,settings: reserved).segments.map {
                 let rect = CGRect(x: min($0.start.x,$0.end.x)-stroke/2-0.25,y: min($0.start.y,$0.end.y)-stroke/2-0.25,
                     width: abs($0.end.x-$0.start.x)+stroke+0.5,height: abs($0.end.y-$0.start.y)+stroke+0.5)

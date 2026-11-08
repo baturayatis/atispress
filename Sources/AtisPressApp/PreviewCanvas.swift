@@ -214,6 +214,7 @@ final class SheetCanvasView: NSView {
             }
         }
         PDFPlanRenderer.drawMarks(side.marks,sheetSize: sheet.size,in: context,options: overlays,displayScale: scale)
+        if overlays.punch { PDFPlanRenderer.drawPunchMarks(side.punchMarks,in:context) }
         if let colorControls { PDFColorControlRenderer.draw(colorControls,in: context) }
         context.restoreGState()
         if let r = sheet.diagnosticBounds {

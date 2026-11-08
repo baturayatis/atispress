@@ -269,9 +269,9 @@ final class Workspace: ObservableObject {
         var next = project
         // Only flat/gang jobs own editable gutters. Never save a booklet's
         // obsolete fold gap into either cache, or restore it into a fold.
-        if project.binding == .stepAndRepeat { repeatGutter = project.sheet.gutter }
+        if project.binding == .stepAndRepeat || project.isLeafBinding { repeatGutter = project.sheet.gutter }
         if project.binding == .gang { gangGutter = project.sheet.gutter }
-        next.sheet.gutter = mode == .stepAndRepeat ? repeatGutter : mode == .gang ? (gangGutter ?? 0) : 0
+        next.sheet.gutter = (mode == .stepAndRepeat || mode == .spiral || mode == .wireO) ? repeatGutter : mode == .gang ? (gangGutter ?? 0) : 0
         next.binding = mode
         if mode == .gang {
             if next.gang == nil {
@@ -1015,13 +1015,13 @@ extension Workspace {
         return "\(number)"
     }
     func chooseCoverPDF() {
-        guard source != nil,!loading,!exporting,project.isBooklet else { return }
+        guard source != nil,!loading,!exporting,(project.isBooklet || project.isLeafBinding) else { return }
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.pdf]; panel.allowsMultipleSelection = false
         panel.title = "Ayrı kapak PDF’sini seçin"; panel.prompt = "Kapak yükle"
         panel.begin { [weak self] response in if response == .OK,let url = panel.url { self?.loadCoverPDF(url) } }
     }
     func loadCoverPDF(_ url: URL) {
-        guard let current = source,!loading,!exporting,project.isBooklet else { return }
+        guard let current = source,!loading,!exporting,(project.isBooklet || project.isLeafBinding) else { return }
         loading = true; error = nil
         importTask = Task {
             do {
@@ -1036,7 +1036,7 @@ extension Workspace {
                 assets.append(GangAsset(saved:GangSourceReference(id:id,reference:reference,pageCount:cover.pages.count),source:cover))
                 let combined = try await PDFSource.combine(assets.map(\.source),displayName:"Kitap ve kapak")
                 try Task.checkCancellation()
-                guard project.isBooklet else { throw CancellationError() }
+                guard project.isBooklet || project.isLeafBinding else { throw CancellationError() }
                 var next = project,book = next.book ?? BookSettings()
                 book.coverSourceID = id; book.coverPDFPages = cover.pages.map { $0.number+offset }
                 book.auxiliaryPages = Array(Set(book.auxiliaryPages+book.coverPDFPages)).sorted()

@@ -90,9 +90,12 @@ struct WorkspaceView: View {
                                     .font(.caption).foregroundStyle(.secondary)
                                 if let summary = sheet.productionSummary { Text(summary).font(.caption).foregroundStyle(.secondary) }
                             } else {
-                                Text("\(sheet.bookInfo?.label ?? "Tabaka") \(index+1)").fontWeight(.medium)
-                                Text("\(sheet.size.width,specifier: "%.0f") × \(sheet.size.height,specifier: "%.0f") mm · \(sheet.bookInfo?.section == .cover ? "Kapak" : "Forma "+signatures)")
-                                    .font(.caption).foregroundStyle(.secondary)
+                                Text("\(sheet.leafInfo == nil ? (sheet.bookInfo?.label ?? "Tabaka") : (sheet.leafInfo!.cover ? "Kapak" : "Yaprak tabakası")) \(index+1)").fontWeight(.medium)
+                                if let leaf = sheet.leafInfo { Text(leaf.summary).font(.caption).foregroundStyle(.secondary) }
+                                else {
+                                    Text("\(sheet.size.width,specifier: "%.0f") × \(sheet.size.height,specifier: "%.0f") mm · \(sheet.bookInfo?.section == .cover ? "Kapak" : "Forma "+signatures)")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
                             }
                             if !sheet.blankPositions.isEmpty { Text("Boş konumlar: "+sheet.blankPositions.map(String.init).joined(separator:", ")).font(.caption).foregroundStyle(.orange) }
                             if let serials = sheet.serialPlan {
@@ -166,6 +169,7 @@ struct WorkspaceView: View {
                                 Text("\(layout.columns)×\(layout.rows) · \(layout.copiesPerSheet) adet/tabaka · \(sheet.repeatCount) tabaka")
                                 if let summary = sheet.productionSummary { Text(summary) }
                             }
+                            if let leaf = sheet.leafInfo { Text(leaf.summary).frame(maxWidth:450,alignment:.leading) }
                             if let info = sheet.bookInfo { Text(info.summary).frame(maxWidth:450,alignment:.leading) }
                             if let label = generatedBleedLabel { Text(label) }
                         }

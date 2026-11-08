@@ -28,12 +28,12 @@ public enum ImpositionPlanner {
         if let auto = project.autoLayout, !auto.trimTolerance.isFinite || !(0...1).contains(auto.trimTolerance) {
             return ImpositionPlan(issues: [ValidationIssue(.error,.invalidInput,"Tam sayfa toleransı 0–1 mm aralığında olmalıdır.")])
         }
-        var result = project.isBooklet && project.book != nil ? BookPlanner.plan(project) : layoutPlan(project)
-        if project.binding != .gang && !(project.isBooklet && project.book != nil) { addFitDiagnostics(project,to: &result) }
+        var result = project.isLeafBinding ? LeafPlanner.plan(project) : project.isBooklet && project.book != nil ? BookPlanner.plan(project) : layoutPlan(project)
+        if !project.isLeafBinding && project.binding != .gang && !(project.isBooklet && project.book != nil) { addFitDiagnostics(project,to: &result) }
         for index in result.sheets.indices {
             result.sheets[index].alignment = project.blockAlignment
             result.sheets[index].gripperEdge = project.sheet.gripperEdge
-            result.sheets[index].backFlipsX = (project.binding == .stepAndRepeat || project.binding == .gang) ? repeatMirrorsX(project) : project.settings.turnMethod != .workAndTumble
+            result.sheets[index].backFlipsX = (project.isLeafBinding || project.binding == .stepAndRepeat || project.binding == .gang) ? repeatMirrorsX(project) : project.settings.turnMethod != .workAndTumble
         }
         for index in result.diagnosticSheets.indices { result.diagnosticSheets[index].gripperEdge = project.sheet.gripperEdge }
         applySerials(project,to: &result)

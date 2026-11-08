@@ -35,6 +35,8 @@
         <dict>
             <key>CFBundleTypeName</key>
             <string>AtışPress Projesi</string>
+            <key>CFBundleTypeIconFile</key>
+            <string>AppIcon.icns</string>
             <key>CFBundleTypeRole</key>
             <string>Editor</string>
             <key>LSHandlerRank</key>
@@ -50,12 +52,16 @@
         <dict>
             <key>UTTypeIdentifier</key>
             <string>com.atispress.project</string>
+            <key>UTTypeIconFile</key>
+            <string>AppIcon.icns</string>
             <key>UTTypeDescription</key>
             <string>AtışPress Projesi</string>
             <key>UTTypeConformsTo</key>
             <array><string>public.json</string></array>
             <key>UTTypeTagSpecification</key>
             <dict>
+                <key>public.mime-type</key>
+                <string>application/vnd.atispress+json</string>
                 <key>public.filename-extension</key>
                 <array><string>atispress</string></array>
             </dict>

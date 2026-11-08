@@ -28,7 +28,7 @@ cd /Users/baturayatis/Developer/AtisPressCore
 open "dist/AtışPress.app"
 ```
 
-The script performs a release build without debug symbols, generates a multi-resolution placeholder
+The script performs a release build without debug symbols, generates a multi-resolution navy imposition
 icon, creates **dist/AtışPress.app**, then runs
 `codesign --force --deep --sign -` and verifies the signature. Generated bundles
 are ignored by Git. The bundle identifier is **com.atisajans.atispress**, minimum
@@ -59,9 +59,9 @@ open -a "/Applications/AtışPress.app" "/absolute/path/example.atispress"
 The existing URL-open handler restores the saved project, including the Turkish
 source-PDF relink dialog if needed. Source PDFs remain linked, not embedded.
 
-**Placeholder icon:** replace **packaging/AppIcon.icns** with your final icon and
+**App icon:** replace **packaging/AppIcon.icns** with your final icon and
 rerun the script. If that file is absent, **scripts/generate_app_icon.swift** draws
-the placeholder into all standard 16–1024-pixel icon representations using AppKit
+the navy/white/teal glyph into all standard 16–1024-pixel icon representations using AppKit
 and writes a PNG-backed ICNS container directly to
 **Contents/Resources/AppIcon.icns**. It needs no external image tools or services.
 Editing an already signed bundle invalidates its signature, so rebuild after
@@ -1576,4 +1576,104 @@ beklenti yeni bitişik kat kuralına güncellendi.
 swift test --disable-sandbox
 swift test --disable-sandbox --filter FoldGutter
 swift test --disable-sandbox --filter testNewProjectImport106A5ThenBookletOnManualA4HasNoFoldGutter
+```
+
+## Spiral / Wire-O — katlamasız yaprak düzeni (şema 13)
+
+**Yerleşim Yöntemi → Spiral / Wire-O**, forma yerine ardışık ön/arka yapraklar
+oluşturur: 1/2, 3/4, … . Tek sayıda sayfa varsa yalnız **1 boş arka sayfa** eklenir;
+boş ekleme yasaksa çıktı engellenir. Forma, creep, kâğıt kalınlığı ve sırt hesabı
+bu modlarda uygulanmaz; saklanan kitap ayarları değişmeden kalır.
+
+Aynı düz iş ızgarası, 0°/90° dönüş, taşma, ara boşluk, kenarlar, maşa, hizalama
+ve vektör çıktı kullanılır. Yapraklar aynı kesim konumundaki tabakaları bir yığın
+olarak alıp, yığınları ızgara/kopya sırasıyla üst üste koyduğunuzda 1…N okunacak
+şekilde dağıtılır: `yaprak = yuvaSırası × tabakaSayısı + tabakaSırası`.
+Kapasiteyi aşan son yuvalar boş bırakılır; bunlar yayına eklenmiş boş sayfa
+sayılmaz. Yan çevirme/takla aynı kalıpta iki aynı takım üretir; özet fiziksel
+yaprak kapasitesini ve takım sayısını gösterir. Kesim/istif yönünü fiziksel
+prova ile doğrulayın. Bu modda bir seçili PDF bir yayın takımıdır; düz işin Adet/
+fire/seri alanları bu yayına uygulanmaz ve bu modda düzenlenemez.
+
+**Yaprak cilt: katlama yok** bölümünde:
+
+- **Cilt kenarı: Sol / Üst / Sağ**. Arka yüzde kenar, seçilen çevirme ve ürün
+  dönüşü sonrası önle aynı fiziksel kenardır; sıradan bir PDF-sol etiketi değildir.
+- **Cilt payı (mm)** kullanıcı girdisidir. Girilmemiş değer 0 gösterilir ve uyarır.
+  PDF kesim ölçüsü ve artwork doğal ölçeğinde korunur; güvenli alan cilt kenarında
+  bu miktar kadar daha içeri alınır. Turuncu cilt sınırı ve güvenli alan önizlemede
+  değişir. Kaynak tasarımın bu alanı boş bırakması gerekir; uygulama artwork'ü
+  silmez, beyaza boyamaz veya sayfayı büyütmez. Pay sayfayı tüketirse çıktı engellenir.
+- **Delik işaretlerini çıktıya ekle** başlangıçta kapalıdır. Delik aralığı, çapı
+  ve kenardan uzaklık için varsayılan/pitch standardı tahmin edilmez. Üçünü de mm
+  olarak girin. Delik merkezleri girilen aralıkla kenar boyunca ortalanır; uzaklık
+  kesim kenarından **dışarıya** doğrudur. Bunlar boş baskı kenarındaki delme
+  kılavuzlarıdır; kaynak artwork, üretilmiş taşma veya komşu ürün üzerine basılmaz.
+  Sığmayanlar uyarıyla atlanır. Bir kenarda 1000, bir yüzde 50.000 kılavuz sınırı
+  vardır. Çaplar gerçek mm'dir; daireler 0,25 pt vektör çizgidir, raster görüntü
+  oluşturulmaz. Önizlemenin **Delik kılavuzları** anahtarı çıktıyı etkilemez.
+- **Kapak modu**: Dahil bütün seçili sayfaları yayında tutar; **Hariç — ayrı bas**
+  seçilen ön/arka kapak sayfalarını iç bloktan çıkarır. **Ayrı PDF** mevcut güvenli
+  dosya/bookmark ve yeniden bağlama akışını kullanır. Ön ve arka kapaklar kendi
+  yaprakları olarak, boş iç yüzleri ve aynı cilt kenarı kuralıyla bağımsız basılır.
+  Kapakların ölçüleri kendi ızgaralarında ele alınır; yayının iç sayfaları eşit
+  ölçüde olmalıdır. Özet/listede yaprak, tabaka, kapasite ve eklenen boşlar görünür.
+
+Şema **13**, `project.leafBinding` içinde kenar, girilmiş/girilmemiş cilt payı,
+delik görünürlüğü, aralık, çap ve uzaklığı saklar; kapak seçimi ve PDF bağlantıları
+mevcut kitap alanlarıyla saklanır. Şema **1–12** açılır; yeni alan yoksa hiçbir
+pay veya delik ölçüsü uydurulmaz. Eski düz/kitap/gang projelerinin planı korunur.
+Yaprak modu gerekli boş arka yüzleri korur; mevcut düz iş boş-arka kuralları değişmez.
+
+Doğrulama: **222 test geçti** (98 çekirdek, 55 PDF, 69 uygulama).
+Testler: iki bağlama ve üç çevirme yönteminde bağımsız kes–istifle simülasyonu,
+tek boşla çift sayfaya tamamlama, cilt kenarı/maşa yansıması, değişen güvenli alan,
+tam aralık/çap/uzaklık, sığmayan deliklerin atlanması, ayrı kapak, şema 13 ve eski
+şema açma, önizleme/PDF delik piksel eşleşmesi, vektörlük ve her PDF yüzündeki
+sayfa metninin planla eşleşmesi. Önceki testler kaldırılmadı; Spiral/Wire-O'nun
+artık desteklenmediğini varsayan eski beklenti olumlu yaprak doğrulamasına çevrildi.
+
+## Yeni ikon ve Finder proje ilişkilendirmesi
+
+Varsayılan ikon artık programatik çizilmiş koyu lacivert yuvarlatılmış kare,
+beyaz katlanmış sayfa/forma ızgarası ve küçük turkuaz vurgudur. Kaynak
+`scripts/generate_app_icon.swift`, on adet 16–1024 piksel temsilli `.icns` üretir.
+`./scripts/build_app.sh` bunu **dist/AtışPress.app/Contents/Resources/AppIcon.icns**
+konumuna yazar. Kendi ikonunuz için **packaging/AppIcon.icns** koyup yeniden
+paketleyin; bu dosya varsa üretecin yerine kullanılır.
+
+Info.plist, aynı `com.atispress.project` UTI'sini `public.json` alt türü,
+`.atispress` uzantısı, belge ikonu ve MIME türüyle dışa aktarır. Belge rolü
+**Editor**, sırası **Owner**'dır. Native `application(_:open:)` ile SwiftUI
+`onOpenURL` aynı kuyruğa bağlanır: açılışta pencere hazır olmadan gelen dosyalar
+saklanır; çalışan uygulamaya gelenler mevcut Kaydet/Aç onay akışından geçer.
+Aynı native olayın çift teslimi tekilleştirilir. Plist ve iki URL teslim yolu
+test edilir. Paketleme, mevcutsa `lsregister -f` çalıştırır.
+
+Bu ortam LaunchServices kaydını engelleyebilir (`-10822`). Finder entegrasyonunun
+elle kontrolü:
+
+```sh
+./scripts/build_app.sh
+ditto "dist/AtışPress.app" "/Applications/AtışPress.app"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "/Applications/AtışPress.app"
+open "/Applications/AtışPress.app"
+```
+
+Finder'da kayıtlı bir `.atispress` dosyasına uygulama kapalıyken çift tıklayın;
+kaydedilen ayarların ve önizlemenin geldiğini kontrol edin. Uygulamayı açık
+bırakıp başka bir projeye çift tıklayın; aynı çalışan uygulamada açıldığını,
+değişiklik varsa Kaydet/İptal akışını kontrol edin. İlişkilendirme önceden başka
+uygulamaya verilmişse **Bilgi Ver → Birlikte Aç → AtışPress → Tümünü Değiştir**
+seçin. Ad-hoc imzalı paket notarize değildir; gerekirse sağ tık → Aç yöntemini
+kullanın. Bu iş fiziksel delme kalıbı/CAD çıktısı veya makineye özel delik standardı
+üretmez; kılavuzlar mutlaka üretim provasında doğrulanmalıdır.
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+swift test --disable-sandbox --filter Leaf
+./scripts/build_app.sh
+open "dist/AtışPress.app"
 ```

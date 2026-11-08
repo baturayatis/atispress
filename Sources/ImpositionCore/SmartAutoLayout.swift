@@ -216,6 +216,7 @@ public enum SmartAutoLayout {
         let marks = chosen.project.exportMarks.crop ? "kesim işareti var" : "kesim işareti yok"
         var summary = fullSheet ? "\(itemName) ürün → \(chosen.name) tabaka, tam sayfa. Kenar boşluğu \(margins) mm, \(marks)." :
             "\(itemName) → \(chosen.name), \(capacity) adet/tabaka, marj \(margins) mm, \(marks) (\(chosen.project.autoLayout?.level?.rawValue ?? "—"))."
+        if original.isLeafBinding,let info = plan.sheets.first?.leafInfo { summary = info.summary+" · "+summary }
         if !state.manualFields.isEmpty { summary += " Elle seçilen değerler korundu." }
         if original.pages.count > 2 { summary += " Tüm sayfa çiftlerinin sığması kontrol edildi." }
         chosen.project.autoLayout?.summary = summary

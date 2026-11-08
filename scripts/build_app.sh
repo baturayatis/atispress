@@ -35,7 +35,7 @@ codesign --verify --deep --strict --verbose=2 "$bundle"
 rm -rf "$app_path"
 mv "$bundle" "$app_path"
 lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
-if ! "$lsregister" -f "$app_path"; then
+if [[ -x "$lsregister" ]] && ! "$lsregister" -f "$app_path"; then
     echo "LaunchServices registration unavailable. Move the app to /Applications and open it once." >&2
 fi
 printf '\nBuilt: %s\n' "$app_path"

@@ -1,4 +1,4 @@
-// Deterministic placeholder. Replace with packaging/AppIcon.icns for production artwork.
+// Deterministic navy imposition glyph. Override with packaging/AppIcon.icns.
 import AppKit
 
 guard CommandLine.arguments.count == 2 else { fatalError("Usage: generate_app_icon.swift output.icns") }
@@ -23,25 +23,19 @@ for (points,scale,type) in representations {
     NSGraphicsContext.current = graphics
     graphics.cgContext.scaleBy(x: CGFloat(pixels)/1024,y: CGFloat(pixels)/1024)
     let background = NSBezierPath(roundedRect: NSRect(x: 80,y: 80,width: 864,height: 864),xRadius: 190,yRadius: 190)
-    NSColor(srgbRed: 0.08,green: 0.16,blue: 0.24,alpha: 1).setFill(); background.fill()
-    NSColor(srgbRed: 0.96,green: 0.97,blue: 0.96,alpha: 1).setFill()
-    NSBezierPath(roundedRect: NSRect(x: 235,y: 240,width: 554,height: 544),xRadius: 24,yRadius: 24).fill()
-    // Four imposed cards and a shared trim cross, legible even at Finder's smallest size.
-    NSColor(srgbRed: 0.06,green: 0.58,blue: 0.62,alpha: 1).setFill()
-    for x in [265,527] {
-        for y in [270,527] { NSRect(x: x,y: y,width: 232,height: 227).fill() }
-    }
-    NSColor(srgbRed: 0.96,green: 0.62,blue: 0.16,alpha: 1).setStroke()
-    let crop = NSBezierPath(); crop.lineWidth = 14; crop.lineCapStyle = .square
-    for x in [235.0,789.0] {
-        crop.move(to: NSPoint(x: x,y: 185)); crop.line(to: NSPoint(x: x,y: 220))
-        crop.move(to: NSPoint(x: x,y: 804)); crop.line(to: NSPoint(x: x,y: 839))
-    }
-    for y in [240.0,784.0] {
-        crop.move(to: NSPoint(x: 180,y: y)); crop.line(to: NSPoint(x: 215,y: y))
-        crop.move(to: NSPoint(x: 809,y: y)); crop.line(to: NSPoint(x: 844,y: y))
-    }
-    crop.stroke()
+    NSColor(srgbRed:0.035,green:0.075,blue:0.14,alpha:1).setFill(); background.fill()
+    // A white sheet outline, folded upper-right corner and shared imposition cuts.
+    NSColor.white.setStroke()
+    let sheet = NSBezierPath(); sheet.lineWidth = 28; sheet.lineJoinStyle = .round; sheet.lineCapStyle = .round
+    sheet.move(to:NSPoint(x:280,y:245)); sheet.line(to:NSPoint(x:744,y:245))
+    sheet.line(to:NSPoint(x:744,y:650)); sheet.line(to:NSPoint(x:625,y:779))
+    sheet.line(to:NSPoint(x:280,y:779)); sheet.close(); sheet.stroke()
+    let folds = NSBezierPath(); folds.lineWidth = 24; folds.lineCapStyle = .round; folds.lineJoinStyle = .round
+    folds.move(to:NSPoint(x:625,y:779)); folds.line(to:NSPoint(x:625,y:650)); folds.line(to:NSPoint(x:744,y:650))
+    folds.move(to:NSPoint(x:512,y:270)); folds.line(to:NSPoint(x:512,y:750))
+    folds.move(to:NSPoint(x:305,y:505)); folds.line(to:NSPoint(x:719,y:505)); folds.stroke()
+    NSColor(srgbRed:0.14,green:0.8,blue:0.72,alpha:1).setFill()
+    NSBezierPath(roundedRect:NSRect(x:672,y:195,width:112,height:112),xRadius:30,yRadius:30).fill()
     NSGraphicsContext.restoreGraphicsState()
     guard let data = bitmap.representation(using: .png,properties: [:]) else { fatalError("Cannot encode icon") }
     elements.append(Data(type.utf8)); elements.append(integer(data.count+8)); elements.append(data)

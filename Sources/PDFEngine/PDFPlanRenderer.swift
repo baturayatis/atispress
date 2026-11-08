@@ -4,6 +4,8 @@ import Foundation
 import ImpositionCore
 
 public struct PDFRenderOptions: Equatable, Sendable, Codable {
+    public var punchVisible: Bool? = nil
+    public var punch: Bool { get { punchVisible ?? true } set { punchVisible = newValue } }
     public var crop: Bool
     public var fold: Bool
     public var bleed: Bool
@@ -25,12 +27,13 @@ public struct PDFRenderOptions: Equatable, Sendable, Codable {
         set { targetsVisible = newValue }
     }
     public init(crop: Bool = true,fold: Bool = true,bleed: Bool = true,safeArea: Bool = false,
-                pageNumbers: Bool = true,sheetBoundary: Bool = true,pressGuides: Bool = true) {
+                pageNumbers: Bool = true,sheetBoundary: Bool = true,pressGuides: Bool = true,punch: Bool = true) {
         self.crop = crop; self.fold = fold; self.bleed = bleed; self.safeArea = safeArea
+        self.punchVisible = punch
         self.pageNumbers = pageNumbers; self.sheetBoundary = sheetBoundary; self.pressGuides = pressGuides
     }
     public static let artworkOnly = PDFRenderOptions(crop: false,fold: false,bleed: false,safeArea: false,
-                                                     pageNumbers: false,sheetBoundary: false,pressGuides: false)
+                                                     pageNumbers: false,sheetBoundary: false,pressGuides: false,punch: false)
     public func shows(_ kind: MarkKind) -> Bool {
         switch kind {
         case .crop,.sharedCut: return crop
@@ -112,10 +115,20 @@ public enum PDFPlanRenderer {
                          repetition: repetition,overlays: overlays+serials)
         }
         drawMarks(side.marks,sheetSize: sheet.size,in: context,options: options)
+        if options.punch { drawPunchMarks(side.punchMarks,in:context) }
         if options.colorBar || options.registrationTargets {
             var marks = controlMarks
             marks.colorBar = options.colorBar; marks.registrationTargets = options.registrationTargets
             PDFColorControlRenderer.draw(PDFColorControlRenderer.geometry(sheet: sheet,settings: marks,kind: kind),in: context)
+        }
+    }
+    public static func drawPunchMarks(_ marks: [PunchMark],in context: CGContext,color: CGColor? = nil) {
+        context.saveGState(); defer { context.restoreGState() }
+        context.setStrokeColor(color ?? CGColor(colorSpace:CGColorSpaceCreateDeviceCMYK(),components:[0,0,0,1,1])!)
+        context.setLineDash(phase:0,lengths:[]); context.setLineWidth(0.25/PDFPreviewDrawing.pointsPerMM)
+        for mark in marks {
+            let b = mark.bounds
+            context.strokeEllipse(in:CGRect(x:b.origin.x,y:b.origin.y,width:b.size.width,height:b.size.height))
         }
     }
     public static func drawMarks(_ marks: [Mark],sheetSize: Size,in context: CGContext,

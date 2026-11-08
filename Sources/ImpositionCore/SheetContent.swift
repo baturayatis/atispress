@@ -1,7 +1,9 @@
 /// Production artwork determines whether a reverse exists. Guide/mark geometry
-/// does not turn an otherwise empty reverse into printable content.
+/// does not turn an otherwise empty reverse into printable content. Leaf-binding
+/// jobs explicitly retain required blank duplex reverses, including cover insides.
 extension Sheet {
     public func hasContent(on kind: SideKind) -> Bool {
+        if kind == .back && requiresDuplexBack { return true }
         let face = kind == .front ? front : back
         if face.slots.contains(where: { $0.sourcePageNumber != nil }) { return true }
         return !serialPlacements(side: face,kind: kind,repetition: 0).isEmpty
