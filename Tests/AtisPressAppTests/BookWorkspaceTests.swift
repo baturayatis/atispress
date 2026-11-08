@@ -117,6 +117,65 @@ final class BookWorkspaceTests: XCTestCase {
         workspace.bookSettings.interiorPaper.microns = nil; try await settle(workspace)
         XCTAssertFalse(workspace.canExportNow); XCTAssertTrue(workspace.currentSheet?.bookInfo?.summary.contains("hesaplanamadı") == true)
     }
+    func testNewProjectImport106A5ThenBookletOnManualA4HasNoFoldGutter() async throws {
+        let folder = try folder(),pdf = try fixture(folder,"new-A5-106.pdf",count:106,size:.init(148,210))
+        for binding in [BindingMethod.saddleStitch,.perfectBound] {
+            let workspace = model()
+            XCTAssertEqual(workspace.project.binding,.stepAndRepeat)
+            workspace.open(pdf); try await settle(workspace)
+            XCTAssertEqual(workspace.project.pages.count,106)
+            XCTAssertFalse(workspace.isManual(.gutter))
+            workspace.setMode(binding)
+            XCTAssertEqual(workspace.project.sheet.gutter,0)
+            XCTAssertFalse(workspace.isManual(.gutter),"Mode switching is not a manual gutter edit")
+            workspace.sheetPreset = "A4"; workspace.markManual(.sheetSize)
+            workspace.project.sheet.size = SheetPreset.a4.size
+            workspace.project.sheet.orientation = .landscape
+            workspace.project.sheet.margins = Insets(); workspace.project.sheet.gripperWidth = 0
+            workspace.project.settings.bleed = 0; workspace.project.exportMarks = .none
+            // Deliberately never edit gutter: reproduce a fresh import/mode switch.
+            try await settle(workspace)
+            XCTAssertTrue(workspace.plan.canExport,workspace.plan.issues.map(\.message).joined(separator:"\n"))
+            XCTAssertEqual(workspace.plan.sheets.count,27)
+            XCTAssertEqual(workspace.plan.addedBlankPages,2)
+            let first = try XCTUnwrap(workspace.plan.sheets.first)
+            let slots = first.front.slots.sorted { $0.x<$1.x }
+            XCTAssertEqual(slots.count,2)
+            if slots.count==2 { XCTAssertEqual(slots[1].x-slots[0].x-slots[0].size.width,0,accuracy:0.00001) }
+            let output = try PDFExporter.export(plan:workspace.plan,source:XCTUnwrap(workspace.source),
+                destination:.singlePDF(folder.appendingPathComponent("new-A4-\(binding.rawValue).pdf")),marks:.none)
+            XCTAssertEqual(output.sheetCount,27); XCTAssertEqual(output.pageCount,54)
+            let exported = try XCTUnwrap(PDFDocument(url:output.files[0]))
+            for index in 0..<exported.pageCount {
+                let box = try XCTUnwrap(exported.page(at:index)).bounds(for:.mediaBox)
+                XCTAssertEqual(box.width,297*72/25.4,accuracy:0.01)
+                XCTAssertEqual(box.height,210*72/25.4,accuracy:0.01)
+            }
+        }
+    }
+
+    func testFlatAndGangGuttersStayIndependentAcrossBookletModesAndSaveOpen() async throws {
+        let folder = try folder(),pdf = try fixture(folder,"flat.pdf",count:2,size:Size(40,60)),workspace = model()
+        workspace.open(pdf); try await settle(workspace)
+        workspace.project.sheet.gutter = 4
+        workspace.setMode(.saddleStitch); XCTAssertEqual(workspace.project.sheet.gutter,0)
+        workspace.setMode(.gang); XCTAssertEqual(workspace.project.sheet.gutter,0,"Never copy a flat or booklet gutter into a new gang job")
+        workspace.project.sheet.gutter = 8
+        workspace.setMode(.perfectBound); XCTAssertEqual(workspace.project.sheet.gutter,0)
+        try await settle(workspace)
+        let url = folder.appendingPathComponent("independent.atispress"); try workspace.saveProject(as:url)
+        // An old remembered booklet gap must not leak into either flat mode.
+        var file = try ProjectDocument.decode(Data(contentsOf:url)); file.state.bookletGutter = 6
+        try file.encoded().write(to:url)
+        let opened = model(); try await opened.loadProject(at:url); try await settle(opened)
+        XCTAssertFalse(opened.isModified)
+        opened.setMode(.stepAndRepeat); XCTAssertEqual(opened.project.sheet.gutter,4)
+        opened.setMode(.saddleStitch); XCTAssertEqual(opened.project.sheet.gutter,0)
+        opened.setMode(.gang); XCTAssertEqual(opened.project.sheet.gutter,8)
+        opened.setMode(.perfectBound); XCTAssertEqual(opened.project.sheet.gutter,0)
+        opened.setMode(.stepAndRepeat); XCTAssertEqual(opened.project.sheet.gutter,4)
+    }
+
     func testExplicitZeroGutterIsNotReplacedWhenEnteringBookletMode() {
         let workspace = model()
         // The inspector marks an explicit edit even if 0 was already displayed.

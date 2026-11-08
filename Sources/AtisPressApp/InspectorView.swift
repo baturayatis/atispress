@@ -103,7 +103,11 @@ struct InspectorView: View {
                             Text("Sol").tag(ImpositionCore.Edge.left); Text("Sağ").tag(ImpositionCore.Edge.right)
                         }.automaticReset(model,.gripperEdge)
                         measurement("Maşa payı",$model.project.sheet.gripperWidth,autoField: .gripperWidth)
-                        measurement("Ara boşluk",$model.project.sheet.gutter,autoField: .gutter)
+                        if model.project.isBooklet {
+                            Text("Kat komşuları: 0 mm (sabit)").font(.caption).foregroundStyle(.secondary)
+                        } else {
+                            measurement("Ara boşluk",$model.project.sheet.gutter,autoField: .gutter)
+                        }
                     }.padding(5)
                 }
                 GroupBox("Taşma ve İşaretler") {

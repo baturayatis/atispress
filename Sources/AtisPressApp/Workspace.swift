@@ -24,7 +24,9 @@ final class Workspace: ObservableObject {
     @Published var project = Workspace.newProject() {
         didSet {
             if !restoring && !applyingAutomatic && !trackingManual {
-                let changed = AutoLayoutField.changes(from: oldValue,to: project)
+                var changed = AutoLayoutField.changes(from: oldValue,to: project)
+                // Restoring a mode's remembered gutter is not an inspector edit.
+                if oldValue.binding != project.binding { changed.remove(.gutter) }
                 if project.binding == .stepAndRepeat && oldValue.binding == .stepAndRepeat {
                     if changed.contains(.gutter) {
                         trackingManual = true; project.stepAndRepeat.arrangement = .custom; trackingManual = false
@@ -265,18 +267,11 @@ final class Workspace: ObservableObject {
     func setMode(_ mode: BindingMethod) {
         guard mode != project.binding else { return }
         var next = project
-        let firstBookletGutter = project.autoLayout?.manualFields.contains(.gutter) == true ? project.sheet.gutter : 6
+        // Only flat/gang jobs own editable gutters. Never save a booklet's
+        // obsolete fold gap into either cache, or restore it into a fold.
+        if project.binding == .stepAndRepeat { repeatGutter = project.sheet.gutter }
         if project.binding == .gang { gangGutter = project.sheet.gutter }
-        if mode == .stepAndRepeat {
-            if project.binding != .gang { bookletGutter = project.sheet.gutter }
-            next.sheet.gutter = repeatGutter
-        } else if mode == .gang {
-            if project.binding == .stepAndRepeat { repeatGutter = project.sheet.gutter }
-            else { bookletGutter = project.sheet.gutter }
-            next.sheet.gutter = gangGutter ?? 0
-        } else if project.binding == .stepAndRepeat {
-            repeatGutter = project.sheet.gutter; next.sheet.gutter = bookletGutter ?? firstBookletGutter
-        } else if project.binding == .gang { next.sheet.gutter = bookletGutter ?? firstBookletGutter }
+        next.sheet.gutter = mode == .stepAndRepeat ? repeatGutter : mode == .gang ? (gangGutter ?? 0) : 0
         next.binding = mode
         if mode == .gang {
             if next.gang == nil {

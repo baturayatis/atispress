@@ -190,7 +190,7 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertEqual(model.currentSheet?.repeatCount,5)
         model.project.sheet.gutter = 2
         model.setMode(.saddleStitch)
-        XCTAssertEqual(model.project.sheet.gutter,6)
+        XCTAssertEqual(model.project.sheet.gutter,0,"Fold neighbors stay contiguous; the old booklet gap is ignored")
         try await settle(model)
         XCTAssertNil(model.currentSheet?.repeatLayout)
         XCTAssertEqual(model.plan.addedBlankPages,2)

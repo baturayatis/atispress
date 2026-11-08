@@ -17,7 +17,14 @@ public enum ImpositionPlanner {
         var capacity: Int { columns * rows }
     }
     /// Produces the sole geometry source for both preview and future PDF export.
-    public static func plan(_ project: Project) -> ImpositionPlan {
+    public static func plan(_ source: Project) -> ImpositionPlan {
+        var project = source
+        // A folding signature is contiguous paper. Flat-job trim gutters must
+        // never open a gap at a fold, including legacy saved positive values.
+        // Preserve invalid input for the existing validation path.
+        if project.isBooklet,project.sheet.gutter.isFinite,project.sheet.gutter >= 0 {
+            project.sheet.gutter = 0
+        }
         if let auto = project.autoLayout, !auto.trimTolerance.isFinite || !(0...1).contains(auto.trimTolerance) {
             return ImpositionPlan(issues: [ValidationIssue(.error,.invalidInput,"Tam sayfa toleransı 0–1 mm aralığında olmalıdır.")])
         }
@@ -67,7 +74,7 @@ public enum ImpositionPlanner {
             error(.invalidInput, "Güvenli alan payı sayfa boyutunu aşıyor."); return result
         }
         if project.usesFullSheetBooklet && s.bleed>0 {
-            result.issues.append(ValidationIssue(.warning,.bookSettings,"Sıfır kenar/maşa ve etkin çıktı işareti yok: taşma tabaka sınırında kırpılır; katlama ara boşluğu \(spec.gutter) mm korunur."))
+            result.issues.append(ValidationIssue(.warning,.bookSettings,"Sıfır kenar/maşa ve etkin çıktı işareti yok: taşma tabaka sınırında kırpılır; kat komşuları 0 mm ara boşlukla bitişiktir."))
         }
         if s.bleed > 0 && !s.generatedBleed.enabled && project.pages.contains(where: { ($0.availableBleed ?? -1) < s.bleed }) {
             result.issues.append(ValidationIssue(.warning, .missingBleed, "Bazı sayfalarda taşma payı eksik veya bilinmiyor."))

@@ -148,8 +148,9 @@ final class BookSettingsTests: XCTestCase {
         })
         p.sheet.gutter = 6
         let spaced = ImpositionPlanner.plan(p)
-        XCTAssertFalse(spaced.canExport,"An explicitly requested 6 mm gap really needs 302 mm and must not be silently removed")
-        XCTAssertTrue(spaced.issues.contains { $0.message.contains("gereken 302.00×210.00") })
+        XCTAssertTrue(spaced.canExport,"Legacy flat-job gutters cannot separate folded paper")
+        XCTAssertEqual(spaced.sheets,plan.sheets)
+        XCTAssertFalse(spaced.issues.contains { $0.message.contains("gereken 302.00×210.00") })
     }
 
     func testA5Booklet106ManualA4ZeroBleedAndZeroLengthCropDoesNotReserveOffset() {

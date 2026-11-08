@@ -100,7 +100,7 @@ final class AlignmentTests: XCTestCase {
         book.autoLayout = .legacy
         let resetBook = SmartAutoLayout.arrange(book,resetOverrides:true)
         XCTAssertEqual(resetBook.project.blockAlignment,.center)
-        XCTAssertEqual(resetBook.project.sheet.gutter,6)
+        XCTAssertEqual(resetBook.project.sheet.gutter,0)
         XCTAssertTrue(resetBook.project.autoLayout!.manualFields.isEmpty)
         var gang = cards(); gang.binding = .gang; gang.autoLayout = .legacy
         var settings = GangSettings(); settings.mode = .manual

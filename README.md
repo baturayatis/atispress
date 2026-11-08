@@ -156,7 +156,9 @@ silently scaled. Bleed that is absent, unknown or insufficient produces a warnin
   then largest signature. Fixed signatures pad the last signature to full size.
   A 106-page job needs 2 blanks for saddle stitch, 6 for 8/16-page perfect binding,
   or 22 for 32-page perfect binding. Automatic depends on sheet fit and packing.
-- Gutter is the explicit trim-to-trim gap, also at folds. Outer space reserves the
+- Gutter is the explicit trim-to-trim gap for flat/gang jobs. Booklet fold
+  neighbors are always contiguous (0 mm); saved flat gutters cannot open folds.
+  Outer space reserves the
   larger of bleed and crop offset + length. Crop segments that would cross another
   trim rectangle are omitted. The plan clips artwork and bleed guides at the
   midpoint of shared gutters/folds, so neighboring artwork cannot overlap.
@@ -246,7 +248,7 @@ with the trackpad/wheel, drag the canvas to pan, or use **− / Sığdır / +**.
 | Boyut / Özel / Yön | Press sheet boundary, packing capacity, orientation or a no-fit validation error. Units are mm; preset names 33×48 etc. are cm. |
 | Sol / Sağ / Üst / Alt | Orange margin guides plus the plan's usable area/placement. Even an unchanged packing count has visibly different guides. |
 | Maşa kenarı / Maşa payı | Orange labeled gripper boundary and reserved edge. |
-| Ara boşluk | Panel separation and fold lines, sometimes packing capacity. |
+| Ara boşluk | Flat/gang panel separation and packing capacity. Booklets show a fixed 0 mm at folds. |
 | Taşma | Red bleed guides and per-slot insufficient/unknown bleed warnings. |
 | Kesim uzunluğu / uzaklığı | Crop geometry and reserved outer space. Offset is hidden when mark length is zero. |
 | Güvenli alan | Green inset guides. |
@@ -329,8 +331,10 @@ in **Yerleşim Yöntemi**. The existing booklet mode and its original tests rema
   Nil quantity means one full press sheet per job. The inspector and preview HUD
   show the grid, copies per sheet, required sheets and all-job total. The inspector
   also shows produced quantity.
-- The UI remembers the booklet gutter separately and starts flat jobs with **0 mm**.
-  Switching back restores the booklet gutter. The core always reads `SheetSpec.gutter`.
+- Flat jobs start with **0 mm** and retain their own gutter across mode switches;
+  gang retains its own independent value. Booklet modes always use **0 mm** at
+  fold neighbors. Old saved booklet-gutter caches are ignored by mode switching;
+  the core also ignores positive gutters when planning a folded publication.
 
 ### Grid, bleed and crop geometry
 
@@ -1343,10 +1347,11 @@ There were two distinct paths to the extra 6 mm:
   into a booklet mode, overwriting an explicitly entered zero. A second failing
   test reproduced that real-gutter path. It now honors the inspector's manual
   gutter flag on first entry; an already remembered booklet gutter still takes
-  precedence, preserving independent per-mode values.
+  precedence, preserving independent per-mode values. **This historical behavior
+  is superseded by the fold-neighbor fix below: booklets now always use 0 mm.**
 
-Zero outer margins, zero gripper and all output marks off now select an
-edge-to-edge booklet fit: the fold uses the exact requested gutter, no exterior
+Zero outer margins, zero gripper and all output marks off select an
+edge-to-edge booklet fit: the fold now always uses zero gutter, no exterior
 mark/bleed reserve inflates the trim spread, and artwork/bleed is clipped to the
 physical sheet. The independent cover uses the same rule; its assembled panels
 also intersect the template's clipped artwork bounds. The preview and a Turkish
@@ -1357,8 +1362,8 @@ The source bleed setting remains 3 mm rather than being silently changed to zero
 Native PDF point serialization can put a nominal 210 mm edge a few millionths
 of a millimetre above 210. Full-sheet fit allows **0.0001 mm** numerical slack;
 artwork is still clipped to the exact sheet. This is not a 1 mm trim allowance.
-An explicitly requested **6 mm gutter still needs 302 mm and fails on A4**;
-it is never silently removed.
+The old explicitly requested **6 mm fold-gap** behavior is superseded by the
+fold-neighbor fix below; folded paper is now always contiguous.
 
 The real-PDF workspace regression covers import, separate-cover loading, manual
 A4/zero settings, output-mark toggling with stale preview crop lengths, save/open,
@@ -1534,4 +1539,41 @@ swift test --disable-sandbox
 swift test --disable-sandbox --filter Alignment
 ./scripts/build_app.sh
 open "dist/AtışPress.app"
+```
+
+
+## Yeni proje / A5 106 sayfa / A4: kat komşuları daima bitişik
+
+Önce başarısız bir gerçek-PDF akış testi eklendi: yeni Tekrarlı proje → 106 A5
+sayfa içe aktar → Tel dikiş veya Tutkallı cilt → manuel yatay A4, kenarlar/maşa/
+taşma 0 ve işaretler kapalı. Ara boşluk elle düzenlenmedi. Test ilk durumda
+**Ara boşluk = 6 · Manuel** ve **gereken 302×210; kullanılabilir 297×210**
+hatasını yeniden üretti.
+
+Kök neden üç parçalıydı: `Workspace.setMode` ilk kitapçık geçişinde
+`bookletGutter ?? 6` atıyordu; proje değişiklik izleyicisi bu programatik
+atamayı manuel ara boşluk düzenlemesi sayıyordu; çekirdek aynı değeri katın iki
+komşu sayfası arasına koyarak **148 + 6 + 148 = 302 mm** hesaplıyordu.
+`SmartAutoLayout` da kitapçıklarda `2 × bleed` ile 6 mm'yi tekrar üretebiliyordu.
+
+Artık kitapçık planının tüm kat komşuları **0 mm** aralıklıdır: yerleşim, kat
+çizgileri, taşma kırpma ve sığma hata ölçüleri aynı bitişik geometriyi kullanır.
+Eski dosyadaki pozitif ara boşluk da katı açamaz. Denetçi kitapçıkta düzenlenebilir
+ara boşluk yerine **“Kat komşuları: 0 mm (sabit)”** gösterir. Moda geçiş manuel
+ayar olarak kaydedilmez. Tekrarlı ve gang değerleri ayrı ayrı hatırlanır; kitapçık
+hiçbirine ara boşluk kopyalamaz ve onlardan kat aralığı devralmaz. Eski
+`bookletGutter` JSON alanı okunabilirlik için tutulur ama yerleşimde kullanılmaz;
+yeni bir ayar/şema eklenmedi (şema 12).
+
+Doğrulama: **211 test geçti**. Yeni akış her iki ciltlemede **27 A4 tabaka / 54 PDF yüzü**, 2 boş
+sayfa ve 296×210 mm bitişik açılım üretir. 4/8/16/32/otomatik forma ve bütün
+çevirme yöntemlerinde eski pozitif gutter planı, sıfır gutter planıyla aynıdır.
+Düz/gang değerlerinin kitapçık geçişleri ve kaydet/aç sonrasında ayrı kalması da
+test edilir. Önceki testler kaldırılmadı; 6 mm kat boşluğunu bekleyen üç eski
+beklenti yeni bitişik kat kuralına güncellendi.
+
+```sh
+swift test --disable-sandbox
+swift test --disable-sandbox --filter FoldGutter
+swift test --disable-sandbox --filter testNewProjectImport106A5ThenBookletOnManualA4HasNoFoldGutter
 ```

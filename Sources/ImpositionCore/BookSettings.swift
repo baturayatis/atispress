@@ -151,8 +151,8 @@ extension Project {
 }
 
 extension Project {
-    /// Explicit edge-to-edge booklet setup: trim/fold geometry uses the user's
-    /// gutter unchanged, while bleed is clipped to the physical sheet.
+    /// Explicit edge-to-edge booklet setup: fold neighbors are contiguous,
+    /// while exterior bleed is clipped to the physical sheet.
     public var usesFullSheetBooklet: Bool {
         guard isBooklet || bookCoverTemplate else { return false }
         let m = sheet.margins,e = exportMarks

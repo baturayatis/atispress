@@ -250,7 +250,8 @@ public enum SmartAutoLayout {
         set(.cropLength,\.settings.cropMarkLength,marks ? 5 : 0)
         set(.cropOffset,\.settings.cropMarkOffset,marks ? p.settings.bleed+0.5 : 0)
         if p.isBooklet {
-            set(.gutter,\.sheet.gutter,2*p.settings.bleed)
+            // A flat-job manual override cannot create a gap in folded paper.
+            p.sheet.gutter = 0
         } else {
             switch p.stepAndRepeat.arrangement {
             case .adjacent: set(.gutter,\.sheet.gutter,0)
