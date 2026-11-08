@@ -26,7 +26,7 @@ final class LeafWorkspaceTests: XCTestCase {
         // Native URL routing enqueues a MainActor task before starting the import.
         try await Task.sleep(for:.milliseconds(30))
         for _ in 0..<1500 {
-            if !model.loading && !model.planning && !model.autoArranging && !model.samplingBleed { return }
+            if !model.loading && !model.planning && !model.autoArranging && !model.samplingBleed && !model.checkingBindingStrips { return }
             try await Task.sleep(for:.milliseconds(10))
         }
         XCTFail("Leaf workspace did not settle")
@@ -58,7 +58,7 @@ final class LeafWorkspaceTests: XCTestCase {
         workspace.project.binding = .wireO; try await settle(workspace)
         let url = folder.appendingPathComponent("leaf.atispress"); try workspace.saveProject(as:url)
         let decoded = try ProjectDocument.decode(Data(contentsOf:url))
-        XCTAssertEqual(decoded.version,13)
+        XCTAssertEqual(decoded.version,ProjectDocument.currentVersion)
         let opened = model(); try await opened.loadProject(at:url); try await settle(opened)
         XCTAssertEqual(opened.project,workspace.project); XCTAssertEqual(opened.plan.sheets,workspace.plan.sheets)
         XCTAssertFalse(opened.isModified)
@@ -108,4 +108,39 @@ final class LeafWorkspaceTests: XCTestCase {
         XCTAssertEqual(tags["public.filename-extension"] as? [String],["atispress"])
         XCTAssertEqual(exported["UTTypeConformsTo"] as? [String],["public.json"])
     }
+    func testBindingBehaviorSchema14RoundtripLiveWarningsAndLegacyPreserveDefault() async throws {
+        let folder = try folder(),workspace = model()
+        workspace.open(try pdf(folder,count:3)); try await settle(workspace)
+        workspace.setMode(.wireO)
+        workspace.project.sheet = SheetSpec(size:Size(200,200))
+        workspace.project.settings.bleed = 0; workspace.project.settings.cropMarkLength = 0; workspace.project.settings.safeAreaInset = 0
+        workspace.project.stepAndRepeat.columns = 1; workspace.project.stepAndRepeat.rows = 1; workspace.project.stepAndRepeat.allowRotation = false
+        workspace.project.leafSettings.allowance = 12
+        for behavior in [BindingAllowanceBehavior.preserve,.shrink,.shift] {
+            workspace.project.leafSettings.behavior = behavior
+            try await settle(workspace)
+            XCTAssertTrue(workspace.plan.canExport)
+            let warnings = workspace.plan.issues.filter { $0.code == .bindingAllowance && $0.message.contains("beyaz olmayan") }
+            XCTAssertEqual(warnings.isEmpty,behavior != .preserve)
+            if behavior == .preserve { XCTAssertEqual(warnings.first?.affectedPages,[1,2,3]) }
+            let url = folder.appendingPathComponent("behavior-\(behavior).atispress")
+            try workspace.saveProject(as:url)
+            let file = try ProjectDocument.decode(Data(contentsOf:url))
+            XCTAssertEqual(file.version,14); XCTAssertEqual(file.state.project.leafSettings.behavior,behavior)
+            let opened = model(); try await opened.loadProject(at:url); try await settle(opened)
+            XCTAssertEqual(opened.project,workspace.project)
+            XCTAssertEqual(opened.plan.sheets,workspace.plan.sheets); XCTAssertFalse(opened.isModified)
+            XCTAssertTrue(opened.plan.sheets.first?.leafInfo?.summary.contains(behavior.title) == true)
+            if behavior == .preserve {
+                var json = try XCTUnwrap(JSONSerialization.jsonObject(with:Data(contentsOf:url)) as? [String:Any]); json["version"] = 13
+                var state = try XCTUnwrap(json["state"] as? [String:Any]),project = try XCTUnwrap(state["project"] as? [String:Any])
+                var leaf = try XCTUnwrap(project["leafBinding"] as? [String:Any]); leaf.removeValue(forKey:"placementBehavior")
+                project["leafBinding"] = leaf; state["project"] = project; json["state"] = state
+                let legacy = try ProjectDocument.decode(JSONSerialization.data(withJSONObject:json))
+                XCTAssertEqual(legacy.state.project.leafSettings.behavior,.preserve)
+                XCTAssertEqual(ImpositionPlanner.plan(legacy.state.project).sheets,workspace.plan.sheets)
+            }
+        }
+    }
+
 }

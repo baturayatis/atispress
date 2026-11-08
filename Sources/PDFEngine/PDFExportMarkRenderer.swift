@@ -12,7 +12,7 @@ public enum PDFExportMarkRenderer {
         let half = max(0.01,settings.lineWidth.isFinite ? settings.lineWidth : 0.25)/PDFPreviewDrawing.pointsPerMM/2
         let paper = CGRect(x: half,y: half,width: sheet.size.width-2*half,height: sheet.size.height-2*half)
         let boxes = side.slots.map { slot -> CGRect in
-            let r = slot.artworkClip
+            let r: Rect? = slot.productionProtectedBounds
             return CGRect(x: r?.origin.x ?? slot.x,y: r?.origin.y ?? slot.y,
                           width: r?.size.width ?? slot.size.width,height: r?.size.height ?? slot.size.height).insetBy(dx: -half,dy: -half)
         }
@@ -84,7 +84,7 @@ public enum PDFExportMarkRenderer {
         path.addRect(CGRect(x: 0,y: 0,width: sheet.size.width,height: sheet.size.height))
         // Sequential difference clips avoid even-odd overlap reopening protected areas.
         for slot in side.slots {
-            let r = slot.artworkClip
+            let r: Rect? = slot.productionProtectedBounds
             let box = CGRect(x: r?.origin.x ?? slot.x,y: r?.origin.y ?? slot.y,
                              width: r?.size.width ?? slot.size.width,height: r?.size.height ?? slot.size.height)
             let exclusion = CGMutablePath(); exclusion.addPath(path); exclusion.addRect(box.insetBy(dx: -width,dy: -width))
@@ -92,7 +92,7 @@ public enum PDFExportMarkRenderer {
         }
         if settings.pageNumbers {
             for (index,slot) in side.slots.enumerated() {
-                let r = slot.artworkClip
+                let r: Rect? = slot.productionProtectedBounds
                 PDFPlanRenderer.drawLabel("\(slot.sourcePageNumber.map(String.init) ?? "Boş") / \(index+1)",
                     at: CGPoint(x: slot.x+slot.size.width/2,y: (r?.origin.y ?? slot.y)-2),size: 2,color: color,in: context)
             }

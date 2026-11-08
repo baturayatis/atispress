@@ -55,7 +55,7 @@ public enum PDFSheetInfo {
         let paper = CGRect(x: 0.5,y: 0.5,width: sheet.size.width-1,height: sheet.size.height-1)
         guard width > 0,height > 0,paper.width >= width,paper.height >= height else { return nil }
         let artwork = side.slots.map { slot -> CGRect in
-            let r = slot.artworkClip
+            let r: Rect? = slot.productionProtectedBounds
             return CGRect(x: r?.origin.x ?? slot.x,y: r?.origin.y ?? slot.y,
                 width: r?.size.width ?? slot.size.width,height: r?.size.height ?? slot.size.height).insetBy(dx: -0.25,dy: -0.25)
         }
@@ -75,7 +75,7 @@ public enum PDFSheetInfo {
                 var a: CGFloat = 0,d: CGFloat = 0
                 let w = CTLineGetTypographicBounds(label,&a,&d,nil)
                 protected.append(CGRect(x: slot.x+slot.size.width/2-w/2-0.25,
-                    y: (slot.artworkClip?.origin.y ?? slot.y)-2-(a+d)/2-0.25,width: w+0.5,height: a+d+0.5))
+                    y: slot.productionProtectedBounds.origin.y-2-(a+d)/2-0.25,width: w+0.5,height: a+d+0.5))
             }
         }
         let block = artwork.reduce(CGRect.null) { $0.union($1) }

@@ -33,6 +33,7 @@ public final class PDFSource: @unchecked Sendable {
     private var temporaryDirectory: URL?
     public var protectedURLs: [URL] { linkedSources.isEmpty ? [url] : linkedSources.flatMap(\.protectedURLs)+[url] }
     public var displayName: String { compositeTitle ?? (linkedSources.isEmpty ? url.lastPathComponent : "Karışık iş (\(linkedSources.count) PDF)") }
+    public let bindingStripCache = PDFBindingStripCache()
     public let edgeSamples = PDFEdgeSampleCache()
     public let id = UUID()
     public let url: URL

@@ -135,6 +135,8 @@ final class Workspace: ObservableObject {
     private var filePanel: NSOpenPanel?
     private var exportPanel: NSSavePanel?
     private var exportTask: Task<Void,Never>?
+    @Published private(set) var checkingBindingStrips = false
+    private var bindingStripTask: Task<Void,Never>?
     private var planTask: Task<Void,Never>?
     private var importTask: Task<Void,Never>?
     private var bookletGutter: Double?
@@ -404,6 +406,7 @@ final class Workspace: ObservableObject {
             let next = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             guard !Task.isCancelled, revision == token else { return }
             plan = next; planning = false
+            inspectBindingStrips()
             normalizeSerialDigits()
             sheetIndex = max(0,min(sheetIndex,max(0,displaySheets.count-1)))
             repetition = max(0,min(repetition,(currentSheet?.repeatCount ?? 1)-1))
@@ -694,6 +697,7 @@ extension Workspace {
         if project.autoLayout?.sheetSelection == .automatic { sheetPreset = Self.automaticSheetTitle }
         else if project.autoLayout?.manualFields.contains(.sheetSize) != true { sheetPreset = result.presetName }
         plan = result.plan; planning = false
+        inspectBindingStrips()
         sheetIndex = max(0,min(sheetIndex,max(0,displaySheets.count-1)))
         repetition = max(0,min(repetition,(currentSheet?.repeatCount ?? 1)-1))
         applyingAutomatic = false
@@ -1118,5 +1122,25 @@ extension Workspace {
         next.autoLayout = state
         applyingAutomatic = true; project = next; applyingAutomatic = false
         autoArrange(resetOverrides:false)
+    }
+}
+
+
+extension Workspace {
+    private func inspectBindingStrips() {
+        bindingStripTask?.cancel()
+        guard let source else { checkingBindingStrips = false; return }
+        let snapshot = plan,projectSnapshot = project
+        checkingBindingStrips = true
+        bindingStripTask = Task {
+            let worker = Task.detached(priority:.utility) {
+                PDFBindingStripInspector.warnings(plan:snapshot,url:source.url,cache:source.bindingStripCache)
+            }
+            let warnings = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            guard !Task.isCancelled else { return }
+            guard project == projectSnapshot,self.source?.id == source.id else { checkingBindingStrips = false; return }
+            plan.issues += warnings; plan.refreshWarningSummary(project:project)
+            checkingBindingStrips = false
+        }
     }
 }

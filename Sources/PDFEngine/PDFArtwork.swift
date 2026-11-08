@@ -23,6 +23,12 @@ public enum PDFPreviewDrawing {
         transform.tx += slot.x-footprint.minX; transform.ty += slot.y-footprint.minY
         return transform
     }
+    /// Sheet-space page placement, applied outside the existing slot rotation.
+    public static func bindingTransform(_ slot: Slot) -> CGAffineTransform {
+        CGAffineTransform(a:slot.bindingScale,b:0,c:0,d:slot.bindingScale,
+            tx:slot.x*(1-slot.bindingScale)+slot.bindingTranslation.x,
+            ty:slot.y*(1-slot.bindingScale)+slot.bindingTranslation.y)
+    }
     public static func hasExplicitBox(_ key: String, page: CGPDFPage) -> Bool {
         guard let dictionary = page.dictionary else { return false }
         var array: CGPDFArrayRef?

@@ -49,6 +49,8 @@ public enum PDFExporter {
         let date = Date()
         let dateLabel = marks.sheetInfo && sheetInfo.date ? PDFSheetInfoContext.formattedDate(date) : ""
         var notes: [String] = PDFSerialCodeValidation.warnings(plan: plan)
+        let bindingWarnings = PDFBindingStripInspector.warnings(plan:plan,url:source.url,cache:source.bindingStripCache)
+        notes += Array(Set((plan.displayIssues.filter { $0.code == .bindingAllowance }+bindingWarnings).map(\.message))).sorted()
         let keepBlankBacks = plan.hasBackContent && includeBlankBacks
         var sheetCount = 0, pageCount = 0
         var omittedBacks = false
@@ -201,8 +203,8 @@ public enum PDFExporter {
         }
         for side in [sheet.front,sheet.back] {
             for slot in side.slots {
-                guard [slot.x,slot.y,slot.size.width,slot.size.height,slot.artworkOffset.x,slot.artworkOffset.y].allSatisfy(\.isFinite),
-                      slot.size.width > 0,slot.size.height > 0,slot.rotation%90 == 0 else { throw PDFExportError.invalidGeometry }
+                guard [slot.x,slot.y,slot.size.width,slot.size.height,slot.artworkOffset.x,slot.artworkOffset.y,slot.bindingScale,slot.bindingTranslation.x,slot.bindingTranslation.y].allSatisfy(\.isFinite),
+                      slot.bindingScale>0,slot.bindingScale<=1,slot.size.width > 0,slot.size.height > 0,slot.rotation%90 == 0 else { throw PDFExportError.invalidGeometry }
                 if let clip = slot.artworkClip {
                     guard [clip.origin.x,clip.origin.y,clip.size.width,clip.size.height].allSatisfy(\.isFinite),
                           clip.size.width > 0,clip.size.height > 0 else { throw PDFExportError.invalidGeometry }

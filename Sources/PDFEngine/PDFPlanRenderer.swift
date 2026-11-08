@@ -71,7 +71,8 @@ public enum PDFPlanRenderer {
                                 overlays: [any PDFSlotOverlay] = []) throws {
         context.saveGState()
         defer { context.restoreGState() }
-        let transform = PDFPreviewDrawing.slotTransform(slot)
+        let placementTransform = PDFPreviewDrawing.bindingTransform(slot)
+        let transform = PDFPreviewDrawing.slotTransform(slot).concatenating(placementTransform)
         let trim = PDFPreviewDrawing.localTrim(slot)
         var localClip = trim
         if let clip = slot.artworkClip {
@@ -79,7 +80,6 @@ public enum PDFPlanRenderer {
             context.clip(to: bounds)
             localClip = bounds.applying(transform.inverted())
         }
-        context.concatenate(transform)
         func extensionsFor(_ phase: PDFOverlayPhase) throws {
             let art = phase == .underArtwork ? localClip.offsetBy(dx:-slot.artworkOffset.x,dy:-slot.artworkOffset.y) : localClip
             let placement = PDFSlotContext(slot:slot,reference:reference,repetition:repetition,trimRect:trim,artworkRect:art,sourcePage:page)
@@ -90,6 +90,8 @@ public enum PDFPlanRenderer {
         }
         func artwork() throws {
             context.saveGState(); defer { context.restoreGState() }
+            context.concatenate(placementTransform)
+            context.concatenate(PDFPreviewDrawing.slotTransform(slot))
             context.translateBy(x:slot.artworkOffset.x,y:slot.artworkOffset.y)
             try extensionsFor(.underArtwork)
             if slot.sourcePageNumber != nil {
@@ -100,6 +102,7 @@ public enum PDFPlanRenderer {
             }
         }
         try artwork()
+        context.concatenate(PDFPreviewDrawing.slotTransform(slot))
         try extensionsFor(.overArtwork)
     }
     /// Context units are sheet millimetres. Only document content and selected plan marks are drawn.

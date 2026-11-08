@@ -14,8 +14,13 @@ struct LeafInspectorView: View {
                 }
                 Toggle(model.autoLabel("90° döndürmeye izin ver",.allowRotation),isOn:model.autoBinding($model.project.stepAndRepeat.allowRotation,.allowRotation)).automaticReset(model,.allowRotation)
                 input("Cilt payı (mm)",settings.allowance)
+                Picker("Cilt payı davranışı",selection:Binding(get:{ model.project.leafSettings.behavior },set:{ model.project.leafSettings.behavior = $0; model.overlays.pressGuides = true; model.overlays.safeArea = true })) {
+                    Text("Koru").tag(BindingAllowanceBehavior.preserve)
+                    Text("Küçült").tag(BindingAllowanceBehavior.shrink)
+                    Text("Kaydır").tag(BindingAllowanceBehavior.shift)
+                }
                 if (model.project.leafSettings.allowance ?? 0)==0 { Text("Cilt payı girilmedi; makinenizin gerektirdiği payı girin.").foregroundStyle(.orange) }
-                Text("PDF ölçüsü ve artwork korunur. Cilt payı güvenli alanı içeri taşır; turuncu sınır önizlemede gösterilir.").font(.caption)
+                Text("Kesim ölçüsü korunur. Koru: artwork değişmez. Küçült: güvenli alana orantılı sığdırır. Kaydır: cilt kenarından uzaklaştırır; taşan artwork kırpılmaz.").font(.caption)
                 Toggle("Delik işaretlerini çıktıya ekle",isOn:Binding(get:{ model.project.leafSettings.holes },set:{ model.project.leafSettings.holes = $0; model.overlays.punch = true }))
                 if model.project.leafSettings.holes {
                     input("Delik aralığı (mm)",settings.pitch)

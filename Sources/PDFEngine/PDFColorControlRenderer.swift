@@ -66,7 +66,7 @@ public enum PDFColorControlRenderer {
         let faces: [(Side,Bool)] = [(sheet.front,false),(sheet.back,true)]
         let artwork = faces.flatMap { side,back in
             side.slots.map { slot -> CGRect in
-                let r = slot.artworkClip
+                let r: Rect? = slot.productionProtectedBounds
                 let rect = CGRect(x: r?.origin.x ?? slot.x,y: r?.origin.y ?? slot.y,
                     width: r?.size.width ?? slot.size.width,height: r?.size.height ?? slot.size.height).insetBy(dx: -0.25,dy: -0.25)
                 return back ? reflected(rect) : rect
@@ -95,7 +95,7 @@ public enum PDFColorControlRenderer {
                     var a: CGFloat = 0,d: CGFloat = 0
                     let w = CTLineGetTypographicBounds(line,&a,&d,nil)
                     let rect = CGRect(x: slot.x+slot.size.width/2-w/2-0.25,
-                        y: (slot.artworkClip?.origin.y ?? slot.y)-2-(a+d)/2-0.25,width: w+0.5,height: a+d+0.5)
+                        y: slot.productionProtectedBounds.origin.y-2-(a+d)/2-0.25,width: w+0.5,height: a+d+0.5)
                     protected.append(back ? reflected(rect) : rect)
                 }
             }

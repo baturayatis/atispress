@@ -3,6 +3,12 @@ import Foundation
 public struct LeafBindingSettings: Equatable, Codable, Sendable {
     public enum BindingEdge: String, Codable, Sendable { case left, top, right }
     public var edge: BindingEdge = .left
+    // Optional storage keeps schema 13 and older leaf projects readable.
+    public var placementBehavior: BindingAllowanceBehavior? = nil
+    public var behavior: BindingAllowanceBehavior {
+        get { placementBehavior ?? .preserve }
+        set { placementBehavior = newValue }
+    }
     public var allowance: Double? = nil
     public var holes = false
     public var pitch: Double? = nil
@@ -17,13 +23,14 @@ public struct PunchMark: Equatable, Sendable {
     public var bounds: Rect { Rect(x:center.x-diameter/2,y:center.y-diameter/2,width:diameter,height:diameter) }
 }
 public struct LeafSheetInfo: Equatable, Sendable {
+    public var placementSummary = ""
     public var leafCount: Int
     public var sheetCount: Int
     public var copiesPerSheet: Int
     public var setsPerSheet: Int
     public var blanks: Int
     public var cover: Bool
-    public var summary: String { "\(cover ? "Kapak" : "İç blok"): \(leafCount) yaprak · \(sheetCount) tabaka · \(copiesPerSheet*setsPerSheet) yaprak/tabaka (\(setsPerSheet) takım) · Eklenen boş: \(blanks)" }
+    public var summary: String { "\(cover ? "Kapak" : "İç blok"): \(leafCount) yaprak · \(sheetCount) tabaka · \(copiesPerSheet*setsPerSheet) yaprak/tabaka (\(setsPerSheet) takım) · Eklenen boş: \(blanks)"+(placementSummary.isEmpty ? "" : " · "+placementSummary) }
 }
 extension Project {
     public var isLeafBinding: Bool { binding == .spiral || binding == .wireO }
@@ -115,9 +122,11 @@ public enum LeafPlanner {
                         let frontEdge = rotatedEdge(setting.edge,rotation:frontSlot.rotation,itemBack:frontSlot.itemSide == .back)
                         slot.bindingEdge = back ? reflectedEdge(frontEdge,mirrorX:mirrorX) : frontEdge
                         slot.bindingAllowance = allowance
+                        BindingAllowanceLayout.apply(to:&slot,inset:source.settings.safeAreaInset,behavior:setting.behavior)
                         side.slots[i] = slot
                         if leaf<count { side.marks += guides(slot,inset:source.settings.safeAreaInset) }
                     }
+                    result.issues += BindingAllowanceLayout.warnings(side:side,sheet:sheet.size)
                     if setting.holes {
                         let marks = punches(side:side,sheet:sheet,settings:setting)
                         side.punchMarks = marks.marks
@@ -126,6 +135,8 @@ public enum LeafPlanner {
                     return side
                 }
                 sheet.front = face(template.front,back:false); sheet.back = face(template.back,back:true)
+                let placementSummary = sheet.front.slots.first(where:{ $0.sourcePageNumber != nil })?.bindingPlacementSummary ?? ""
+                sheet.leafInfo?.placementSummary = placementSummary
                 result.sheets.append(sheet)
             }
             if !cover { result.addedBlankPages += odd }
@@ -199,7 +210,7 @@ public enum LeafPlanner {
                 }
                 let bounds = Rect(x:center.x-radius,y:center.y-radius,width:2*radius,height:2*radius)
                 let intersects = side.slots.contains { other in
-                    let b = other.artworkClip ?? Rect(x:other.x,y:other.y,width:other.size.width,height:other.size.height)
+                    let b = other.productionProtectedBounds
                     return bounds.origin.x<b.origin.x+b.size.width && bounds.origin.x+bounds.size.width>b.origin.x && bounds.origin.y<b.origin.y+b.size.height && bounds.origin.y+bounds.size.height>b.origin.y
                 }
                 if intersects || bounds.origin.x<0 || bounds.origin.y<0 || bounds.origin.x+bounds.size.width>sheet.size.width || bounds.origin.y+bounds.size.height>sheet.size.height || output.count>=50_000 { skipped = true; continue }

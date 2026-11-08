@@ -246,6 +246,9 @@ public struct SlotReference: Equatable, Sendable {
     public init(sheet: Int, side: SideKind, slot: Int) { self.sheet = sheet; self.side = side; self.slot = slot }
 }
 public struct Slot: Equatable, Sendable {
+    public var bindingBehavior: BindingAllowanceBehavior = .preserve
+    public var bindingScale: Double = 1
+    public var bindingTranslation = Point(0,0)
     public var bindingEdge: Edge? = nil
     public var bindingAllowance: Double = 0
     public var logicalPageIndex: Int? = nil
@@ -320,7 +323,7 @@ public struct Sheet: Equatable, Sendable {
 public struct ValidationIssue: Equatable, Sendable {
     public enum Severity: Sendable { case error, warning }
     public enum Code: Sendable {
-        case bookSettings, gangLayout, invalidInput, missingBleed, mixedPageSizes, pageCountPadding, exceedsSheet, unsupportedBinding, unsupportedCover, sharedCutBleed, insufficientGutter, serialNumbering
+        case bindingAllowance, bookSettings, gangLayout, invalidInput, missingBleed, mixedPageSizes, pageCountPadding, exceedsSheet, unsupportedBinding, unsupportedCover, sharedCutBleed, insufficientGutter, serialNumbering
     }
     public var severity: Severity
     public var code: Code

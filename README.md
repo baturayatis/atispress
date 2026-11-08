@@ -1677,3 +1677,70 @@ swift test --disable-sandbox --filter Leaf
 ./scripts/build_app.sh
 open "dist/AtışPress.app"
 ```
+
+## Cilt payı davranışı — Koru / Küçült / Kaydır (şema 14)
+
+Spiral/Wire-O'nun **Yaprak cilt** bölümünde **Cilt payı davranışı** seçilir.
+Ayrı kapaklar da aynı davranışı kullanır. Dönüşüm çekirdekte cilt kenarı/payını
+bildiren sayfa yuvasına uygulanır; katlama/creep/sırt hesaplarıyla karıştırılmaz.
+Şu anda bağımsız cilt payı sunan modlar Spiral ve Wire-O'dur.
+
+- **Koru** varsayılandır. Artwork doğal ölçeğinde ve konumunda kalır; önceki
+  projelerin görünümü korunur. Güvenli alan/turuncu cilt kılavuzu değişmez.
+- **Küçült**, bütün sayfayı mevcut güvenli alana **tek bir ölçek katsayısıyla**
+  sığdırır. Katsayı `min(1, güvenliEn / sayfaEn, güvenliBoy / sayfaBoy)` olur.
+  Sayfa cilt kenarının karşı kenarına yaslanır, diğer eksende ortalanır.
+  Örneğin A4 (210×297), sol cilt payı 12 mm ve diğer güvenli alan payı 0 için
+  `198 / 210 = 0,942857…` yani **%94,29 ölçek**; sayfa 198×280,029 mm olur.
+  Genel güvenli alan payı 5 mm ise kullanılabilir en 188 mm ve ölçek **%89,52**
+  olur. Genel güvenli alan da hesaba katılır; hiçbir durumda sayfa büyütülmez.
+- **Kaydır**, sayfayı ölçeklemeden cilt kenarından uzaklaşan yönde tam cilt payı
+  kadar taşır. Yeni konumda artwork eski kesim kutusuna veya güvenli alana
+  kırpılmaz. Kesim/katlama/delik kılavuzları sabit kalır. Komşu ürünle çakışma
+  veya tabaka sınırı aşımı uyarılır; düzen kendiliğinden düzeltilmez. Tabaka dışı
+  içerik fiziksel boyutu sabit PDF sayfasına sığamaz ve çıktı sayfa sınırında
+  kesilir; bunun için daha büyük tabaka/kenar payı gerekir. Bu uyarı tek başına
+  çıktıyı engellemez.
+
+Özet ve tabaka listesi ölçeği veya mm kaydırmayı gösterir. Ön/arka çevirme,
+ürün dönüşü ve cilt kenarı, **fiziksel tabaka koordinatlarında** birlikte
+hesaplanır. Kaydırma/ölçek arka yüzde de aynı fiziksel taraftadır. Kaynak PDF
+sayfasının konum dönüşümü uygulanır: yüksek yakınlaştırma, düşük yakınlaştırma
+önizleme raster önbelleği ve vektör PDF aynı planı kullanır. Sayfa rastere
+çevrilerek dışa aktarılmaz; kaynak metin vektör metin olarak kalır. Mevcut taşma
+üretimi de sayfa ile birlikte taşınır/ölçeklenir; kesim ve güvenli alan kılavuzları
+hareket etmez. Renk/işaret/şerit koruma geometrisi yeni artwork alanını kullanır.
+
+**Koru şerit kontrolü:** sıfırdan büyük cilt payında ilgili kaynak sayfanın cilt
+şeridi arka planda beyaz üzerine render edilerek beyaz olmayan içerik aranır.
+Ön/arka yerel kenarlar ve PDF'nin dönüşü hesaba katılır. Aynı şerit tekrar
+hesaplanmaz; sonuç kaynak başına sınırlı önbellekte tutulur. Bulunan sayfalar tek
+uyarıda listelenir; okunamayan şerit **kontrol edilemedi** olarak bildirilir.
+Aynı denetim doğrudan PDF dışa aktarımında da çalışır ve sonuç çıktı notlarına
+eklenir. Kontrol uyarıdır, çıktı engeli değildir.
+
+Bu kontrol en fazla **1024×128 piksel** örnekler; beyaza çok yakın veya çok ince
+ayrıntıları kaçırabilir. Transparan içerik beyaz üzerinde değerlendirilir; bu bir
+matbaa sertifikasyonu, içerik silme veya boş alan garantisi değildir. Fiziksel
+prova gerekir. Kaydır'da komşu artwork üzerindeki çakışmalar otomatik kırpılmaz;
+uyarıyı gidererek üretime geçin.
+
+`.atispress` şeması **14**: davranış `leafBinding.placementBehavior` olarak
+saklanır. Alanı olmayan **1–13** sürümleri **Koru** ile açılır. Sayfa dönüşümleri,
+şerit denetimi ve yerleşim özetleri kaynak/ayarlar üzerinden tekrar üretilir;
+kaynak dosyalar değiştirilmez.
+
+Doğrulama: **230 test** geçti. A4 + 12 mm ölçeği ve güvenli alan payı, bütün cilt
+kenarları/çevirme/maşa kombinasyonlarında arka yüz eşleşmesi, kırpılmadan kayma ve
+taşma uyarısı, dolu/boş şerit ayrımı ve bilinmeyen sonuç, vektör metin konumu ve
+font ölçeği, düşük/yüksek yakınlaştırma ile PDF eşleşmesi, canlı uyarılar ve her
+üç davranışın kaydet/aç turu kapsanır. Mevcut testler korunmuştur.
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+swift test --disable-sandbox --filter Binding
+./scripts/build_app.sh
+open "dist/AtışPress.app"
+```
