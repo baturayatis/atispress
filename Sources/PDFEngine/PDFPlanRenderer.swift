@@ -77,23 +77,26 @@ public enum PDFPlanRenderer {
             localClip = bounds.applying(transform.inverted())
         }
         context.concatenate(transform)
-        let placement = PDFSlotContext(slot: slot,reference: reference,repetition: repetition,trimRect: trim,
-                                       artworkRect: localClip,sourcePage: page)
         func extensionsFor(_ phase: PDFOverlayPhase) throws {
+            let art = phase == .underArtwork ? localClip.offsetBy(dx:-slot.artworkOffset.x,dy:-slot.artworkOffset.y) : localClip
+            let placement = PDFSlotContext(slot:slot,reference:reference,repetition:repetition,trimRect:trim,artworkRect:art,sourcePage:page)
             for overlay in overlays where overlay.phase == phase {
-                context.saveGState()
-                defer { context.restoreGState() }
-                try overlay.draw(in: context,placement: placement)
+                context.saveGState(); defer { context.restoreGState() }
+                try overlay.draw(in:context,placement:placement)
             }
         }
-        try extensionsFor(.underArtwork)
-        if slot.sourcePageNumber != nil {
-            if let raster {
-                let r = raster.normalizedArtworkBounds
-                context.draw(raster.cgImage,in: CGRect(x: r.minX*trim.width,y: r.minY*trim.height,
-                                                       width: r.width*trim.width,height: r.height*trim.height))
-            } else if let page { PDFPreviewDrawing.draw(page,in: context,rect: trim) }
+        func artwork() throws {
+            context.saveGState(); defer { context.restoreGState() }
+            context.translateBy(x:slot.artworkOffset.x,y:slot.artworkOffset.y)
+            try extensionsFor(.underArtwork)
+            if slot.sourcePageNumber != nil {
+                if let raster {
+                    let r = raster.normalizedArtworkBounds
+                    context.draw(raster.cgImage,in:CGRect(x:r.minX*trim.width,y:r.minY*trim.height,width:r.width*trim.width,height:r.height*trim.height))
+                } else if let page { PDFPreviewDrawing.draw(page,in:context,rect:trim) }
+            }
         }
+        try artwork()
         try extensionsFor(.overArtwork)
     }
     /// Context units are sheet millimetres. Only document content and selected plan marks are drawn.

@@ -2,6 +2,7 @@ public enum ImpositionPlanner {
     private struct Unit {
         var columns: Int
         var rows: Int
+        var leafIndex: Int? = nil
         var front: [Slot]
         var back: [Slot]
     }
@@ -19,8 +20,8 @@ public enum ImpositionPlanner {
         if let auto = project.autoLayout, !auto.trimTolerance.isFinite || !(0...1).contains(auto.trimTolerance) {
             return ImpositionPlan(issues: [ValidationIssue(.error,.invalidInput,"Tam sayfa toleransı 0–1 mm aralığında olmalıdır.")])
         }
-        var result = layoutPlan(project)
-        if project.binding != .gang { addFitDiagnostics(project,to: &result) }
+        var result = project.isBooklet && project.book != nil ? BookPlanner.plan(project) : layoutPlan(project)
+        if project.binding != .gang && !(project.isBooklet && project.book != nil) { addFitDiagnostics(project,to: &result) }
         for index in result.sheets.indices {
             result.sheets[index].gripperEdge = project.sheet.gripperEdge
             result.sheets[index].backFlipsX = (project.binding == .stepAndRepeat || project.binding == .gang) ? repeatMirrorsX(project) : project.settings.turnMethod != .workAndTumble
@@ -92,7 +93,7 @@ public enum ImpositionPlanner {
         let units: [Unit]
         if project.binding == .saddleStitch {
             units = (0..<(total / 4)).map { i in
-                Unit(columns: 2, rows: 1,
+                Unit(columns: 2, rows: 1,leafIndex: i,
                      front: [makeSlot(pages[total - 1 - 2*i], 0, 0, trim, spec.gutter, 0),
                              makeSlot(pages[2*i], 1, 0, trim, spec.gutter, 0)],
                      back: [makeSlot(pages[2*i + 1], 0, 0, trim, spec.gutter, 0),
@@ -119,6 +120,8 @@ public enum ImpositionPlanner {
                 func placed(_ slots: [Slot], shift: Point = Point(0, 0)) -> [Slot] {
                     slots.map { slot in
                         var p = slot
+                        p.bookLeafIndex = unit.leafIndex
+                        p.bookPanelIsLeft = unit.leafIndex == nil ? nil : slot.x == 0
                         let left = slot.x > 0 ? min(s.bleed,spec.gutter/2) : s.bleed
                         let bottom = slot.y > 0 ? min(s.bleed,spec.gutter/2) : s.bleed
                         let right = slot.x+trim.width < rawSize.width-0.000001 ? min(s.bleed,spec.gutter/2) : s.bleed

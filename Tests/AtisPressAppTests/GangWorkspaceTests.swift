@@ -45,7 +45,7 @@ final class GangWorkspaceTests: XCTestCase {
         XCTAssertTrue(workspace.plan.canExport,"\(workspace.plan.issues)")
         let before = workspace.plan.sheets
         let url = folder.appendingPathComponent("gang.atispress"); try workspace.saveProject(as:url)
-        let file = try ProjectDocument.decode(Data(contentsOf:url)); XCTAssertEqual(file.version,9); XCTAssertNil(file.state.source); XCTAssertEqual(file.state.gangSources?.count,2)
+        let file = try ProjectDocument.decode(Data(contentsOf:url)); XCTAssertEqual(file.version,ProjectDocument.currentVersion); XCTAssertNil(file.state.source); XCTAssertEqual(file.state.gangSources?.count,2)
         XCTAssertEqual(file.state.gangSources?.map(\.reference.path),[a.path,b.path]); XCTAssertFalse(String(data:try Data(contentsOf:url),encoding:.utf8)!.contains("AtisPress-gang-"))
         let opened = model(); try await opened.loadProject(at:url); try await settle(opened)
         XCTAssertEqual(opened.project,workspace.project); XCTAssertEqual(opened.plan.sheets,before); XCTAssertFalse(opened.isModified)

@@ -114,8 +114,8 @@ are allowed. `nil` in a slot means a generated blank. `ImpositionPlan` contains
 sheets, front/back slots, geometry marks, signature size, blank count and issues.
 `Slot.signature` is zero-based. An optional `SlotReference` identifies the
 zero-based sheet/slot and face for diagnostics. Current job-wide issues omit it.
-Errors disable export; warnings do not. Unsupported bindings and non-included
-cover modes return explicit errors. Mixed trim sizes are rejected rather than
+Errors disable export; warnings do not. Unsupported bindings return explicit errors. Legacy projects without `BookSettings`
+retain the included-cover path; the measured book workflow below enables independent covers. Mixed trim sizes are rejected rather than
 silently scaled. Bleed that is absent, unknown or insufficient produces a warning.
 
 ## Geometry and production contract
@@ -161,8 +161,9 @@ silently scaled. Bleed that is absent, unknown or insufficient produces a warnin
   trim rectangle are omitted. The plan clips artwork and bleed guides at the
   midpoint of shared gutters/folds, so neighboring artwork cannot overlap.
   Safe area is a configurable inset.
-- Creep and spine thickness are intentionally only protocols, marked TODO, with
-  no unverified stock/adhesive formula or correction applied.
+- Measured book settings implement the existing creep/spine protocols using only
+  explicit paper inputs. Legacy files retain zero correction until book settings
+  are enabled. See **Kitap modu** below for formulas and approximation limits.
 
 Physical folding semantics were checked against Heidelberg's
 [Folding Scheme Editor](https://onlinehelp.prinect-lounge.com/Prinect_Signa_Station/Version2021/en/Prinect/Editors/Editors-10.htm),
@@ -286,8 +287,8 @@ Native pinch zoom uses [NSScrollView magnification](https://developer.apple.com/
 
 ### Verification and current limits
 
-`swift test --disable-sandbox`: **168 XCTest tests, zero failures** (68 core,
-49 PDF reading/drawing/export, 51 workspace/project persistence regression tests). GUI smoke checks
+`swift test --disable-sandbox`: **182 XCTest tests, zero failures** (76 core,
+51 PDF reading/drawing/export, 55 workspace/project persistence regression tests). GUI smoke checks
 used vector fixtures with 12 and 1,004 pages: import, scrolling thumbnails, sheet
 navigation, page selection/reordering/exclusion, binding change, front/back,
 shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
@@ -299,7 +300,8 @@ shared-plate mirroring, bleed warnings/red slot highlighting, zoom and fit.
 - No PDF/X, separation, overprint or color-managed press-proof simulation.
 - Native file-dialog chrome and standard system commands follow the macOS language.
 - Existing core limits remain: regular-grid packing, one explicit fold sequence per
-  signature size, included covers only, no creep/spine correction, unsupported bindings.
+  signature size and unsupported bindings. Legacy included-cover geometry is preserved
+  until the measured book workflow below is enabled.
 - Standard PDF export and versioned project save/open are implemented; printing and installer distribution are not.
 
 ## Step & repeat — Tekrarlı yerleşim
@@ -537,7 +539,8 @@ The existing booklet/fold/grid tests remain unchanged and pass.
   the rendered PDF page content is imposed. Unlock encrypted input externally.
 - A press sheet contains multiple finished trims, so only the sheet MediaBox is
   emitted as page metadata; individual trim/bleed extents remain plan geometry.
-- Existing core packing, binding, cover and creep/spine limits are unchanged.
+- At that stage, core packing/binding limits were unchanged. The measured book
+  workflow below now adds independent covers, spine and creep.
 
 ## Generated bleed
 
@@ -601,7 +604,7 @@ Opening an existing project preserves its own mode, preset and custom dimensions
 - **Kaydet / ⌘S** saves the current project; **Farklı Kaydet… / ⇧⌘S** writes a new
   project and switches subsequent saves to it. Source PDFs cannot be overwritten.
   Project writes are atomic. Empty projects can also be saved.
-- Version 9 is readable JSON with top-level `version: 9` and `state`; version 1–8
+- Version 10 is readable JSON with top-level `version: 10` and `state`; version 1–9
   projects remain readable. Missing serial fields default to empty; old projects
   retain their saved layout values when opened. `state.project`
   contains ordered selected source-page metadata, binding/layout mode, blank-page
@@ -821,7 +824,7 @@ Generated bleed suppresses missing-bleed warnings when enabled and needed.
 Displayed identical warnings are grouped with counts and compressed source-page
 ranges, e.g. **12 sayfada taşma payı eksik: 1-12**; detailed slot references remain
 available internally. Existing preview/export alignment and project roundtrip
-regressions remain active. Run `swift test --disable-sandbox` for all 168 tests.
+regressions remain active. Run `swift test --disable-sandbox` for all 182 tests.
 Native interactive smoke testing has not been rerun for these controls.
 
 ## Empty reverse export and repeat arrangement
@@ -1031,7 +1034,7 @@ front/back alignment, target/patch sizes, no-room warnings and partial placement
 info-strip clearance, independent preview/export output, a real AppKit preview
 pixel change, production defaults/manual overrides, and version-7 roundtrip with
 version-6 compatibility. All prior tests remain; the active-schema assertion now
-uses `ProjectDocument.currentVersion`. That feature set passed 142 tests; the current suite has 168. Interactive desktop
+uses `ProjectDocument.currentVersion`. That feature set passed 142 tests; the current suite has 182. Interactive desktop
 smoke testing has not been rerun; preview drawing is exercised in XCTest.
 
 ```sh
@@ -1203,3 +1206,119 @@ preservation, all turn/gripper combinations with mixed backs, lazy 100,000-copy
 numbering, bounded eight-job search, mark clearance, vector multi-source serial
 and QR export, preview tint/drag behavior, linked-source overwrite protection,
 missing-link recovery, schema-9 roundtrips, and the existing legacy project tests.
+
+
+## Kitap modu — bağımsız kapak, sırt ve creep (schema 10)
+
+Run the app, import the body PDF, choose **Tel dikiş** or **Tutkallı cilt**, then
+click **Kitap ayarlarını aç**. This explicit opt-in preserves the exact layout of
+existing projects. No stock caliper or binding factor is guessed. The new book
+workflow uses the selected press stock; the stock preset and orientation remain
+editable, and **Otomatik düzenle** recalculates the book without replacing paper
+measurements or automatically selecting another stock.
+
+**Kapak modu**:
+
+- **İç sayfalara dahil** initially selects the first two and last two PDF pages as
+  front / inside front / inside back / back. These roles can be overridden. Those
+  four selected cover faces are removed from the interior block and imposed as
+  an independent cover, in accordance with the independent-cover workflow.
+- **Hariç — ayrı bas** requires explicit role selection from the body PDF. Each
+  inside face can be **Boş**. Only selected cover pages are removed from the body;
+  other selected PDF pages remain interior pages. The **İlk / son kapak yüzlerini
+  seç** action fills all four roles explicitly.
+- **Ayrı PDF** loads a linked cover PDF. The original body PDF remains entirely
+  interior content. Choose **Tek tek kapak yüzleri** for four individual panels,
+  or **Hazır açılım (dış / iç)** for an outer spread plus an optional inner spread.
+  The page menus identify the original PDF filename and page number. **Kapak
+  önizle** / **İç sayfalar** navigate the independently labeled sheet sections.
+  The existing **Her tabaka — ayrı PDF** export also writes the cover sheet to
+  its own file.
+
+The project stores caliper either as **µm**, or **g/m² × cilt katsayısı (cm³/g)**.
+For the latter, the product is micrometres; divide by 1000 to obtain millimetres.
+Both inputs must be supplied; there is no default factor. The inspector and
+preview show the entered units and the resulting mm value. Inactive input-mode
+values are retained but are not used. Missing thickness is labeled **hesaplanamadı**.
+
+For perfect binding, `MeasuredSpineCalculator: SpineThicknessCalculating` uses:
+
+```
+spine_mm = (interior_pages / 2) × interior_caliper_mm
+           + cover_allowance_mm + adhesive_allowance_mm
+```
+
+The interior page count includes the blank pages actually required by the chosen
+folding signature, and excludes separately selected cover faces. Both allowances
+are user inputs, **default 0 mm**, explicitly labeled in the UI. Cover-paper
+caliper is displayed independently and is never silently added as an allowance.
+For example, 100 interior pages at 120 µm plus 0.4 mm cover allowance and 0.6 mm
+adhesive allowance produce **7.0 mm**. Missing interior caliper blocks export.
+
+The cover trim spread is **left flap + back + spine + front + right flap**;
+height equals the body trim height. Existing job bleed is added around its outer
+perimeter. The preview gives spine width, trim spread size, bleed-inclusive size,
+individual flap widths, paper inputs and allowances. Inner panels are reversed
+appropriately behind the outer cover. Optional flaps default to 0 mm. Individual
+panel mode leaves spine and flaps unprinted; use a supplied full-spread PDF for
+printed spine/flap artwork. Panel trim mismatches block export. A supplied spread
+that differs by more than 0.1 mm generates a warning with the exact actual and
+computed sizes; it stays at its **native scale** and is clipped to the computed
+spread. Its artwork is never silently stretched to fit.
+
+For saddle stitch, enable **Creep açık** after entering both interior and cover
+caliper. `LinearCreepCalculator: CreepCalculating` is a deliberately simple,
+additive nested-leaf approximation. The independently imposed outer cover stays
+at zero compensation. For zero-based interior leaf `i`, outer to inner:
+
+```
+shift_mm(i) = cover_caliper_mm + i × interior_caliper_mm
+maximum_mm = cover_caliper_mm + (interior_leaf_count − 1) × interior_caliper_mm
+```
+
+Each page's artwork shifts toward the fold: +local X on the left panel, −local X
+on the right panel. Rotation and same-plate reflection transform those vectors
+with the existing slot transform. Compensation is indexed by **logical nested
+leaf**, not press-sheet index, because multiple distinct leaves may share a press
+sheet. Trim boxes, fold/crop marks, sheet size and neighboring clipping bounds
+stay fixed. Vector artwork and generated bleed follow the same displacement in
+preview and PDF export. Missing caliper, creep enabled on perfect binding,
+nonpositive measurements, invalid selections, mismatched panel sizes or a shift
+reaching half the page width block export; invalid data is never written back as
+a guessed value. Fit failures retain diagnostic outlines and section-aware links.
+
+**This is a simple approximation, not a calibrated bindery model. Verify it with
+a physical folded, trimmed test before production.** It does not account for
+paper compression, nesting pressure, grain, moisture, ink loading, fold swelling,
+adhesive chemistry or machine-specific compensation. There is no automatic
+measurement or spine artwork editor in part 1. Saddle-stitch flaps are not part
+of this workflow. Both cover modes sourced from the body PDF use independent
+cover sheets; turn off the new book workflow by opening an unchanged legacy
+project if the original included-cover signature behavior is required.
+
+`Project.book` saves every paper input, cover role, cover artwork mode, allowance,
+flap, creep toggle, cover source ID and PDF-page domain. Schema 10 adds optional
+`state.linkedSources` for body/cover PDF bookmarks, names, sizes and page counts;
+the schema-9 gang source catalog remains readable. Original PDFs stay linked,
+with a temporary vector-preserving combined document rebuilt on open. Source
+PDFs cannot be overwritten by project or export output. Relinking a missing
+cover uses the Turkish source dialog; a failed/canceled relink leaves the active
+project intact. Loading a different cover retains earlier source links in the
+catalog for recovery, but their pages remain excluded from the interior block.
+Versions **1–9** still open with unchanged saved layout and no caliper assumptions.
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+./scripts/build_app.sh
+open "dist/AtışPress.app"
+```
+
+The new tests cover the measured spine formula, gram-to-caliper conversion,
+monotonic creep across logical leaves (including multiple leaves per press
+sheet), fixed trim/clip geometry, all turn styles, cover selection and independent
+ordering, spread/flap sizes, native-scale mismatch warnings, diagnostic section
+links, vector text export positions and image-XObject absence, live preview pixel
+changes, schema-10 roundtrips, separate-cover relinking/overwrite protection, and
+schema-9 compatibility. The complete suite has **182 tests**.

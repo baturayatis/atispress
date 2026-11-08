@@ -145,6 +145,7 @@ final class Workspace: ObservableObject {
     var currentSide: Side? { currentSheet.map { side == .front ? $0.front : $0.back } }
     var highlightedSlots: Set<Int> {
         if project.binding == .gang,plan.issues.contains(where: { $0.severity == .error && $0.code == .gangLayout }) { return Set(currentSide?.slots.indices.map { $0 } ?? []) }
+        if project.isBooklet && project.book != nil,plan.issues.contains(where:{ $0.severity == .error && $0.code == .bookSettings }) { return Set(currentSide?.slots.indices.map { $0 } ?? []) }
         return Set(plan.issues.compactMap { issue in
             guard let ref = issue.slot, ref.sheet == sheetIndex, ref.side == side else { return nil }
             return ref.slot
@@ -337,7 +338,7 @@ final class Workspace: ObservableObject {
                 var baseline = project
                 var prepared: AutoLayoutResult
                 while true {
-                    var snapshot = baseline; snapshot.pages = source.pages.map(\.sourcePage); snapshot.gang = nil
+                    var snapshot = baseline; snapshot.pages = source.pages.map(\.sourcePage); snapshot.gang = nil; snapshot.book?.coverSourceID = nil; snapshot.book?.coverPDFPages = []; snapshot.book?.auxiliaryPages = []; snapshot.book?.selection = CoverSelection()
                     if snapshot.autoLayout == nil { snapshot.autoLayout = .legacy }
                     prepared = await Task.detached(priority: .userInitiated) { SmartAutoLayout.arrange(snapshot) }.value
                     guard !Task.isCancelled,importRevision == token else { return }
@@ -441,7 +442,7 @@ extension Workspace {
     var state: ProjectState {
         ProjectState(project: project,source: sourceReference,order: order,included: included,
                      overlays: overlays,sheetPreset: sheetPreset,sheetIndex: sheetIndex,side: side,
-                     bookletGutter: bookletGutter,repetition: repetition,gangSources: gangAssets.isEmpty ? nil : gangAssets.map(\.saved),repeatGutter: repeatGutter,gangGutter: project.binding == .gang ? project.sheet.gutter : gangGutter)
+                     bookletGutter: bookletGutter,repetition: repetition,gangSources: gangAssets.isEmpty || project.book?.coverSourceID != nil ? nil : gangAssets.map(\.saved),repeatGutter: repeatGutter,gangGutter: project.binding == .gang ? project.sheet.gutter : gangGutter,linkedSources: project.book?.coverSourceID == nil ? nil : gangAssets.map(\.saved))
     }
     private func refreshModified() {
         guard !restoring else { return }
@@ -537,7 +538,7 @@ extension Workspace {
         var loadedSource: PDFSource?
         var relinked = false
         var assets: [GangAsset] = []
-        if let references = snapshot.gangSources,!references.isEmpty {
+        if let references = snapshot.linkedSources ?? snapshot.gangSources,!references.isEmpty {
             guard Set(references.map(\.id)).count == references.count else { throw ProjectFileError.invalidSelection }
             for saved in references {
                 var sourceURL = saved.reference.resolve()
@@ -551,7 +552,7 @@ extension Workspace {
                 let reference = try ProjectSource.capture(sourceURL!,createBookmark: bookmarkCreator)
                 assets.append(GangAsset(saved: GangSourceReference(id: saved.id,reference: reference,pageCount: saved.pageCount),source: loaded))
             }
-            loadedSource = try await PDFSource.combine(assets.map(\.source))
+            loadedSource = try await PDFSource.combine(assets.map(\.source),displayName:snapshot.project.book?.coverSourceID == nil ? nil : "Kitap ve kapak")
             try snapshot.validateSelection(pageCount: loadedSource!.pages.count)
             guard snapshot.project.pages.allSatisfy({ loadedSource!.pages[$0.number-1].sourcePage == $0 }) else { throw ProjectFileError.sourceMismatch }
             for job in snapshot.project.gang?.jobs ?? [] {
@@ -561,7 +562,14 @@ extension Workspace {
                     guard page.number>start,page.number<=start+assets[assetIndex].saved.pageCount,loadedSource!.pages[page.number-1].sourcePage==page else { throw ProjectFileError.sourceMismatch }
                 }
             }
-            snapshot.gangSources = assets.map(\.saved)
+            if let book = snapshot.project.book,let id = book.coverSourceID {
+                guard let index = assets.firstIndex(where:{ $0.saved.id==id }) else { throw ProjectFileError.sourceMismatch }
+                let offset = assets.prefix(index).reduce(0) { $0+$1.saved.pageCount }
+                guard book.coverPDFPages.allSatisfy({ $0>offset && $0<=offset+assets[index].saved.pageCount }),
+                      book.auxiliaryPages.allSatisfy({ $0>0 && $0<=loadedSource!.pages.count }) else { throw ProjectFileError.sourceMismatch }
+            }
+            if snapshot.linkedSources != nil { snapshot.linkedSources = assets.map(\.saved) }
+            else { snapshot.gangSources = assets.map(\.saved) }
         } else if let reference = snapshot.source {
             var sourceURL = reference.resolve()
             if sourceURL == nil {
@@ -590,7 +598,7 @@ extension Workspace {
         restoring = false
         // Refreshing a valid/stale bookmark alone is not a user edit; relinking is.
         savedState = snapshot; isModified = relinked
-        if relinked { savedState?.source = file.state.source; savedState?.gangSources = file.state.gangSources }
+        if relinked { savedState?.source = file.state.source; savedState?.gangSources = file.state.gangSources; savedState?.linkedSources = file.state.linkedSources }
         schedulePlan()
         zoomFactor = 0; zoomAction += 1
         recordRecentFile(url)
@@ -664,6 +672,7 @@ extension Workspace {
     func autoArrange(resetOverrides: Bool = true) {
         guard !loading,!exporting,!autoArranging,!project.pages.isEmpty else { return }
         NSApp?.keyWindow?.makeFirstResponder(nil)
+        if project.isBooklet && project.book != nil { schedulePlan(); return }
         if project.binding == .gang { project.gang?.mode = .automatic; project.gang?.blocks = []; schedulePlan(); return }
         let snapshot = project
         autoArranging = true
@@ -990,5 +999,66 @@ extension Workspace {
         guard let i = gangAssets.firstIndex(where: { $0.saved.id==id }) else { return [] }
         let offset = gangAssets.prefix(i).reduce(0) { $0+$1.saved.pageCount }
         return gangAssets[i].source.pages.map { page in var p = page.sourcePage; p.number += offset; return p }
+    }
+}
+
+extension Workspace {
+    var bookSettings: BookSettings {
+        get { project.book ?? BookSettings() }
+        set { project.book = newValue }
+    }
+    func enableBookSettings() { project.book = BookSettings() }
+    var bookCoverDomain: [SourcePage] { project.bookCoverPages }
+    func coverPageLabel(_ number: Int) -> String {
+        var offset = 0
+        for asset in gangAssets {
+            if number>offset && number<=offset+asset.saved.pageCount { return "\(number-offset) · \(asset.saved.reference.fileName)" }
+            offset += asset.saved.pageCount
+        }
+        return "\(number)"
+    }
+    func chooseCoverPDF() {
+        guard source != nil,!loading,!exporting,project.isBooklet else { return }
+        let panel = NSOpenPanel(); panel.allowedContentTypes = [.pdf]; panel.allowsMultipleSelection = false
+        panel.title = "Ayrı kapak PDF’sini seçin"; panel.prompt = "Kapak yükle"
+        panel.begin { [weak self] response in if response == .OK,let url = panel.url { self?.loadCoverPDF(url) } }
+    }
+    func loadCoverPDF(_ url: URL) {
+        guard let current = source,!loading,!exporting,project.isBooklet else { return }
+        loading = true; error = nil
+        importTask = Task {
+            do {
+                let cover = try await PDFSource.open(url)
+                var assets = gangAssets
+                if assets.isEmpty {
+                    let reference = try ProjectSource.capture(current.url,createBookmark:bookmarkCreator)
+                    assets = [GangAsset(saved:GangSourceReference(id:UUID(),reference:reference,pageCount:current.pages.count),source:current)]
+                }
+                let offset = assets.reduce(0) { $0+$1.saved.pageCount },id = UUID()
+                let reference = try ProjectSource.capture(url,createBookmark:bookmarkCreator)
+                assets.append(GangAsset(saved:GangSourceReference(id:id,reference:reference,pageCount:cover.pages.count),source:cover))
+                let combined = try await PDFSource.combine(assets.map(\.source),displayName:"Kitap ve kapak")
+                try Task.checkCancellation()
+                guard project.isBooklet else { throw CancellationError() }
+                var next = project,book = next.book ?? BookSettings()
+                book.coverSourceID = id; book.coverPDFPages = cover.pages.map { $0.number+offset }
+                book.auxiliaryPages = Array(Set(book.auxiliaryPages+book.coverPDFPages)).sorted()
+                book.selection = CoverSelection()
+                next.book = book; next.coverMode = .separate
+                let selected = included.union(book.coverPDFPages)
+                let newOrder = order+book.coverPDFPages
+                next.pages = newOrder.filter { selected.contains($0) }.map { combined.pages[$0-1].sourcePage }
+                gangAssets = assets; source = combined; sourceReference = nil
+                order = newOrder; included = selected; selectedPages = []
+                project = next; sheetIndex = 0; repetition = 0; schedulePlan(); recordRecentFile(url)
+            } catch is CancellationError { } catch { self.error = error.localizedDescription }
+            loading = false
+        }
+    }
+}
+
+extension Workspace {
+    func showBookSection(_ section: BookSheetInfo.Section) {
+        if let index = displaySheets.firstIndex(where:{ $0.bookInfo?.section == section }) { sheetIndex = index }
     }
 }

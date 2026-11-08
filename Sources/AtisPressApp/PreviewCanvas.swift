@@ -179,10 +179,12 @@ final class SheetCanvasView: NSView {
                 try? PDFPlanRenderer.drawSlot(slot,page: page,in: context,
                     reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),repetition: repetition,raster: raster,overlays: extensions)
             } else {
-                context.setFillColor(NSColor(white: 0.93,alpha: 1).cgColor); context.fill(rect)
-                context.setStrokeColor(NSColor.lightGray.cgColor); context.setLineWidth(0.35)
-                context.move(to: rect.origin); context.addLine(to: CGPoint(x: rect.maxX,y: rect.maxY))
-                context.move(to: CGPoint(x: rect.minX,y: rect.maxY)); context.addLine(to: CGPoint(x: rect.maxX,y: rect.minY)); context.strokePath()
+                context.setFillColor((slot.bookRegion == nil ? NSColor(white:0.93,alpha:1) : NSColor.white).cgColor); context.fill(rect)
+                if slot.bookRegion == nil {
+                    context.setStrokeColor(NSColor.lightGray.cgColor); context.setLineWidth(0.35)
+                    context.move(to: rect.origin); context.addLine(to: CGPoint(x: rect.maxX,y: rect.maxY))
+                    context.move(to: CGPoint(x: rect.minX,y: rect.maxY)); context.addLine(to: CGPoint(x: rect.maxX,y: rect.minY)); context.strokePath()
+                }
                 try? PDFPlanRenderer.drawSlot(slot,page: nil,in: context,
                     reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),repetition: repetition,overlays: extensions)
             }
@@ -195,7 +197,7 @@ final class SheetCanvasView: NSView {
             context.setLineWidth((highlighted.contains(index) ? 2.5 : 0.5)/pointsPerMM/scale)
             context.stroke(rect)
             if slot.rotation != 0 || slot.mirrored || slot.sourcePageNumber == nil {
-                let text = slot.sourcePageNumber == nil ? "BOŞ" : [slot.rotation != 0 ? "↻ \(slot.rotation)°" : nil,slot.mirrored ? "AYNALI" : nil].compactMap{$0}.joined(separator: " · ")
+                let text = slot.bookRegion ?? (slot.sourcePageNumber == nil ? "BOŞ" : [slot.rotation != 0 ? "↻ \(slot.rotation)°" : nil,slot.mirrored ? "AYNALI" : nil].compactMap{$0}.joined(separator: " · "))
                 label(text,at: CGPoint(x: rect.midX,y: rect.minY+min(5,rect.height/5)),size: 3,color: .systemPurple)
             }
         }

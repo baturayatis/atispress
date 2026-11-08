@@ -82,6 +82,11 @@ public enum SmartAutoLayout {
         var rotations: Int
     }
     public static func arrange(_ original: Project,resetOverrides: Bool = false) -> AutoLayoutResult {
+        if original.isBooklet && original.book != nil {
+            let plan = ImpositionPlanner.plan(original)
+            let summary = plan.sheets.first?.bookInfo?.summary ?? "Kitap ayarlarını ve tabaka ölçülerini kontrol edin."
+            return AutoLayoutResult(project:original,presetName:presetName(for:original.sheet.size),summary:summary,plan:plan)
+        }
         if original.binding == .gang {
             var next = original
             if resetOverrides { next.gang?.mode = .automatic; next.gang?.blocks = [] }

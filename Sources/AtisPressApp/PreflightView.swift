@@ -43,12 +43,33 @@ extension Workspace {
                 }
             }
         }
-        let pages = project.binding == .gang ? [] : project.pages
+        let measuredBook = project.isBooklet && project.book != nil
+        if measuredBook {
+            let selection = project.resolvedCoverSelection
+            let active = Set(project.bookInteriorPages.map(\.number)+[selection.front,selection.insideFront,selection.insideBack,selection.back].compactMap { $0 }.filter { $0>0 })
+            if gangAssets.isEmpty { findings = source.preflight.filter { active.contains($0.page) } }
+            else {
+                findings = []; var offset = 0
+                for asset in gangAssets {
+                    let prefix = asset.saved.id == project.book?.coverSourceID ? "Kapak" : "İç PDF"
+                    findings += asset.source.preflight.filter { active.contains($0.page+offset) }.map { original in
+                        var f = original; f.explanation = prefix+" · "+asset.saved.reference.fileName+": "+f.explanation; return f
+                    }
+                    offset += asset.saved.pageCount
+                }
+            }
+        }
+        let pages = project.binding == .gang ? [] : (measuredBook ? project.bookInteriorPages : project.pages)
         if Set(pages.map { "\($0.trimSize.width)/\($0.trimSize.height)" }).count > 1 {
             findings += pages.map { PDFPreflightFinding("size",page: $0.number,"Sayfa boyutları farklı; sayfa düzenini ve eşleştirmeyi kontrol edin.") }
         }
         if project.settings.bleed > 0 && !project.settings.generatedBleed.enabled {
-            findings += pages.filter { ($0.availableBleed ?? 0) < project.settings.bleed }.map {
+            let checked: [SourcePage]
+            if measuredBook {
+                let s = project.resolvedCoverSelection,numbers = Set([s.front,s.insideFront,s.insideBack,s.back].compactMap { $0 })
+                checked = pages+project.bookCoverPages.filter { numbers.contains($0.number) }
+            } else { checked = pages }
+            findings += checked.filter { ($0.availableBleed ?? 0) < project.settings.bleed }.map {
                 PDFPreflightFinding("bleed",page: $0.number,"Taşma payı eksik veya kontrol edilemedi.")
             }
         }

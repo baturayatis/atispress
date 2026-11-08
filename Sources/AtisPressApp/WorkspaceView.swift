@@ -89,7 +89,7 @@ struct WorkspaceView: View {
                                     .font(.caption).foregroundStyle(.secondary)
                                 if let summary = sheet.productionSummary { Text(summary).font(.caption).foregroundStyle(.secondary) }
                             } else {
-                                Text("Tabaka \(index+1)").fontWeight(.medium)
+                                Text("\(sheet.bookInfo?.label ?? "Tabaka") \(index+1)").fontWeight(.medium)
                                 Text("\(sheet.size.width,specifier: "%.0f") × \(sheet.size.height,specifier: "%.0f") mm · Forma \(signatures)")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
@@ -164,6 +164,7 @@ struct WorkspaceView: View {
                                 Text("\(layout.columns)×\(layout.rows) · \(layout.copiesPerSheet) adet/tabaka · \(sheet.repeatCount) tabaka")
                                 if let summary = sheet.productionSummary { Text(summary) }
                             }
+                            if let info = sheet.bookInfo { Text(info.summary).frame(maxWidth:450,alignment:.leading) }
                             if let label = generatedBleedLabel { Text(label) }
                         }
                             .font(.caption).padding(7).background(.regularMaterial,in: RoundedRectangle(cornerRadius: 6)).padding(10)
@@ -178,7 +179,7 @@ struct WorkspaceView: View {
             }
             ForEach(model.serialCodeWarnings,id: \.self) { Text($0).font(.caption).foregroundStyle(.orange).padding(.horizontal,10) }
             ForEach(model.previewControlWarnings,id: \.self) { Text($0).font(.caption).foregroundStyle(.orange).padding(.horizontal,10) }
-            if let summary = model.project.autoLayout?.summary { Text(summary).font(.caption).padding(.horizontal,10).padding(.vertical,4) }
+            if !(model.project.isBooklet && model.project.book != nil),let summary = model.project.autoLayout?.summary { Text(summary).font(.caption).padding(.horizontal,10).padding(.vertical,4) }
             Text("Kaydır: izleme dörtgeni / tekerlek · Yakınlaştır: kıstır · Taşı: sürükle · Turuncu: kenar payı / maşa")
                 .font(.caption).foregroundStyle(.secondary).padding(6)
             if let summary = model.exportSummary {

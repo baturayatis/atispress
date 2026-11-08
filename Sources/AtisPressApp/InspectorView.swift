@@ -5,8 +5,9 @@ struct InspectorView: View {
     @ObservedObject var model: Workspace
     private let presets: [String:SheetPreset] = ["A5":.a5,"A4":.a4,"A3":.a3,"SRA3":.sra3,"33×48":.cm33x48,
         "35×50":.cm35x50,"50×70":.cm50x70,"70×100":.cm70x100]
+    private var explicitStock: Bool { model.project.binding == .gang || (model.project.isBooklet && model.project.book != nil) }
     private var presetBinding: Binding<String> {
-        Binding(get: { model.project.binding == .gang && model.sheetPreset == Workspace.automaticSheetTitle ? SmartAutoLayout.presetName(for:model.project.sheet.size) : model.sheetPreset },set: { value in
+        Binding(get: { explicitStock && model.sheetPreset == Workspace.automaticSheetTitle ? SmartAutoLayout.presetName(for:model.project.sheet.size) : model.sheetPreset },set: { value in
             if value == Workspace.automaticSheetTitle { model.returnToAutomaticSheet(); return }
             model.markManual(.sheetSize)
             model.sheetPreset = value
@@ -26,8 +27,8 @@ struct InspectorView: View {
                         Button("Otomatik düzenle") { model.autoArrange() }
                             .disabled(model.project.pages.isEmpty || model.loading || model.autoArranging)
                         if model.autoArranging { ProgressView().controlSize(.small) }
-                        if let summary = model.project.autoLayout?.summary { Text(summary).font(.caption) }
-                        Text("Elle değiştirilen değerler içe aktarmada korunur. Bu düğme elle sabitlenen değerleri de yeniden hesaplar.")
+                        if !(model.project.isBooklet && model.project.book != nil),let summary = model.project.autoLayout?.summary { Text(summary).font(.caption) }
+                        Text(model.project.isBooklet && model.project.book != nil ? "Kitap düzeni seçili tabaka ve girdiğiniz kâğıt değerleriyle yeniden hesaplanır; tahmin yapılmaz." : "Elle değiştirilen değerler içe aktarmada korunur. Bu düğme elle sabitlenen değerleri de yeniden hesaplar.")
                             .font(.caption).foregroundStyle(.secondary)
                     }.padding(5)
                 }
@@ -60,9 +61,10 @@ struct InspectorView: View {
                 }
                 if model.project.binding == .stepAndRepeat { repeatControls }
                 if model.project.binding == .gang { GangInspectorView(model: model) }
+                if model.project.isBooklet { BookInspectorView(model: model) }
                 GroupBox("Baskı Tabakası") {
                     VStack(spacing: 10) {
-                        if model.project.binding != .gang {
+                        if !explicitStock {
                             Picker("Tabaka seçimi",selection: Binding(get: { model.project.autoLayout?.sheetSelection ?? .fixed },set: model.setSheetSelection)) {
                                 Text("Sabit").tag(SheetSelection.fixed)
                                 Text("En verimli").tag(SheetSelection.efficient)
@@ -70,10 +72,10 @@ struct InspectorView: View {
                             }
                         }
                         Picker(model.autoLabel("Boyut",.sheetSize),selection: presetBinding) {
-                            if model.project.binding != .gang { Text(Workspace.automaticSheetTitle).tag(Workspace.automaticSheetTitle) }
+                            if !explicitStock { Text(Workspace.automaticSheetTitle).tag(Workspace.automaticSheetTitle) }
                             ForEach(["A5","A4","A3","SRA3","33×48","35×50","50×70","70×100","Özel"],id: \.self) { Text($0) }
                         }
-                        if model.project.binding != .gang && ((model.project.autoLayout?.sheetSelection ?? .fixed) == .fixed || model.project.autoLayout?.manualFields.contains(.sheetSize) == true) {
+                        if !explicitStock && ((model.project.autoLayout?.sheetSelection ?? .fixed) == .fixed || model.project.autoLayout?.manualFields.contains(.sheetSize) == true) {
                             Button("Otomatik'e dön",action: model.returnToAutomaticSheet)
                         }
                         Text("Kullanılan: \(SmartAutoLayout.presetName(for: model.project.sheet.size)) · \(model.project.sheet.size.width,specifier: "%.0f")×\(model.project.sheet.size.height,specifier: "%.0f") mm")

@@ -29,9 +29,10 @@ public enum PDFReadError: LocalizedError {
 /// Reading and rasterization never mutate the source file.
 public final class PDFSource: @unchecked Sendable {
     private var linkedSources: [PDFSource] = []
+    private var compositeTitle: String?
     private var temporaryDirectory: URL?
     public var protectedURLs: [URL] { linkedSources.isEmpty ? [url] : linkedSources.flatMap(\.protectedURLs)+[url] }
-    public var displayName: String { linkedSources.isEmpty ? url.lastPathComponent : "Karışık iş (\(linkedSources.count) PDF)" }
+    public var displayName: String { compositeTitle ?? (linkedSources.isEmpty ? url.lastPathComponent : "Karışık iş (\(linkedSources.count) PDF)") }
     public let edgeSamples = PDFEdgeSampleCache()
     public let id = UUID()
     public let url: URL
@@ -51,12 +52,12 @@ public final class PDFSource: @unchecked Sendable {
         if let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) }
     }
     /// PDFKit copies page objects without rasterizing artwork. The originals remain linked and protected.
-    public static func combine(_ sources: [PDFSource]) async throws -> PDFSource {
+    public static func combine(_ sources: [PDFSource],displayName: String? = nil) async throws -> PDFSource {
         guard !sources.isEmpty else { throw PDFReadError.empty }
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("AtisPress-gang-"+UUID().uuidString)
         try FileManager.default.createDirectory(at: folder,withIntermediateDirectories: true)
         do {
-            let url = folder.appendingPathComponent("Karışık iş.pdf")
+            let url = folder.appendingPathComponent((displayName ?? "Karışık iş")+".pdf")
             try await Task.detached(priority: .userInitiated) {
                 let merged = PDFDocument()
                 for source in sources {
@@ -71,7 +72,7 @@ public final class PDFSource: @unchecked Sendable {
             }.value
             let combined = try await open(url)
             guard combined.pages.count == sources.reduce(0,{ $0+$1.pages.count }),zip(combined.pages,sources.flatMap(\.pages)).allSatisfy({ $0.trimSize == $1.trimSize && $0.availableBleed == $1.availableBleed }) else { throw PDFReadError.unreadable }
-            combined.linkedSources = sources; combined.temporaryDirectory = folder
+            combined.linkedSources = sources; combined.temporaryDirectory = folder; combined.compositeTitle = displayName
             return combined
         } catch { try? FileManager.default.removeItem(at: folder); throw error }
     }

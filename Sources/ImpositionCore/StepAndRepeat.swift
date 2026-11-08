@@ -126,6 +126,7 @@ extension ImpositionPlanner {
     /// Both faces use an origin viewed from their own side of the sheet.
     /// Reflection maps positions, never glyphs; type must remain readable after printing.
     static func repeatMirrorsX(_ project: Project) -> Bool {
+        if project.bookCoverTemplate { return project.settings.turnMethod != .workAndTumble }
         let sideGripper = project.sheet.gripperEdge == .left || project.sheet.gripperEdge == .right
         return sideGripper == (project.settings.turnMethod == .workAndTumble)
     }

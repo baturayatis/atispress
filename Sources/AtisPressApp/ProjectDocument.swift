@@ -76,6 +76,7 @@ struct ProjectState: Codable, Equatable {
     var gangSources: [GangSourceReference]? = nil
     var repeatGutter: Double
     var gangGutter: Double? = nil
+    var linkedSources: [GangSourceReference]? = nil
 
     func validateSelection(pageCount: Int) throws {
         guard order.count == pageCount,Set(order) == Set((0..<pageCount).map { $0+1 }),
@@ -87,7 +88,7 @@ struct ProjectState: Codable, Equatable {
     }
 }
 struct ProjectDocument: Codable, Equatable {
-    static let currentVersion = 9
+    static let currentVersion = 10
     var version: Int = currentVersion
     var state: ProjectState
     static func decode(_ data: Data) throws -> ProjectDocument {
@@ -96,10 +97,11 @@ struct ProjectDocument: Codable, Equatable {
         let header = try decoder.decode(Header.self,from: data)
         guard (1...currentVersion).contains(header.version) else { throw ProjectFileError.unsupportedVersion(header.version) }
         let file = try decoder.decode(ProjectDocument.self,from: data)
-        guard file.state.source != nil || !(file.state.gangSources ?? []).isEmpty || file.state.order.isEmpty else { throw ProjectFileError.invalidSelection }
-        let sources = file.state.gangSources ?? []
+        guard file.state.source != nil || !(file.state.linkedSources ?? file.state.gangSources ?? []).isEmpty || file.state.order.isEmpty else { throw ProjectFileError.invalidSelection }
+        let sources = file.state.linkedSources ?? file.state.gangSources ?? []
         guard Set(sources.map(\.id)).count == sources.count,sources.allSatisfy({ $0.pageCount > 0 }),
               (file.state.project.gang?.jobs ?? []).allSatisfy({ job in sources.contains { $0.id==job.sourceID } }) else { throw ProjectFileError.invalidSelection }
+        if let id = file.state.project.book?.coverSourceID, !sources.contains(where: { $0.id==id }) { throw ProjectFileError.invalidSelection }
         try file.state.validateSelection(pageCount: file.state.order.count)
         return file
     }

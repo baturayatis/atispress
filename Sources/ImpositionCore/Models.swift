@@ -189,6 +189,8 @@ public struct ExportMarks: Equatable, Sendable, Codable {
     public static var none: ExportMarks { var value = ExportMarks(); value.crop = false; return value }
 }
 public struct Project: Equatable, Sendable, Codable {
+    var bookCoverTemplate = false
+    public var book: BookSettings? = nil
     public var gang: GangSettings? = nil
     public var sheetInfo: SheetInfoSettings? = nil
     public var includeBlankBacks: Bool? = nil
@@ -210,10 +212,11 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        book = try c.decodeIfPresent(BookSettings.self,forKey:.book)
         gang = try c.decodeIfPresent(GangSettings.self,forKey: .gang)
         sheetInfo = try c.decodeIfPresent(SheetInfoSettings.self,forKey: .sheetInfo)
         includeBlankBacks = try c.decodeIfPresent(Bool.self,forKey: .includeBlankBacks)
@@ -237,6 +240,10 @@ public struct SlotReference: Equatable, Sendable {
     public init(sheet: Int, side: SideKind, slot: Int) { self.sheet = sheet; self.side = side; self.slot = slot }
 }
 public struct Slot: Equatable, Sendable {
+    public var artworkOffset = Point(0,0)
+    public var bookLeafIndex: Int? = nil
+    public var bookPanelIsLeft: Bool? = nil
+    public var bookRegion: String? = nil
     public var gangJobID: UUID? = nil
     public var gangBlockID: UUID? = nil
     public var sourcePageNumber: Int?
@@ -278,6 +285,7 @@ public struct Side: Equatable, Sendable {
     public init(slots: [Slot] = [], marks: [Mark] = []) { self.slots = slots; self.marks = marks }
 }
 public struct Sheet: Equatable, Sendable {
+    public var bookInfo: BookSheetInfo? = nil
     public var gangLayout: GangSheetLayout? = nil
     public var gripperEdge: Edge = .bottom
     /// Back-face viewing convention: reflect X (turn) or Y (tumble / side gripper).
@@ -299,7 +307,7 @@ public struct Sheet: Equatable, Sendable {
 public struct ValidationIssue: Equatable, Sendable {
     public enum Severity: Sendable { case error, warning }
     public enum Code: Sendable {
-        case gangLayout, invalidInput, missingBleed, mixedPageSizes, pageCountPadding, exceedsSheet, unsupportedBinding, unsupportedCover, sharedCutBleed, insufficientGutter, serialNumbering
+        case bookSettings, gangLayout, invalidInput, missingBleed, mixedPageSizes, pageCountPadding, exceedsSheet, unsupportedBinding, unsupportedCover, sharedCutBleed, insufficientGutter, serialNumbering
     }
     public var severity: Severity
     public var code: Code
@@ -333,11 +341,11 @@ public struct ImpositionPlan: Sendable {
         self.signaturePageCount = signaturePageCount; self.generatedBleed = generatedBleed
     }
 }
-/// TODO: implement only after stock caliper and bindery-specific creep rules are supplied.
+/// Millimetres; implementations require explicit measured stock inputs.
 public protocol CreepCalculating {
     func displacement(sheetIndex: Int, sheetCount: Int, stockCaliper: Double) -> Double
 }
-/// TODO: implement only after adhesive, stock and compression rules are supplied.
+/// Millimetres; includes only the explicitly supplied stock and allowances.
 public protocol SpineThicknessCalculating {
     func thickness(pageCount: Int, stockCaliper: Double) -> Double
 }

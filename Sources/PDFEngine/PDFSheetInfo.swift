@@ -20,6 +20,7 @@ public struct PDFSheetInfoContext: Sendable {
             if let names = sheet.gangJobNames { fields.append([settings.jobName,names].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator:" · ")) }
             else { fields.append(settings.jobName ?? jobName) }
         }
+        if let book = sheet.bookInfo,settings.sheetNumber { fields.append(book.label) }
         if settings.date { fields.append(dateLabel ?? Self.formattedDate(date)) }
         if settings.sheetNumber { fields.append("Tabaka \(sheetNumber) / \(totalSheets)") }
         if settings.side { fields.append(side == .front ? "Ön" : "Arka") }
