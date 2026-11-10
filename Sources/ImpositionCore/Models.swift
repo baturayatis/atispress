@@ -189,6 +189,7 @@ public struct ExportMarks: Equatable, Sendable, Codable {
     public static var none: ExportMarks { var value = ExportMarks(); value.crop = false; return value }
 }
 public struct Project: Equatable, Sendable, Codable {
+    public var costing: JobCostSettings? = nil
     var bookCoverTemplate = false
     public var leafBinding: LeafBindingSettings? = nil
     public var alignment: BlockAlignment? = nil
@@ -215,10 +216,11 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        costing = try c.decodeIfPresent(JobCostSettings.self,forKey:.costing)
         leafBinding = try c.decodeIfPresent(LeafBindingSettings.self,forKey:.leafBinding)
         alignment = try c.decodeIfPresent(BlockAlignment.self,forKey:.alignment)
         blankPlacement = try c.decodeIfPresent(BlankPlacement.self,forKey:.blankPlacement)

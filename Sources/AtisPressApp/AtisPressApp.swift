@@ -56,6 +56,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct AtisPressApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var workspace = Workspace()
+    @StateObject private var prices = PricingStore()
+    @Environment(\.openWindow) private var openWindow
     var body: some Scene {
         Window("AtışPress — Canlı Önizleme",id: "workspace") {
             WorkspaceView(model: workspace)
@@ -77,6 +79,10 @@ struct AtisPressApp: App {
             CommandGroup(replacing:.undoRedo) {
                 Button("Geri Al") { workspace.undoEdit() }.keyboardShortcut("z").disabled((!workspace.canUndo && !(NSApp?.keyWindow?.firstResponder is NSTextView)) || workspace.loading || workspace.autoArranging || workspace.exporting)
                 Button("Yinele") { workspace.redoEdit() }.keyboardShortcut("z",modifiers:[.command,.shift]).disabled(!workspace.canRedo || workspace.loading || workspace.autoArranging || workspace.exporting)
+            }
+            CommandMenu("Fiyatlar") {
+                Button("Fiyatlar…") { openWindow(id:"prices") }
+                Button("İş maliyeti…") { openWindow(id:"costing") }
             }
             CommandMenu("Hazır ayarlar") {
                 Menu("Hazır ayar uygula") {
@@ -118,5 +124,7 @@ struct AtisPressApp: App {
                 }
             }
         }
+        Window("Fiyatlar",id:"prices") { PricingView(store:prices) }
+        Window("İş maliyeti",id:"costing") { CostingView(model:workspace,store:prices) }
     }
 }

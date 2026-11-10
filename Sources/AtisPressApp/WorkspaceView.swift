@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct WorkspaceView: View {
     @ObservedObject var model: Workspace
     @State private var dropTarget = false
+    @Environment(\.openWindow) private var openWindow
     var body: some View {
         HSplitView {
             sidebar.frame(minWidth: 210,idealWidth: 240,maxWidth: 330)
@@ -24,6 +25,8 @@ struct WorkspaceView: View {
             if model.loading { ProgressView().controlSize(.small); Text("PDF okunuyor…") }
             else if let source = model.source { Text(source.displayName).lineLimit(1) }
             Spacer()
+            Button("Fiyatlar") { openWindow(id:"prices") }
+            Button("İş maliyeti") { openWindow(id:"costing") }
             if model.exporting {
                 ProgressView().controlSize(.small)
                 Text("PDF oluşturuluyor…")

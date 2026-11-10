@@ -50,6 +50,7 @@ final class Workspace: ObservableObject {
             previous.exportMarks = project.exportMarks
             previous.includeBlankBacks = project.includeBlankBacks
             previous.sheetInfo = project.sheetInfo
+            previous.costing = project.costing
             let clipChanged = (project.isBooklet && oldValue.includeBlankBacks != project.includeBlankBacks) || oldValue.usesFullSheetBooklet != project.usesFullSheetBooklet || (project.isBooklet && oldValue.hasActiveCropMarks != project.hasActiveCropMarks) || previous.autoLayout?.clipBleedToSheet != project.autoLayout?.clipBleedToSheet || previous.autoLayout?.trimTolerance != project.autoLayout?.trimTolerance
             previous.autoLayout = project.autoLayout
             let serialChanged = previous.serialFields != project.serialFields

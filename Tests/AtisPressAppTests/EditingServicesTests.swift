@@ -38,7 +38,7 @@ final class EditingServicesTests: XCTestCase {
         try m.autosaveNow()
         let store = RecoveryStore(directory:dir.appendingPathComponent("Recovery")),record = try XCTUnwrap(store.records().first)
         XCTAssertNil(record.originalProjectPath); XCTAssertEqual(record.document.state.source?.path,input.path)
-        XCTAssertEqual(record.document.version,15)
+        XCTAssertEqual(record.document.version,ProjectDocument.currentVersion)
         let restored = model(dir,persist:true)
         try await restored.restoreRecovery(record); try await settle(restored)
         XCTAssertEqual(restored.project,m.project); XCTAssertEqual(restored.plan.sheets,m.plan.sheets)

@@ -1865,3 +1865,96 @@ swift test --disable-sandbox --filter EditingServicesTests
 ./scripts/build_app.sh
 open "dist/AtışPress.app"
 ```
+
+## Fiyatlar, iş maliyeti ve teklif — şema 16
+
+Çalıştırma: `swift run --disable-sandbox AtisPressApp`. Araç çubuğunda veya
+**Fiyatlar** menüsünde **Fiyatlar** ve **İş maliyeti** pencerelerini açın.
+Fiyat kitaplığı ilk kullanımda **boştur**; parasal değer veya vergi/kâr oranı
+üretilmez. Boş fiyatlar **girilmedi** gösterir ve toplam/satış/teklif sonucunu
+engeller. Ücretsiz bir kalem için açıkça **0** girin.
+
+**Fiyatlar** penceresinde kâğıt adı, gramaj, mm tabaka ölçüsü, tabaka/1000 tabaka
+fiyatı ve KDV dahil/hariç seçilir. Dijital ön ve arka fiyatları ayrıdır. Ofset
+fiyatı kalıp başına, hazırlık/ayar **kalıp takımı başına**, baskı ise **1000 tabaka
+geçişi başına** girilir; renk sayısı kullanıcı girdisidir. Baskı/işçilik fiyatları
+KDV hariçtir. Kesim, katlama, tutkal, spiral, tel, seri numara ve ambalaj
+kalemlerini adet/tabaka/iş birimiyle ekleyin. **Kâr marjı** burada maliyet üzerine
+eklenen yüzdedir (`maliyet × yüzde / 100`); satıştan geriye hesaplanan brüt marj değildir.
+
+Kitaplık sürümlü (v1), atomik JSON olarak saklanır:
+
+```
+~/Library/Application Support/AtisPress/Prices/library.json
+```
+
+**Tablo dışa aktar / içe aktar**, tam kitaplığı ve oranları taşır. İçe aktarma
+kitaplığı değiştirir; bozuk/gelecek sürüm mevcut kitaplığı bozmaz. Önce dışa
+aktarıp yedek alabilirsiniz. Kitaplık değişince açık maliyet penceresi güncellenir.
+
+**İş maliyeti** bu `.atispress` projesinin teklifidir. Kâğıt, Dijital/Ofset ve ek
+işlemler seçilir. **bu işe özel**, seçilen satırın proje içinde bağımsız kopyasını
+oluşturur; düzenlemek fiyat tablosunu değiştirmez. Anahtar kapatılırsa tekrar
+kitaplık fiyatı kullanılır. İşe özel kâr/KDV boşsa kitaplık oranı kullanılır;
+ikisi de boşsa sonuç engellenir. Normal bağlantılı fiyatlar kitaplıktan canlı
+okunur; taşınabilir sabit teklif için ilgili fiyatları işe özel yapın.
+
+Hesap gerçek planın `repeatCount` toplamını kullanır; mevcut adet/fire hesabına
+ikinci kez fire eklemez. **Ek fire tabakası** ayrıca girilebilir. Dijital baskı
+sadece üretimde bulunan ön/arka yüz geçişlerini ücretlendirir. Ofset kalıp sayısı
+renk × bağımsız kalıp yüzüdür; yan çevirme/taklada aynı takım ikinci kez sayılmaz.
+Hazırlık her bağımsız takım için, baskı iki yüz geçişlerinin toplamına uygulanır.
+Adet işçiliği istenen adet + plandaki fire kopyalarına, tabaka işçiliği toplam
+fiziksel tabakaya, iş birimi bir kez uygulanır. Kitap/yaprak modlarının mevcut
+planı tek yayındır: maliyet için **Yayın adedi** ayrıca girilir; önizleme ve üretim
+PDF'si mevcut tek yayın planı olarak kalır. Karışık işte ortak kâğıt/baskı bir kez,
+adet işçiliği işlerin toplam üretim adedine uygulanır. Aynı proje içindeki gang
+alt işlerine ayrı kâğıt/press tarifesi veya maliyet paylaştırması yapılmaz;
+ayrı teklif tarifeleri için ayrı proje kullanın.
+
+Her kalem kuruşa yuvarlanır; maliyet kalemlerin toplamıdır. Kâr, ardından net
+satışın KDV'si iki ondalığa yuvarlanır. Adet fiyatı KDV dahil satış / müşteri
+adedidir. KDV dahil kâğıt fiyatı girilen KDV oranıyla netleştirilir. Kalemlerdeki
+net birim fiyat hesap içinde hassasiyetini korur, ekranda iki ondalık gösterilir.
+
+**Tabaka karşılaştır**, A3, SRA3, 33×48, 35×50, 50×70 ve 70×100 için mevcut
+manuel kısıtları koruyarak aynı otomatik L1–L4 düzenleyiciyi çalıştırır. Seçili
+kâğıdın **aynı ad/gramajdaki** tablo satırları değerlendirilir. Fiyat bulunmayan
+ölçüler **fiyat yok** olarak listelenir; geçersiz plan/eksik baskı fiyatı da
+kazanan olamaz. En düşük KDV dahil toplam işaretlenir. **Uygula**, karşılaştırılan
+proje geometrisini ve kâğıt seçimini birlikte uygular. Sonraki değişiklik eski
+karşılaştırmayı temizler. Bu mevcut düzenli ızgara/gang planlayıcısının aramasıdır;
+keyfi nesting veya makine kapasitesi optimizasyonu değildir.
+
+**Teklif PDF’i** tek A4 sayfada vektör metin içerir: isteğe bağlı firma/logo,
+iş adı, tarih, ürün ölçüsü, adet, kâğıt, baskı/cilt, KDV dahil adet/toplam fiyatı,
+KDV, kullanıcı tarafından girilen geçerlilik ve not. **Ayrıntılı maliyet dökümünü
+ekle** varsayılan kapalıdır; açılmadıkça maliyet ve kâr PDF'ye yazılmaz. Logo
+PNG/JPEG/PDF olabilir; bitmap logo kendi doğasında bitmap kalır. Uzun içerik 8 pt
+altına küçültülmez; tek sayfaya sığmıyorsa hata verir, sessizce kesmez. Geçerlilik
+ve tam maliyet girilmeden teklif yazılamaz. Kaynak PDF/proje üzerine yazılmaz.
+
+Şema **16**, `project.costing` altında fiyat bağlantıları, işe özel kopyalar,
+oranlar, yayın adedi/ek fire ve bütün teklif ayarlarını (logo verisi dahil)
+saklar. **1–15** projeleri aynı planla açılır; maliyet alanları girilmemiştir.
+Mevcut undo/redo, kurtarma ve kaydet/aç akışları bu proje alanını da kapsar.
+
+Doğrulama:
+
+```sh
+swift build --disable-sandbox
+swift test --disable-sandbox
+swift test --disable-sandbox --filter CostingTests
+swift test --disable-sandbox --filter PricingPersistenceTests
+swift test --disable-sandbox --filter QuotePDFTests
+```
+
+Yeni testler bilinen fiyatlarla tabaka/fire, ön/arka, kalıp/ayar, adet işçiliği,
+kâr/KDV/kuruş, eksik fiyat engeli ve açık sıfır, bağımsız override, en ucuz tabaka,
+kitaplık disk/ithalat/ihracat, proje kaydet/aç/eski şema ve PDF'de varsayılan gizli
+maliyetleri kapsar. Teklif PDF'si render edilerek Türkçe karakterler ve tek sayfa
+akışı kontrol edildi. Yeni pencerelerin tam masaüstü etkileşim turu yapılmadı.
+
+Son doğrulama: **249 XCTest testi, sıfır hata** (109 çekirdek, 59 PDF, 81 uygulama).
+Mevcut testler korunmuştur; kurtarma testindeki sabit şema 15 beklentisi güncel
+şema sabitine bağlanmıştır. Derleme ve `git diff --check` temizdir.
