@@ -2,7 +2,7 @@ import Foundation
 
 public enum RescaleMode: String, Codable, CaseIterable, Sendable {
     case fit, fill, stretch
-    public var title: String { switch self { case .fit: return "Oranı koru / sığdır"; case .fill: return "Oranı koru / doldur (kırp)"; case .stretch: return "Esnet" } }
+    public var title: String { switch self { case .fit: return "Sığdır"; case .fill: return "Doldur"; case .stretch: return "Esnet" } }
 }
 public struct RescaleSettings: Equatable, Codable, Sendable {
     public var target: Size
@@ -16,6 +16,22 @@ public struct RescaleJob: Equatable, Codable, Sendable {
     public var jobIndex: Int? = nil
     public var settings: RescaleSettings
     public init(pages: [Int],settings: RescaleSettings,jobIndex:Int? = nil) { self.pages = pages; self.settings = settings; self.jobIndex = jobIndex }
+}
+/// Global defaults with explicit job exceptions; a nil override settings means no scaling.
+public struct ScalingOverride: Equatable, Codable, Sendable {
+    public var pages: [Int]
+    public var jobIndex: Int?
+    public var gangID: UUID?
+    public var settings: RescaleSettings?
+    public init(pages:[Int],jobIndex:Int? = nil,gangID:UUID? = nil,settings:RescaleSettings?) {
+        self.pages = pages; self.jobIndex = jobIndex; self.gangID = gangID; self.settings = settings
+    }
+}
+public struct ScalingSettings: Equatable, Codable, Sendable {
+    public var enabled = false
+    public var defaults = RescaleSettings()
+    public var overrides: [ScalingOverride] = []
+    public init() {}
 }
 public struct ArtworkRescale: Equatable, Sendable {
     public var source: Size
@@ -36,14 +52,43 @@ public struct ArtworkRescale: Equatable, Sendable {
 }
 extension Project {
     public func rescale(for number: Int,jobID:UUID? = nil,jobIndex:Int? = nil) -> ArtworkRescale? {
-        if let job = gang?.jobs.first(where: { (jobID == nil || $0.id == jobID) && ($0.front.number == number || $0.back?.number == number) }),let settings = job.rescale,settings.isValid {
-            let page = job.front.number == number ? job.front : job.back!
-            return ArtworkRescale(source:page.trimSize,settings:settings)
-        }
-        guard let job = rescaleJobs?.last(where: { $0.pages.contains(number) && ($0.jobIndex == nil || $0.jobIndex == jobIndex) }),job.settings.isValid,let page = pages.first(where: { $0.number == number }) else { return nil }
-        return ArtworkRescale(source:page.trimSize,settings:job.settings)
+        let page = jobID.flatMap { id in gang?.jobs.first { $0.id == id }.flatMap { $0.front.number == number ? $0.front : $0.back } } ?? pages.first { $0.number == number }
+        guard let page, let settings = scalingSettings(number:number,jobID:jobID,jobIndex:jobIndex),settings.isValid else { return nil }
+        return ArtworkRescale(source:page.trimSize,settings:settings)
     }
-    public var hasRescaling: Bool { !(rescaleJobs ?? []).isEmpty || gang?.jobs.contains { $0.rescale != nil } == true }
+    public func scalingSettings(number:Int,jobID:UUID? = nil,jobIndex:Int? = nil) -> RescaleSettings? {
+        if let scaling {
+            if let override = scaling.overrides.last(where: { $0.gangID == jobID && ($0.jobIndex == nil || $0.jobIndex == jobIndex) && $0.pages.contains(number) }) { return override.settings }
+            return scaling.enabled ? scaling.defaults : nil
+        }
+        if let jobID { return gang?.jobs.first { $0.id == jobID }?.rescale }
+        return rescaleJobs?.last { $0.pages.contains(number) && ($0.jobIndex == nil || $0.jobIndex == jobIndex) }?.settings
+    }
+    public mutating func migrateScaling() {
+        guard scaling == nil else { return }
+        var value = ScalingSettings()
+        for old in rescaleJobs ?? [] {
+            if binding == .stepAndRepeat {
+                for (index,job) in repeatJobs.enumerated() where old.jobIndex == nil || old.jobIndex == index {
+                    let selected = ([job.front.number]+[job.back?.number].compactMap { $0 }).filter { old.pages.contains($0) }
+                    if !selected.isEmpty { value.overrides.append(ScalingOverride(pages:selected,jobIndex:index,settings:old.settings)) }
+                }
+            } else { value.overrides.append(ScalingOverride(pages:old.pages,jobIndex:old.jobIndex,settings:old.settings)) }
+        }
+        for job in gang?.jobs ?? [] {
+            if let settings = job.rescale { value.overrides.append(ScalingOverride(pages:[job.front.number]+[job.back?.number].compactMap { $0 },gangID:job.id,settings:settings)) }
+        }
+        scaling = value; rescaleJobs = nil
+        if var jobs = gang {
+            for i in jobs.jobs.indices { jobs.jobs[i].rescale = nil }
+            gang = jobs
+        }
+    }
+    public var hasInvalidScaling: Bool {
+        if let scaling { return (scaling.enabled && !scaling.defaults.isValid) || scaling.overrides.contains { $0.settings?.isValid == false } }
+        return (rescaleJobs ?? []).contains { !$0.settings.isValid } || gang?.jobs.contains { $0.rescale?.isValid == false } == true
+    }
+    public var hasRescaling: Bool { scaling.map { $0.enabled || $0.overrides.contains { $0.settings != nil } } ?? (!(rescaleJobs ?? []).isEmpty || gang?.jobs.contains { $0.rescale != nil } == true) }
     /// A temporary geometry input; source metadata in the saved project remains unchanged.
     public var rescaledPlanningInput: Project {
         var next = self
@@ -64,7 +109,7 @@ extension Project {
         }
         if hasRescaling { next.settings.generatedBleed.enabled = true; next.settings.generatedBleed.method = .automatic }
         if var gang = next.gang {
-            for i in gang.jobs.indices where gang.jobs[i].rescale != nil {
+            for i in gang.jobs.indices where rescale(for:gang.jobs[i].front.number,jobID:gang.jobs[i].id) != nil {
                 let id = gang.jobs[i].id
                 gang.jobs[i].front = scaled(gang.jobs[i].front,jobID:id); gang.jobs[i].back = gang.jobs[i].back.map { scaled($0,jobID:id) }
                 gang.jobs[i].rescale = nil; gang.jobs[i].generatedBleed.enabled = true; gang.jobs[i].generatedBleed.method = .automatic
@@ -72,6 +117,7 @@ extension Project {
             next.gang = gang
         }
         next.rescaleJobs = nil
+        next.scaling = nil
         return next
     }
 }

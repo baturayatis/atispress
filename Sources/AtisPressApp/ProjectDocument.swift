@@ -89,7 +89,7 @@ struct ProjectState: Codable, Equatable {
     }
 }
 struct ProjectDocument: Codable, Equatable {
-    static let currentVersion = 17
+    static let currentVersion = 18
     var version: Int = currentVersion
     var state: ProjectState
     static func decode(_ data: Data) throws -> ProjectDocument {
@@ -104,6 +104,7 @@ struct ProjectDocument: Codable, Equatable {
             state.manualFields.insert(.alignment); state.automaticFields.remove(.alignment)
             file.state.project.autoLayout = state
         }
+        if header.version < 18, file.state.project.hasRescaling { file.state.project.migrateScaling() }
         guard file.state.source != nil || !(file.state.linkedSources ?? file.state.gangSources ?? []).isEmpty || file.state.order.isEmpty else { throw ProjectFileError.invalidSelection }
         let sources = file.state.linkedSources ?? file.state.gangSources ?? []
         guard Set(sources.map(\.id)).count == sources.count,sources.allSatisfy({ $0.pageCount > 0 }),

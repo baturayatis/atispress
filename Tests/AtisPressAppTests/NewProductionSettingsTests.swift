@@ -48,7 +48,7 @@ final class NewProductionSettingsTests: XCTestCase {
         XCTAssertNotNil(workspace.rescalePrompt,"Measured PDF rounding must not suppress the 100×60 import question")
         workspace.rescalePrompt = nil; workspace.pendingScalePrompts = []
         workspace.project.allSheetsPreview = true
-        workspace.project.rescaleJobs = [RescaleJob(pages:[1,2],settings:RescaleSettings(target:Size(90,50),mode:.fill))]
+        workspace.updateScaling { $0.enabled = true; $0.defaults = RescaleSettings(target:Size(90,50),mode:.fill) }
         var field = SerialField(); field.distribution = .block; field.backNumbering = .consecutive
         workspace.project.serialFields = [field]
         let url = dir.appendingPathComponent("settings.atispress"); try workspace.saveProject(as:url)
@@ -58,11 +58,11 @@ final class NewProductionSettingsTests: XCTestCase {
         let slot = try XCTUnwrap(opened.plan.sheets.first?.front.slots.first)
         let trim = PDFPreviewDrawing.localTrim(slot) // footprint may be rotated 90°
         XCTAssertEqual(trim.width,90); XCTAssertEqual(trim.height,50)
-        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:url)).version,17)
+        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:url)).version,ProjectDocument.currentVersion)
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with:Data(contentsOf:url)) as? [String:Any])
         json["version"] = 16
         var state = try XCTUnwrap(json["state"] as? [String:Any]),project = try XCTUnwrap(state["project"] as? [String:Any])
-        project.removeValue(forKey:"rescaleJobs"); project.removeValue(forKey:"allSheetsPreview")
+        project.removeValue(forKey:"scaling"); project.removeValue(forKey:"rescaleJobs"); project.removeValue(forKey:"allSheetsPreview")
         var fields = try XCTUnwrap(project["serialFields"] as? [[String:Any]])
         fields[0].removeValue(forKey:"rangeDistribution"); fields[0].removeValue(forKey:"backNumber")
         project["serialFields"] = fields; state["project"] = project; json["state"] = state

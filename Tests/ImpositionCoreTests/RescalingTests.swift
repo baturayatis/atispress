@@ -78,4 +78,31 @@ final class RescalingTests: XCTestCase {
         XCTAssertEqual(plan.sheets[1].front.slots.first?.rescale?.settings.target,Size(85,55))
     }
 
+    func testGlobalGangDefaultsAndLegacyCloneMigration() throws {
+        var p = project(.fit); p.binding = .gang; p.rescaleJobs = nil
+        var first = GangJob(sourceID:UUID(),name:"Bir",front:p.pages[0]); first.quantity = 100; first.rescale = RescaleSettings(mode:.fill)
+        var second = first; second.id = UUID(); second.rescale = RescaleSettings(target:Size(85,55),mode:.stretch)
+        p.gang = GangSettings(); p.gang?.jobs = [first,second]
+        let legacy = ImpositionPlanner.plan(p)
+        p.migrateScaling()
+        XCTAssertEqual(ImpositionPlanner.plan(p).sheets,legacy.sheets)
+        XCTAssertTrue(p.gang!.jobs.allSatisfy { $0.rescale == nil })
+        p.scaling?.enabled = true
+        p.scaling?.overrides = [ScalingOverride(pages:[1],gangID:second.id,settings:nil)]
+        let plan = ImpositionPlanner.plan(p)
+        let slots = try XCTUnwrap(plan.sheets.first).front.slots
+        XCTAssertEqual(slots.first { $0.gangJobID == first.id }?.rescale?.settings,RescaleSettings())
+        XCTAssertNil(slots.first { $0.gangJobID == second.id }?.rescale)
+        XCTAssertEqual(slots.first { $0.gangJobID == second.id }?.size,Size(100,60))
+    }
+    func testInvalidGlobalAndOverrideSettingsBlockExport() {
+        var p = project(.fit); p.migrateScaling()
+        p.scaling?.overrides = []; p.scaling?.enabled = true
+        p.scaling?.defaults.target.width = 0
+        XCTAssertFalse(ImpositionPlanner.plan(p).canExport)
+        p.scaling?.defaults = RescaleSettings()
+        p.scaling?.overrides = [ScalingOverride(pages:[1],settings:RescaleSettings(target:Size(90,-1)))]
+        XCTAssertFalse(ImpositionPlanner.plan(p).canExport)
+    }
+
 }

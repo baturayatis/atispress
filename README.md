@@ -2058,3 +2058,36 @@ Son doğrulama: **266 XCTest testi, sıfır hata** (121 çekirdek, 60 PDF, 85 uy
 Derleme ve `git diff --check` temizdir. Yerel uygulama paketi oluşturuldu ve ad-hoc
 imzası doğrulandı. Sandbox LaunchServices kaydına izin vermediği için Finder
 çift tıklama yönlendirmesi ayrıca denenmedi; uygulama paketinden açılış doğrulandı.
+
+
+## Kompakt ölçekleme denetçisi — şema 18
+
+**Ölçeklendir** bölümündeki tek **Hedef ebada ölçeklendir** anahtarı bütün işler
+için genel varsayılandır. **Hedef ebat** ve **Mod** (Sığdır / Doldur / Esnet)
+seçimleri ile tek satırlık iş sayısı/ölçek aralığı özeti gösterilir. Özel ebatta
+en/boy alanları açılır. Kapalıyken farklı ölçüler için ölçekleme ipucu gösterilir.
+
+**İşlere göre ayarla (N)** başlangıçta kapalıdır. Aynı kaynak ölçüsü ve etkin
+ölçekleme ayarı olan işler tek satırda gruplanır. İlk üç grup gösterilir;
+**Tümünü göster** kalanları açar. Satırın **Ölçekleme** menüsü genel ayarı,
+ölçeklemeyi kapatmayı veya özel hedef/modu seçer. Grup üzerinde değişiklik,
+gruptaki tüm işlere uygulanır. Kitap içi ve kapak/açılım ayrı işlerdir.
+
+`.atispress` şeması **18**, `project.scaling` içinde `enabled`, `defaults` ve
+`overrides` saklar. İstisnalar sayfa listesi, tekrarlı iş sırası veya gang iş
+kimliğiyle eşleşir; boş `settings` açıkça ölçeklemeyi kapatır. **1–17** açılır.
+Eski iş ayarları genel anahtar kapalıyken istisnalara taşınır; kaynak ölçüleri,
+önizleme/dışa aktarım dönüşümleri ve otomatik tek/çift yüz eşlemesi korunur.
+Ölçekleme ayarı olmayan eski dosyalarda alanın yokluğu kapalı varsayılandır.
+
+Çalıştırma: `swift run --disable-sandbox AtisPressApp`.
+Doğrulama: `swift test --disable-sandbox`.
+Hedefli testler: `swift test --disable-sandbox --filter 'ScalingInspectorTests|RescalingTests|RescaleExportTests|NewProductionSettingsTests'`.
+
+Doğrulama: **272 XCTest, sıfır hata**. Üç modda eski planın önizlemesi ile
+migrasyon sonrası PDF çıktısı piksel karşılaştırmasından geçti; vektör koruma,
+gang kopyaları, yinelenmiş sayfalar, genel ayar/istisna, özet/gruplama ve
+kaydet/aç kontrolleri kapsamda. Release paket ve imza doğrulandı; gerçek
+uygulamada altı işin birleşik satırı ve genel anahtar kontrol edildi.
+Sandbox LaunchServices kaydına izin vermedi; Finder çift tıklama entegrasyonu
+bu turda doğrulanmadı.

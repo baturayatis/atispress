@@ -19,7 +19,7 @@ public enum ImpositionPlanner {
     /// Produces the sole geometry source for both preview and future PDF export.
     public static func plan(_ source: Project) -> ImpositionPlan {
         if source.hasRescaling {
-            let invalid = (source.rescaleJobs ?? []).contains { !$0.settings.isValid } || source.gang?.jobs.contains { $0.rescale?.isValid == false } == true
+            let invalid = source.hasInvalidScaling
             if invalid { return ImpositionPlan(issues:[ValidationIssue(.error,.invalidInput,"Hedef ebat 0–10.000 mm arasında pozitif olmalıdır.")]) }
             var result = plan(source.rescaledPlanningInput)
             func scaled(_ side: Side,jobIndex:Int? = nil) -> Side {

@@ -189,6 +189,7 @@ public struct ExportMarks: Equatable, Sendable, Codable {
     public static var none: ExportMarks { var value = ExportMarks(); value.crop = false; return value }
 }
 public struct Project: Equatable, Sendable, Codable {
+    public var scaling: ScalingSettings? = nil
     public var rescaleJobs: [RescaleJob]? = nil
     public var allSheetsPreview: Bool? = nil
     public var costing: JobCostSettings? = nil
@@ -218,10 +219,11 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        scaling = try c.decodeIfPresent(ScalingSettings.self,forKey:.scaling)
         rescaleJobs = try c.decodeIfPresent([RescaleJob].self,forKey:.rescaleJobs)
         allSheetsPreview = try c.decodeIfPresent(Bool.self,forKey:.allSheetsPreview)
         costing = try c.decodeIfPresent(JobCostSettings.self,forKey:.costing)

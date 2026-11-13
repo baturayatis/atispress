@@ -31,7 +31,11 @@ final class RescaleExportTests: XCTestCase {
             try PDFPlanRenderer.drawSide(sheet.front,sheet:sheet,document:document,in:preview,sheetIndex:0,kind:.front,repetition:0,options:.artworkOnly,
                 overlays:[GeneratedBleedOverlay(settings:plan.generatedBleed,cache:source.edgeSamples,sampleIfMissing:true)])
             let output = dir.appendingPathComponent("\(mode).pdf")
-            _ = try PDFExporter.export(plan:plan,source:source,destination:.singlePDF(output),options:.artworkOnly)
+            p.migrateScaling()
+            let migratedPlan = ImpositionPlanner.plan(p)
+            XCTAssertEqual(migratedPlan.sheets,plan.sheets)
+            XCTAssertEqual(migratedPlan.generatedBleed,plan.generatedBleed)
+            _ = try PDFExporter.export(plan:migratedPlan,source:source,destination:.singlePDF(output),options:.artworkOnly)
             let result = try XCTUnwrap(CGPDFDocument(output as CFURL)),page = try XCTUnwrap(result.page(at:1)),export = try bitmap()
             export.scaleBy(x:1/ppmm,y:1/ppmm); export.drawPDFPage(page)
             let a = preview.data!.assumingMemoryBound(to:UInt8.self),b = export.data!.assumingMemoryBound(to:UInt8.self)
