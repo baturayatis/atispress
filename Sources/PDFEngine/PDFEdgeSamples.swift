@@ -60,12 +60,14 @@ public final class PDFPageEdgeSamples: NSObject, @unchecked Sendable {
     public let strips: [SampleEdge:EdgeStrip]
     public let usesCMYK: Bool
     public let memoryCost: Int
-    init(page: CGPDFPage) throws {
+    init(page: CGPDFPage,rescale: ArtworkRescale? = nil) throws {
         usesCMYK = PDFColorProbe.canReadNativeCMYK(page)
         let box = page.getBoxRect(.trimBox).intersection(page.getBoxRect(.mediaBox))
         let rotated = abs(page.rotationAngle%180) == 90
-        let trim = CGRect(x: 0,y: 0,width: (rotated ? box.height : box.width)/PDFPreviewDrawing.pointsPerMM,
+        let sourceTrim = CGRect(x: 0,y: 0,width: (rotated ? box.height : box.width)/PDFPreviewDrawing.pointsPerMM,
                           height: (rotated ? box.width : box.height)/PDFPreviewDrawing.pointsPerMM)
+        let trim = rescale.map { CGRect(x:0,y:0,width:$0.settings.target.width,height:$0.settings.target.height) } ?? sourceTrim
+        let raw = rescale?.settings.mode == .fit ? try PDFPageEdgeSamples(page:page) : nil
         guard trim.width.isFinite,trim.height.isFinite,trim.width > 0,trim.height > 0 else { throw PDFReadError.invalidBox(page.pageNumber) }
         var results: [SampleEdge:EdgeStrip] = [:], cost = 0
         for edge in SampleEdge.allCases {
@@ -88,8 +90,13 @@ public final class PDFPageEdgeSamples: NSObject, @unchecked Sendable {
             context.fill(CGRect(x: 0,y: 0,width: width,height: height))
             context.scaleBy(x: Double(width)/rect.width,y: Double(height)/rect.height)
             context.translateBy(x: -rect.minX,y: -rect.minY)
-            context.concatenate(page.getDrawingTransform(.trimBox,rect: trim,rotate: 0,preserveAspectRatio: true))
-            context.drawPDFPage(page)
+            if let rescale {
+                if let raw { PDFRescaleDrawing.fillEdges(raw,inner:PDFRescaleDrawing.rect(rescale.artwork),outer:trim,tolerance:0.02,in:context) }
+                PDFRescaleDrawing.draw(page,scale:rescale,in:context)
+            } else {
+                context.concatenate(page.getDrawingTransform(.trimBox,rect: trim,rotate: 0,preserveAspectRatio: true))
+                context.drawPDFPage(page)
+            }
             let strip = try EdgeStrip(context: context,edge: edge,isCMYK: usesCMYK)
             results[edge] = strip; cost += strip.memoryCost
         }
@@ -104,8 +111,21 @@ public final class PDFPageEdgeSamples: NSObject, @unchecked Sendable {
 public final class PDFEdgeSampleCache: @unchecked Sendable {
     private let lock = NSLock()
     private let cache = NSCache<NSNumber,PDFPageEdgeSamples>()
-    public init() { cache.totalCostLimit = 64*1024*1024 }
+    private let scaledCache = NSCache<NSString,PDFPageEdgeSamples>()
+    public init() { scaledCache.totalCostLimit = 64*1024*1024; cache.totalCostLimit = 64*1024*1024 }
     public func cached(page: Int) -> PDFPageEdgeSamples? { cache.object(forKey: NSNumber(value: page)) }
+    private func scaledKey(page:Int,rescale:ArtworkRescale) -> NSString {
+        "\(page):\(rescale.source.width):\(rescale.source.height):\(rescale.settings.target.width):\(rescale.settings.target.height):\(rescale.settings.mode.rawValue)" as NSString
+    }
+    public func cached(page:Int,rescale:ArtworkRescale) -> PDFPageEdgeSamples? { scaledCache.object(forKey:scaledKey(page:page,rescale:rescale)) }
+    public func samples(for page: CGPDFPage,rescale: ArtworkRescale) throws -> PDFPageEdgeSamples {
+        let key = scaledKey(page:page.pageNumber,rescale:rescale)
+        lock.lock(); defer { lock.unlock() }
+        if let hit = scaledCache.object(forKey:key) { return hit }
+        let samples = try PDFPageEdgeSamples(page:page,rescale:rescale)
+        scaledCache.setObject(samples,forKey:key,cost:samples.memoryCost)
+        return samples
+    }
     public func samples(for page: CGPDFPage) throws -> PDFPageEdgeSamples {
         lock.lock(); defer { lock.unlock() }
         if let hit = cached(page: page.pageNumber) { return hit }

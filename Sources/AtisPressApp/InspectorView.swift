@@ -17,6 +17,7 @@ struct InspectorView: View {
         ScrollView {
             VStack(alignment: .leading,spacing: 16) {
                 Text("Baskı Ayarları").font(.title2.bold())
+                RescaleInspectorView(model:model)
                 GroupBox("Otomatik düzen") {
                     VStack(alignment: .leading,spacing: 8) {
                         Picker("Üretim",selection: Binding(get: { model.project.autoLayout?.production ?? .digital },set: model.setProduction)) {

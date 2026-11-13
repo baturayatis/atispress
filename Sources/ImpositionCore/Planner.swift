@@ -18,6 +18,22 @@ public enum ImpositionPlanner {
     }
     /// Produces the sole geometry source for both preview and future PDF export.
     public static func plan(_ source: Project) -> ImpositionPlan {
+        if source.hasRescaling {
+            let invalid = (source.rescaleJobs ?? []).contains { !$0.settings.isValid } || source.gang?.jobs.contains { $0.rescale?.isValid == false } == true
+            if invalid { return ImpositionPlan(issues:[ValidationIssue(.error,.invalidInput,"Hedef ebat 0–10.000 mm arasında pozitif olmalıdır.")]) }
+            var result = plan(source.rescaledPlanningInput)
+            func scaled(_ side: Side,jobIndex:Int? = nil) -> Side {
+                var next = side
+                for i in next.slots.indices { next.slots[i].rescale = next.slots[i].sourcePageNumber.flatMap { source.rescale(for:$0,jobID:next.slots[i].gangJobID,jobIndex:jobIndex) } }
+                return next
+            }
+            for i in result.sheets.indices { result.sheets[i].front = scaled(result.sheets[i].front,jobIndex:result.sheets[i].repeatLayout?.jobIndex); result.sheets[i].back = scaled(result.sheets[i].back,jobIndex:result.sheets[i].repeatLayout?.jobIndex) }
+            for i in result.diagnosticSheets.indices { result.diagnosticSheets[i].front = scaled(result.diagnosticSheets[i].front,jobIndex:result.diagnosticSheets[i].repeatLayout?.jobIndex); result.diagnosticSheets[i].back = scaled(result.diagnosticSheets[i].back,jobIndex:result.diagnosticSheets[i].repeatLayout?.jobIndex) }
+            if (result.sheets+result.diagnosticSheets).contains(where:{ ($0.front.slots+$0.back.slots).contains { $0.rescale?.aspectWarning == true } }) {
+                result.issues.append(ValidationIssue(.warning,.invalidInput,"Esnet: en/boy oranı %2’den fazla değişiyor."))
+            }
+            return result
+        }
         var project = source
         // A folding signature is contiguous paper. Flat-job trim gutters must
         // never open a gap at a fold, including legacy saved positive values.

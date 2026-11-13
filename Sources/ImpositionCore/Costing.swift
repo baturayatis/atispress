@@ -95,13 +95,17 @@ public enum CostCalculator {
         let quantities: [Int]
         let finishingQuantities: [Int]
         if project.binding == .gang {
-            quantities = (project.gang?.jobs ?? []).map(\.quantity)
-            finishingQuantities = (project.gang?.jobs ?? []).map { $0.waste.quantities(for:$0.quantity)?.total ?? 0 }
+            let jobs = plan.sheets.first?.gangLayout?.jobs ?? []
+            quantities = (project.gang?.jobs ?? []).map { job in jobs.first { $0.job.id == job.id }?.serialPlan.totalUnits(job.quantity) ?? job.quantity }
+            finishingQuantities = (project.gang?.jobs ?? []).map { job in
+                let total = job.waste.quantities(for:job.quantity)?.total ?? 0
+                return jobs.first { $0.job.id == job.id }?.serialPlan.totalUnits(total) ?? total
+            }
         } else if publication {
             quantities = [run]; finishingQuantities = [run]
         } else {
-            quantities = plan.sheets.map { $0.repeatLayout?.requestedQuantity ?? $0.repeatLayout?.copiesPerSheet ?? 0 }
-            finishingQuantities = plan.sheets.map { $0.repeatLayout?.productionQuantity ?? $0.repeatLayout?.requestedQuantity ?? $0.repeatLayout?.copiesPerSheet ?? 0 }
+            quantities = plan.sheets.map { sheet in let total = sheet.repeatLayout?.requestedQuantity ?? sheet.repeatLayout?.copiesPerSheet ?? 0; return sheet.serialPlan?.totalUnits(total) ?? total }
+            finishingQuantities = plan.sheets.map { sheet in let total = sheet.repeatLayout?.productionQuantity ?? sheet.repeatLayout?.requestedQuantity ?? sheet.repeatLayout?.copiesPerSheet ?? 0; return sheet.serialPlan?.totalUnits(total) ?? total }
         }
         func safeSum(_ values: [Int]) -> Int? {
             var total = 0

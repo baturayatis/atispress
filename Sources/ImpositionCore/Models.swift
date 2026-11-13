@@ -189,6 +189,8 @@ public struct ExportMarks: Equatable, Sendable, Codable {
     public static var none: ExportMarks { var value = ExportMarks(); value.crop = false; return value }
 }
 public struct Project: Equatable, Sendable, Codable {
+    public var rescaleJobs: [RescaleJob]? = nil
+    public var allSheetsPreview: Bool? = nil
     public var costing: JobCostSettings? = nil
     var bookCoverTemplate = false
     public var leafBinding: LeafBindingSettings? = nil
@@ -216,10 +218,12 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        rescaleJobs = try c.decodeIfPresent([RescaleJob].self,forKey:.rescaleJobs)
+        allSheetsPreview = try c.decodeIfPresent(Bool.self,forKey:.allSheetsPreview)
         costing = try c.decodeIfPresent(JobCostSettings.self,forKey:.costing)
         leafBinding = try c.decodeIfPresent(LeafBindingSettings.self,forKey:.leafBinding)
         alignment = try c.decodeIfPresent(BlockAlignment.self,forKey:.alignment)
@@ -248,6 +252,9 @@ public struct SlotReference: Equatable, Sendable {
     public init(sheet: Int, side: SideKind, slot: Int) { self.sheet = sheet; self.side = side; self.slot = slot }
 }
 public struct Slot: Equatable, Sendable {
+    public var serialBlockIndex: Int? = nil
+    public var serialCopyIndex: Int? = nil
+    public var rescale: ArtworkRescale? = nil
     public var bindingBehavior: BindingAllowanceBehavior = .preserve
     public var bindingScale: Double = 1
     public var bindingTranslation = Point(0,0)

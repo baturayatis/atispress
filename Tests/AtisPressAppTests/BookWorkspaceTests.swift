@@ -100,6 +100,7 @@ final class BookWorkspaceTests: XCTestCase {
         workspace.bookSettings.interiorPaper.microns = 1000; workspace.bookSettings.coverPaper.microns = 500
         try await settle(workspace)
         XCTAssertTrue(workspace.plan.canExport,"\(workspace.plan.issues)")
+        workspace.sheetIndex = try XCTUnwrap(workspace.displaySheets.firstIndex { $0.bookInfo?.section == .interior })
         let off = try XCTUnwrap(workspace.currentSheet)
         workspace.bookSettings.creepEnabled = true; try await settle(workspace)
         XCTAssertTrue(workspace.plan.canExport,"\(workspace.plan.issues)")

@@ -95,7 +95,9 @@ public enum PDFPlanRenderer {
             context.translateBy(x:slot.artworkOffset.x,y:slot.artworkOffset.y)
             try extensionsFor(.underArtwork)
             if slot.sourcePageNumber != nil {
-                if let raster {
+                if let page,let scale = slot.rescale {
+                    PDFRescaleDrawing.draw(page,scale:scale,in:context)
+                } else if let raster {
                     let r = raster.normalizedArtworkBounds
                     context.draw(raster.cgImage,in:CGRect(x:r.minX*trim.width,y:r.minY*trim.height,width:r.width*trim.width,height:r.height*trim.height))
                 } else if let page { PDFPreviewDrawing.draw(page,in:context,rect:trim) }

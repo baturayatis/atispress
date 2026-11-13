@@ -86,6 +86,21 @@ public enum SmartAutoLayout {
         var rotations: Int
     }
     public static func arrange(_ original: Project,resetOverrides: Bool = false) -> AutoLayoutResult {
+        if original.hasRescaling {
+            let arranged = arrange(original.rescaledPlanningInput,resetOverrides:resetOverrides)
+            var restored = arranged.project
+            restored.pages = original.pages; restored.rescaleJobs = original.rescaleJobs
+            restored.stepAndRepeat.pageLayout = original.stepAndRepeat.pageLayout
+            if var gang = restored.gang,let sourceGang = original.gang {
+                for i in gang.jobs.indices {
+                    if let job = sourceGang.jobs.first(where:{ $0.id == gang.jobs[i].id }) {
+                        gang.jobs[i].front = job.front; gang.jobs[i].back = job.back; gang.jobs[i].rescale = job.rescale
+                    }
+                }
+                restored.gang = gang
+            }
+            return AutoLayoutResult(project:restored,presetName:arranged.presetName,summary:arranged.summary,plan:ImpositionPlanner.plan(restored))
+        }
         var state = original.autoLayout ?? AutoLayoutSettings()
         if resetOverrides {
             state.sheetSelection = .automatic

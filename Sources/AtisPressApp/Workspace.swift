@@ -7,6 +7,8 @@ typealias PreviewOverlays = PDFRenderOptions
 
 @MainActor
 final class Workspace: ObservableObject {
+    @Published var rescalePrompt: RescalePrompt?
+    var pendingScalePrompts: [RescalePrompt] = []
     static let automaticSheetTitle = "Otomatik (ürüne göre)"
     static func newProject() -> Project {
         var p = Project(pages: [],binding: .stepAndRepeat,
@@ -51,6 +53,7 @@ final class Workspace: ObservableObject {
             previous.includeBlankBacks = project.includeBlankBacks
             previous.sheetInfo = project.sheetInfo
             previous.costing = project.costing
+            previous.allSheetsPreview = project.allSheetsPreview
             let clipChanged = (project.isBooklet && oldValue.includeBlankBacks != project.includeBlankBacks) || oldValue.usesFullSheetBooklet != project.usesFullSheetBooklet || (project.isBooklet && oldValue.hasActiveCropMarks != project.hasActiveCropMarks) || previous.autoLayout?.clipBleedToSheet != project.autoLayout?.clipBleedToSheet || previous.autoLayout?.trimTolerance != project.autoLayout?.trimTolerance
             previous.autoLayout = project.autoLayout
             let serialChanged = previous.serialFields != project.serialFields
@@ -378,6 +381,7 @@ final class Workspace: ObservableObject {
                 loading = false
                 resetJournal(); queueAutosave()
                 recordRecentFile(source.url)
+                offerRescaling()
                 refreshModified()
             } catch {
                 guard !Task.isCancelled, importRevision == token else { return }
@@ -700,9 +704,10 @@ extension Workspace {
         }
         refreshModified()
     }
-    func autoArrange(resetOverrides: Bool = true) {
+    func autoArrange(resetOverrides: Bool = true,askRescale: Bool = true) {
         guard !loading,!exporting,!autoArranging,!project.pages.isEmpty else { return }
         NSApp?.keyWindow?.makeFirstResponder(nil)
+        if resetOverrides && askRescale && offerRescaling(arrangeAfter:true) { return }
         let snapshot = project
         autoArranging = true
         autoTask = Task {
@@ -790,12 +795,17 @@ extension Workspace {
         if project.binding == .gang, var gang = project.gang {
             for i in gang.jobs.indices {
                 let job = gang.jobs[i],quantity = job.waste.numberCopies ? job.waste.quantities(for:job.quantity)?.total ?? job.quantity : job.quantity
-                gang.jobs[i].serialFields = job.serialFields.map { $0.adjustedDigits(quantity:quantity) }
+                let recipe = plan.sheets.first?.gangLayout?.jobs.first { $0.job.id == job.id }?.serialPlan
+                gang.jobs[i].serialFields = job.serialFields.map { $0.adjustedDigits(quantity:max(quantity,recipe?.numberCount(for:$0) ?? quantity)) }
             }
             if gang != project.gang { normalizingDigits = true; project.gang = gang; normalizingDigits = false }
             return
         }
-        let fields = editableSerialFields.map { $0.adjustedDigits(quantity: serialNumberedQuantity(job: $0.jobIndex)) }
+        let fields = editableSerialFields.map { field in
+            let quantity = serialNumberedQuantity(job:field.jobIndex)
+            let recipe = plan.sheets.first { $0.repeatLayout?.jobIndex == field.jobIndex }?.serialPlan
+            return field.adjustedDigits(quantity:max(quantity,recipe?.numberCount(for:field) ?? quantity))
+        }
         guard fields != editableSerialFields else { return }
         normalizingDigits = true; editableSerialFields = fields; normalizingDigits = false
     }
@@ -1000,6 +1010,7 @@ extension Workspace {
                 recordRecentFile(urls.last!); schedulePlan()
             } catch is CancellationError { } catch { self.error = error.localizedDescription }
             loading = false
+            offerRescaling()
         }
     }
     func manualGang() {

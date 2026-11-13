@@ -20,6 +20,7 @@ struct WorkspaceView: View {
         .alert("İşlem tamamlanamadı",isPresented: Binding(get: { model.error != nil },set: { if !$0 { model.error = nil } })) {
             Button("Tamam") { model.error = nil }
         } message: { Text(model.error ?? "") }
+        .sheet(item:$model.rescalePrompt) { RescalePromptView(model:model,prompt:$0) }
         .toolbar {
             Button(action: model.openPanel) { Label("PDF Aç",systemImage: "doc.badge.plus") }
             if model.loading { ProgressView().controlSize(.small); Text("PDF okunuyor…") }
@@ -148,6 +149,10 @@ struct WorkspaceView: View {
     private var center: some View {
         VStack(spacing: 0) {
             HStack {
+                Picker("Görünüm",selection: Binding(get: { model.project.allSheetsPreview ?? model.project.isBooklet },set: { model.project.allSheetsPreview = $0 })) {
+                    Text("Tüm tabakalar").tag(true)
+                    Text("Tek tabaka").tag(false)
+                }.frame(width:180)
                 Picker("Yüz",selection: $model.side) {
                     Text("Ön").tag(SideKind.front)
                     Text("Arka").tag(SideKind.back)
@@ -157,7 +162,9 @@ struct WorkspaceView: View {
                 Button("Sığdır") { model.zoomFactor = 0; model.zoomAction += 1 }
                 Button { model.zoomFactor = 1.25; model.zoomAction += 1 } label: { Image(systemName: "plus.magnifyingglass") }.help("Yakınlaştır")
             }.padding(10)
-            if let sheet = model.currentSheet,model.side == .back,!sheet.hasContent(on: .back),sheet.diagnosticBounds == nil {
+            if (model.project.allSheetsPreview ?? model.project.isBooklet), !model.displaySheets.isEmpty {
+                AllSheetsPreview(model:model)
+            } else if let sheet = model.currentSheet,model.side == .back,!sheet.hasContent(on: .back),sheet.diagnosticBounds == nil {
                 ContentUnavailableView("Arka yüz yok",systemImage: "doc",description: Text("Bu işin arka yüzünde içerik yok."))
                     .frame(maxWidth: .infinity,maxHeight: .infinity)
             } else if let sheet = model.currentSheet, let side = model.currentSide {
@@ -174,6 +181,8 @@ struct WorkspaceView: View {
                             }
                             if let leaf = sheet.leafInfo { Text(leaf.summary).frame(maxWidth:450,alignment:.leading) }
                             if let info = sheet.bookInfo { Text(info.summary).frame(maxWidth:450,alignment:.leading) }
+                            if let scale = side.slots.compactMap(\.rescale).first { Text(scale.summary) }
+                            ForEach(sheet.serialRangeLabels,id:\.self) { Text($0) }
                             if let label = generatedBleedLabel { Text(label) }
                         }
                             .font(.caption).padding(7).background(.regularMaterial,in: RoundedRectangle(cornerRadius: 6)).padding(10)

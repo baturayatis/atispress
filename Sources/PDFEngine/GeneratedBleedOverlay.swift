@@ -15,6 +15,20 @@ public struct GeneratedBleedOverlay: PDFSlotOverlay {
         let settings = p.slot.gangJobID.flatMap { jobSettings[$0] } ?? self.settings
         guard settings.enabled,p.slot.sourcePageNumber != nil,let page = p.sourcePage else { return }
         let trim = p.trimRect, art = p.artworkRect
+        if let scale = p.slot.rescale {
+            let samples: PDFPageEdgeSamples
+            if let cached = cache.cached(page:page.pageNumber,rescale:scale) { samples = cached }
+            else if sampleIfMissing { samples = try cache.samples(for:page,rescale:scale) }
+            else { return }
+            // Fit gaps use source edges. Exterior bleed uses the resulting target
+            // edges, including the newly cropped edges in fill mode.
+            if scale.settings.mode == .fit {
+                let raw = try cache.samples(for:page)
+                PDFRescaleDrawing.fillEdges(raw,inner:PDFRescaleDrawing.rect(scale.artwork),outer:art,tolerance:settings.tolerance,in:context)
+            }
+            PDFRescaleDrawing.fillEdges(samples,inner:trim,outer:art,tolerance:settings.tolerance,in:context)
+            return
+        }
         guard art.width > trim.width+0.000001 || art.height > trim.height+0.000001 else { return }
         context.saveGState(); defer { context.restoreGState() }
         // Replacement is confined outside trim, within the plan's per-item or block-perimeter clip.

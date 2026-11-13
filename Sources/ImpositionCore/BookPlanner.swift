@@ -194,6 +194,17 @@ public enum BookPlanner {
                 i.message = "Kapak: "+i.message; result.issues.append(i)
             }
         }
+        // Physical nesting order is outermost first. The independent cover was
+        // built after the interior; move it without changing diagnostic indices.
+        let order = result.sheets.indices.filter { result.sheets[$0].bookInfo?.section == .cover }
+            + result.sheets.indices.filter { result.sheets[$0].bookInfo?.section != .cover }
+        let newIndex = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($0.element,$0.offset) })
+        result.sheets = order.map { result.sheets[$0] }
+        for i in result.issues.indices {
+            if var ref = result.issues[i].slot, let index = newIndex[ref.sheet] {
+                ref.sheet = index; result.issues[i].slot = ref
+            }
+        }
         result.issues += issues
         let pagination = result.paginationSummary,sides = result.pdfSideCount(includeBlankBacks:original.includeBlankBacks ?? true)
         for i in result.sheets.indices {

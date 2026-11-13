@@ -29,7 +29,7 @@ import ImpositionCore
         settings.margin = 15; settings.vat = 20; settings.extraWasteSheets = 12; settings.quote.company = "Atış"; settings.quote.validity = "15 gün"; settings.quote.logo = Data([1,2,3])
         model.project.costing = settings
         let url = dir.appendingPathComponent("job.atispress"); try model.saveProject(as:url)
-        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:url)).version,16)
+        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:url)).version,ProjectDocument.currentVersion)
         let restored = Workspace(); try await restored.loadProject(at:url)
         XCTAssertEqual(restored.project.costing,settings)
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with:Data(contentsOf:url)) as? [String:Any]); json["version"] = 15

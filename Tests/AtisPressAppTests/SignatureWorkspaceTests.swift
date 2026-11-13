@@ -44,7 +44,7 @@ final class SignatureWorkspaceTests: XCTestCase {
         workspace.setBlankPosition(1,selected:true); workspace.setBlankPosition(55,selected:true); try await settle(workspace)
         XCTAssertTrue(workspace.plan.canExport)
         XCTAssertEqual(workspace.plan.blankPositions,[1,55]); XCTAssertNil(workspace.plan.readingOrder[0]); XCTAssertNil(workspace.plan.readingOrder[54])
-        XCTAssertEqual(workspace.plan.sheets[0].blankPositions,[1]); XCTAssertEqual(workspace.plan.sheets[13].blankPositions,[55])
+        XCTAssertEqual(workspace.plan.sheets[1].blankPositions,[1]); XCTAssertEqual(workspace.plan.sheets[14].blankPositions,[55])
         XCTAssertTrue(workspace.currentSheet?.bookInfo?.summary.contains("27 forma (4 sayfa)") == true)
         XCTAssertTrue(workspace.currentSheet?.bookInfo?.summary.contains("PDF yüzü: 56") == true)
         let saved = folder.appendingPathComponent("sewn.atispress"); try workspace.saveProject(as:saved)

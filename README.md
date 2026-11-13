@@ -1958,3 +1958,103 @@ akışı kontrol edildi. Yeni pencerelerin tam masaüstü etkileşim turu yapıl
 Son doğrulama: **249 XCTest testi, sıfır hata** (109 çekirdek, 59 PDF, 81 uygulama).
 Mevcut testler korunmuştur; kurtarma testindeki sabit şema 15 beklentisi güncel
 şema sabitine bağlanmıştır. Derleme ve `git diff --check` temizdir.
+
+## Kapak sırası, sürekli önizleme, hedef ebat ve seri aralıkları — şema 17
+
+12 sayfalık A4 tel dikiş işindeki kapak hatasının nedeni, `BookPlanner`ın
+kapak yüzlerini iç bloktan ayırdıktan sonra bağımsız kapak tabakasını **sona**
+eklemesiydi. İç bifoliaların kendi sırası doğruydu. Üretim tabakaları artık
+kapak/dış tabaka önce gelecek biçimde sıralanır; doğrulama referansları da aynı
+sıralamaya taşınır. Tanı tabakalarının indeks alanı korunur. Dahil, Hariç ve Ayrı
+PDF panel kapaklarında iki A4/yüz için sonuç:
+
+| Tabaka | Ön | Arka |
+| --- | --- | --- |
+| 1 | 12 · 1 | 2 · 11 |
+| 2 | 10 · 3 | 4 · 9 |
+| 3 | 8 · 5 | 6 · 7 |
+
+Katlama testi bu tabakaları iç içe yerleştirip 1–12 okur. On sayfalık ek test,
+tamamlama boşlarının kapak yüzlerine taşınmadığını da kontrol eder. Eski
+`book == nil` projelerin sayfa/kapak modeli korunur.
+
+**Görünüm → Tüm tabakalar**, kitapçıklarda varsayılandır. Ön ve arka yüzler
+aynı satırda, bütün tabakalar sürekli kaydırmada gösterilir. Soldaki tabakaya
+veya tekrarlı işin baskı tabakasına tıklamak ilgili yere gider; kaydırma seçimi
+ve tekrar numarasını günceller. Page Up/Down ve oklar fiziksel tabakalar arasında
+ilerler. Yakınlaştırma bütün kaydırma alanına uygulanır. **Tek tabaka** mevcut
+etkileşimli görünümü korur. Ekran dışında PDF tuvalleri oluşturulmaz; tekrarlar
+ayrıca diziye genişletilmez. Son tabaka yakınlaştırma düşükken de üst kenara
+hizalanabilir. Görünür yüzlerin taşma örnekleri arka planda hazırlanır.
+
+**Ölçeklendir**, her düz iş/karışık alt iş için hedef ebat ve modu saklar.
+Kitap iç sayfaları birlikte, ayrı kapak PDF’si/açılımı ayrı ayarlanır; açılımın
+hedefi açılımın tamamıdır. Kartvizit 90×50, 85×55, A6, A5, A4, DL (99×210) ve
+Özel (mm) kullanılabilir. Seçilmiş hedef kaynak ölçüden farklıysa veya ürün
+belirgin büyükse ithalatta ve **Otomatik düzenle** sırasında Türkçe soru açılır.
+Öneri eşiği, yaklaşık 100–150 × 60–100 mm kartları ve uzun kenarı 300 mm’yi
+geçen ürünleri kapsar; diğer ölçüler her zaman elle ayarlanabilir.
+
+- **Oranı koru / sığdır:** küçük oran, ortalı yerleşim; kalan alan mevcut kenar
+  rengi/kenar şeridi yöntemiyle tamamlanır.
+- **Oranı koru / doldur (kırp):** büyük oran, ortalı kırpma.
+- **Esnet:** bağımsız x/y oranları; oran değişimi %2’yi geçerse uyarı.
+
+100×60 → 90×50 için sığdır %83,33, doldur %90, esnet x=%90/y=%83,33’tür.
+Kesim her modda 90×50 olur. Kaynak PDF ve ölçü kataloğu değiştirilmez; plan
+hedef kesimi ve affine artwork dönüşümünü taşır. Otomatik yerleşim hedef ölçüyü
+kullanır ve özgün tek/çift yüz eşlemesini korur. Aynı kaynağın karışık iş
+kopyaları ve yinelenmiş düz iş sayfaları bağımsız hedefler alabilir. Kaynak
+artwork vektör kalır. Taşma hedefin ölçeklenmiş/kırpılmış kenarlarından üretilir;
+mevcut daha büyük artwork/taşma planın taşma klibinde kesilir. Değişken kenarda
+önceki yöntemdeki bir piksel genişliğinde şeritler kullanılabilir; bütün sayfa
+rasterleştirilmez. Önizleme ve PDF aynı çizim yolunu kullanır.
+
+**Seri Numara → Aralık dağıtımı**:
+
+- **Kopya bazlı:** önceki toplam adet davranışı.
+- **Blok bazlı:** düz işte her ızgara kopya konumu, gang’da her `GangBlock`
+  bağımsız bloktur. Adet blok başınadır. İki blok ve 100 adet: 1–100 / 101–200.
+  Gang ızgarasında birden çok ürün varsa blok içinde Sıralı veya Yığın düzeni
+  uygulanır. Aynı başlangıç/artış/önek/sonek ve arka yüz kuralını kullanan
+  blok sayaçları işler arasında da devam eder. Ortak baskı daha uzunsa bitmiş
+  bloklarda numara üretilmez.
+- **İş bazlı:** her işin kendi başlangıcı/artışı/bitişi; aynı önek/sonekle
+  çakışan iş aralıkları çıktıyı engeller.
+
+**Arka yüz numarası → Ön ile aynı** varsayılandır. **Ardışık**, fiziksel ön/arka
+ürün için 1/2, sonraki ürün için 3/4 kullanır. Tek yüz iş arada numara atlamaz.
+Blok aralıkları soldaki listede ve önizleme başlığında gösterilir. Sıfır artışlı
+blok çakışması, sayısal taşma ve yeni blok/iş modlarında sabit basamak taşması
+çıktıyı engeller. Adet/fire ve maliyet özeti blokların toplam üretimini sayar.
+Aralık çakışması sayısal alt/üst sınırla denetlenir; seyrek artış dizilerinde
+kesişmeyen tek tek değerleri ayrıca ayırmaz.
+
+`.atispress` şeması **17**; görünüm tercihi, iş hedefleri/modları ve seri
+aralık/arka yüz tercihlerini saklar. **1–16** açılır; eksik alanlar önceki kopya
+bazlı/aynı arka yüz davranışını ve ölçeklenmemiş kaynakları korur. Undo/redo,
+kurtarma ve normal kaydet/aç aynı proje alanlarını taşır.
+
+Çalıştırma ve doğrulama (ağ gerekmez):
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+swift test --disable-sandbox --filter 'SaddleCoverOrderTests|Rescal|SerialDistributionTests|NewProductionSettingsTests'
+./scripts/build_app.sh
+open "dist/AtışPress.app"
+```
+
+Yeni doğrulamalar: üç kapak modu, katlama ve iç boşlar; 1200 sayfalık gerçek
+önizleme görünümünde seçme/kaydırma ve görünür görünüm sayısı; 100.000 tekrarlı
+kaydırma geometrisi; üç ölçek modu, iş bağımsızlığı ve çift yüz eşlemesi;
+vektör PDF kaynaklarının korunması ve taşma dahil önizleme/PDF piksel eşitliği;
+blok/iş aralıkları, arka numaralar, taşmalar ve gerçek kaynakla kaydet/aç/eski
+şema. Masaüstünde kapak yüzleri, kaydırma ve Türkçe kontroller ayrıca incelendi.
+Donanıma bağlı FPS ölçümü ve fiziksel baskı/katlama provası yapılmadı.
+
+Son doğrulama: **266 XCTest testi, sıfır hata** (121 çekirdek, 60 PDF, 85 uygulama).
+Derleme ve `git diff --check` temizdir. Yerel uygulama paketi oluşturuldu ve ad-hoc
+imzası doğrulandı. Sandbox LaunchServices kaydına izin vermediği için Finder
+çift tıklama yönlendirmesi ayrıca denenmedi; uygulama paketinden açılış doğrulandı.

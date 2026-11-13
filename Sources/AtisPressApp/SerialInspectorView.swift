@@ -72,6 +72,15 @@ struct SerialInspectorView: View {
                 Text("Barkod (Code 128)").tag(SerialCodeSettings.Kind.code128)
             }
             if field.wrappedValue.kind != .text { SerialCodeControlsView(field: field) }
+            Picker("Aralık dağıtımı",selection:field.distribution) {
+                Text("Kopya bazlı").tag(SerialField.Distribution.copy)
+                Text("Blok bazlı").tag(SerialField.Distribution.block)
+                Text("İş bazlı").tag(SerialField.Distribution.job)
+            }
+            Picker("Arka yüz numarası",selection:field.backNumbering) {
+                Text("Ön ile aynı").tag(SerialField.BackNumber.same)
+                Text("Ardışık").tag(SerialField.BackNumber.consecutive)
+            }
             Picker("Mod",selection: field.mode) {
                 Text("Sıralı").tag(SerialField.Mode.sequential)
                 Text("Yığın (kes ve istifle)").tag(SerialField.Mode.stack)

@@ -67,12 +67,16 @@ extension Sheet {
     public var productionSummary: String? {
         guard let layout = repeatLayout else { return nil }
         let quantity = layout.requestedQuantity ?? layout.copiesPerSheet
+        if let serialPlan,serialPlan.quantityMultiplier>1 {
+            return "Blok başına adet \(quantity) + fire \(layout.wasteQuantity) · \(serialPlan.quantityMultiplier) blok · Toplam \(serialPlan.totalUnits(layout.productionQuantity ?? quantity)) üretim · \(repeatCount) tabaka"
+        }
         return "Adet \(quantity) + fire \(layout.wasteQuantity) = \(layout.productionQuantity ?? quantity) üretim, \(repeatCount) tabaka"
     }
     public var unnumberedCopiesDescription: String {
         guard let layout = repeatLayout else { return "0" }
         let produced = UInt64(repeatCount).multipliedReportingOverflow(by: UInt64(layout.copiesPerSheet))
-        let count = UInt64(layout.numberedQuantity ?? layout.requestedQuantity ?? layout.copiesPerSheet)
+        let units = layout.numberedQuantity ?? layout.requestedQuantity ?? layout.copiesPerSheet
+        let count = UInt64(serialPlan?.totalUnits(units) ?? units)
         return produced.overflow || produced.partialValue < count ? "0" : String(produced.partialValue-count)
     }
 }

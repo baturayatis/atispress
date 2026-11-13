@@ -1,6 +1,7 @@
 import Foundation
 
 public struct GangJob: Identifiable, Equatable, Codable, Sendable {
+    public var rescale: RescaleSettings? = nil
     public var id = UUID()
     public var sourceID: UUID
     public var name: String
@@ -60,6 +61,11 @@ extension Sheet {
     }
     public var generatedBleedByJob: [UUID:GeneratedBleedSettings] {
         Dictionary(uniqueKeysWithValues: (gangLayout?.jobs ?? []).map { ($0.job.id,$0.job.generatedBleed) })
+    }
+    public var serialRangeLabels: [String] {
+        if let gangLayout { return gangLayout.jobs.flatMap { job in job.serialPlan.fields.flatMap { job.serialPlan.blockRanges(field:$0).map { job.job.name+" · "+$0 } } } }
+        guard let serialPlan else { return [] }
+        return serialPlan.fields.flatMap { serialPlan.blockRanges(field:$0) }
     }
     public var gangJobNames: String? { gangLayout?.jobs.map(\.job.name).joined(separator: ", ") }
 }
@@ -252,7 +258,9 @@ public enum GangPlanner {
             if var c = p.artworkClip { if mirrorsX { c.origin.x = size.width-c.origin.x-c.size.width } else { c.origin.y = size.height-c.origin.y-c.size.height }; q.artworkClip = c }
             return q
         }
+        var blockIndices: [UUID:Int] = [:]
         for b in blocks {
+            let blockIndex = blockIndices[b.jobID] ?? 0; blockIndices[b.jobID] = blockIndex+1
             let j = jobs.first { $0.id==b.jobID }!,w = b.rotated ? j.front.trimSize.height : j.front.trimSize.width,h = b.rotated ? j.front.trimSize.width : j.front.trimSize.height
             if b.rotated && !j.allowRotation { issue("\(j.name): 90° döndürme kapalı; blok döndürülmüş.") }
             if let reverse = j.back,reverse.trimSize != j.front.trimSize { issue("\(j.name): ön ve arka kesim ölçüleri eşit değil.") }
@@ -261,6 +269,7 @@ public enum GangPlanner {
             for row in 0..<b.rows { for col in 0..<b.columns {
                 let x = b.origin.x+Double(col)*(w+gap),y = b.origin.y+Double(row)*(h+gap)
                 var p = Slot(sourcePageNumber: j.front.number,origin: Point(x,y),size: Size(w,h),rotation: b.rotated ? 90 : 0,copyIndex: start+row*b.columns+col,itemSide: .front)
+                p.serialBlockIndex = blockIndex; p.serialCopyIndex = row*b.columns+col
                 p.gangJobID = j.id; p.gangBlockID = b.id
                 var l = col==0 ? j.bleed : (gap==0 ? 0 : j.bleed),r = col==b.columns-1 ? j.bleed : (gap==0 ? 0 : j.bleed)
                 var d = row==0 ? j.bleed : (gap==0 ? 0 : j.bleed),t = row==b.rows-1 ? j.bleed : (gap==0 ? 0 : j.bleed)
@@ -273,23 +282,43 @@ public enum GangPlanner {
                 var reverse = p; reverse.sourcePageNumber = j.back?.number; reverse.itemSide = .back
                 front.slots.append(p); back.slots.append(reflected(reverse))
                 if samePlate {
-                    var otherFront = reflected(reverse); otherFront.copyIndex = p.copyIndex!+c
-                    var otherBack = p; otherBack.copyIndex = p.copyIndex!+c
+                    var otherFront = reflected(reverse); otherFront.copyIndex = p.copyIndex!+c; otherFront.serialCopyIndex = (p.serialCopyIndex ?? 0)+c
+                    var otherBack = p; otherBack.copyIndex = p.copyIndex!+c; otherBack.serialCopyIndex = (p.serialCopyIndex ?? 0)+c
                     front.slots.append(otherFront); back.slots.append(otherBack)
                 }
             } }
         }
         if front.slots.count>20_000 { issue("Tabaka başına 20.000 yuva sınırı aşıldı."); return result }
         let copies = jobs.map { capacities[$0.id] ?? 0 }
-        let count = sheetCount(required: required,copies: copies) ?? 1
+        var count = sheetCount(required: required,copies: copies) ?? 1
+        for (i,job) in jobs.enumerated() where job.serialFields.contains(where:{ $0.distribution == .block }) {
+            for block in blocks where block.jobID == job.id {
+                let cap = block.columns*block.rows*factor
+                if cap>0 { count = max(count,1+(required[i]-1)/cap) }
+            }
+        }
         if copies.contains(0) { issue("Her iş için en az bir blok gerekir.") }
         var jobResults: [GangJobResult] = []
+        var allocator = SerialBlockAllocator()
         for (i,j) in jobs.enumerated() {
-            var recipe = SerialNumberPlan(fields:j.serialFields,quantity:j.waste.numberCopies ? required[i] : j.quantity,capacity:copies[i],sheetCount:count); recipe.frontOnly = j.back == nil
+            let quantity = j.waste.numberCopies ? required[i] : j.quantity
+            let blockCount = blocks.filter { $0.jobID == j.id }.count
+            let allocated = allocator.allocate(j.serialFields,quantity:quantity,blocks:blockCount,frontOnly:j.back == nil)
+            if allocated.overflow { issue("\(j.name): blok aralığı sayısal kapasiteyi aşıyor.") }
+            var recipe = SerialNumberPlan(fields:allocated.fields,quantity:quantity,capacity:copies[i],sheetCount:count); recipe.frontOnly = j.back == nil
+            recipe.blockCapacities = blocks.filter { $0.jobID == j.id }.map { $0.columns*$0.rows*factor }
+            recipe.resolveDigits()
+            for field in recipe.fields {
+                if let total = recipe.numberCount(for:field),total>0,(!field.usesSerialNumber || field.value(at:total-1) != nil) {
+                    if field.usesSerialNumber,(field.distribution != .copy || field.backNumbering == .consecutive),field.digitsAreManual,(field.requiredDigits(quantity:total) ?? 33)>field.digits { issue("\(j.name): aralık sabit basamak sayısını aşıyor.") }
+                } else { issue("\(j.name): seri numara taşması.") }
+                if field.usesSerialNumber,field.distribution == .block,field.step == 0 { issue("\(j.name): blok aralıkları çakışıyor; artış sıfır olamaz.") }
+            }
             if recipe.fields.contains(where: { $0.usesSerialNumber && $0.value(at: recipe.quantity-1)==nil }) { issue("\(j.name): seri numara taşması.") }
             let product = UInt64(count).multipliedReportingOverflow(by:UInt64(copies[i]))
             let made = product.overflow ? UInt64.max : product.partialValue
-            jobResults.append(GangJobResult(job:j,copiesPerSheet:copies[i],required:required[i],surplus:made>UInt64(required[i]) ? made-UInt64(required[i]) : 0,serialPlan:recipe))
+            let totalRequired = recipe.totalUnits(required[i])
+            jobResults.append(GangJobResult(job:j,copiesPerSheet:copies[i],required:totalRequired,surplus:made>UInt64(totalRequired) ? made-UInt64(totalRequired) : 0,serialPlan:recipe))
             for field in recipe.fields {
                 if let note = field.digitNote(quantity:recipe.quantity) { result.issues.append(ValidationIssue(.warning,.serialNumbering,j.name+": "+note)) }
             }
@@ -299,6 +328,18 @@ public enum GangPlanner {
                 warning.affectedPages = missing.map(\.number); result.issues.append(warning)
             }
         }
+        for a in jobResults.indices { for b in jobResults.indices where b>a {
+            for first in jobResults[a].serialPlan.fields where first.distribution != .copy && first.usesSerialNumber {
+                for second in jobResults[b].serialPlan.fields where second.distribution == first.distribution && second.usesSerialNumber && first.prefix == second.prefix && first.suffix == second.suffix {
+                    let ra = jobResults[a].serialPlan,rb = jobResults[b].serialPlan
+                    if let ca = ra.numberCount(for:first),let cb = rb.numberCount(for:second),
+                       let ae = first.value(at:ca-1),let be = second.value(at:cb-1),
+                       max(min(first.start,ae),min(second.start,be)) <= min(max(first.start,ae),max(second.start,be)) {
+                        issue("Blok/iş seri aralıkları çakışıyor: \(jobResults[a].job.name) / \(jobResults[b].job.name).")
+                    }
+                }
+            }
+        } }
         // Cell grid boundaries are straight cuts within leaf strips; no fold paths are emitted.
         func guides(_ side: inout Side) {
             for slot in side.slots {
