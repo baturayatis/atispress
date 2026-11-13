@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build a local, ad-hoc-signed macOS bundle. Extra arguments go to SwiftPM.
+# Build a universal, ad-hoc-signed macOS bundle. Extra arguments go to SwiftPM.
 set -euo pipefail
 
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -9,8 +9,8 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
     exit 1
 fi
 
-swift build --disable-sandbox --configuration release -debug-info-format none --product AtisPressApp "$@"
-bin_dir="$(swift build --disable-sandbox --configuration release -debug-info-format none --show-bin-path "$@")"
+swift build --disable-sandbox --configuration release --arch arm64 --arch x86_64 -debug-info-format none --product AtisPressApp "$@"
+bin_dir="$(swift build --disable-sandbox --configuration release --arch arm64 --arch x86_64 -debug-info-format none --show-bin-path "$@")"
 dist_dir="$repo_dir/dist"
 app_path="$dist_dir/AtışPress.app"
 mkdir -p "$dist_dir"
@@ -19,6 +19,10 @@ trap 'rm -rf "$stage_dir"' EXIT
 bundle="$stage_dir/AtışPress.app"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 install -m 755 "$bin_dir/AtisPressApp" "$bundle/Contents/MacOS/AtisPressApp"
+for arch in arm64 x86_64; do
+    xcrun lipo "$bundle/Contents/MacOS/AtisPressApp" -verify_arch "$arch"
+done
+xcrun lipo -info "$bundle/Contents/MacOS/AtisPressApp"
 cp packaging/Info.plist "$bundle/Contents/Info.plist"
 printf 'APPL????' > "$bundle/Contents/PkgInfo"
 

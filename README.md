@@ -17,77 +17,118 @@ In an environment that prevents nested `sandbox-exec` (including the current
 agent environment), use `swift build --disable-sandbox` and
 `swift test --disable-sandbox`. Xcode can also open `Package.swift` directly.
 
-## Build a double-clickable macOS app
+## Kurulum
 
-Requires macOS 14+ and Xcode command-line tools (`xcode-select --install` if
-needed). From the repository:
+**macOS 14 veya üzeri** gerekir. Intel ve Apple Silicon Mac’ler aynı universal
+uygulamayı kullanır.
+
+1. [Releases](https://github.com/baturayatis/atispress/releases) sayfasından
+   `AtisPress-<sürüm>.dmg` dosyasını indirin ve çift tıklayarak açın.
+2. **AtışPress.app** dosyasını yanındaki **Applications (Uygulamalar)** bağlantısına
+   sürükleyin. Kopyalama bitince disk görüntüsünü çıkarın.
+3. Uygulamalar klasöründen **AtışPress**’i açın.
+
+İlk açılışta macOS uygulamayı engellerse, açmayı bir kez deneyin; ardından
+**Sistem Ayarları → Gizlilik ve Güvenlik → Yine de aç** yolunu kullanıp onaylayın.
+Güvendiğiniz Releases dosyası için alternatif olarak Terminal’de karantina
+özniteliklerini kaldırıp uygulamayı açabilirsiniz:
+
+```sh
+xattr -cr /Applications/AtışPress.app
+open /Applications/AtışPress.app
+```
+
+`.atispress` proje dosyaları AtışPress ile açılır. Gerekirse Finder’da **Bilgi Ver
+→ Birlikte Aç → AtışPress → Tümünü Değiştir** seçin. Projelerin kaynak PDF’leri
+bağlantılıdır; uygulamayı taşımak bu PDF’leri projeye gömmez.
+
+## Geliştiriciler için uygulama ve DMG oluşturma
+
+macOS 14+, Swift 5.9+ ve Intel/Apple Silicon hedeflerini destekleyen Xcode araçları
+gerekir. Xcode’da `Package.swift` açılabilir. Komut satırında:
 
 ```sh
 cd /Users/baturayatis/Developer/AtisPressCore
+swift test --disable-sandbox
 ./scripts/build_app.sh
+./scripts/make_dmg.sh --skip-build
 open "dist/AtışPress.app"
 ```
 
-The script performs a release build without debug symbols, generates a multi-resolution navy imposition
-icon, creates **dist/AtışPress.app**, then runs
-`codesign --force --deep --sign -` and verifies the signature. Generated bundles
-are ignored by Git. The bundle identifier is **com.atisajans.atispress**, minimum
-macOS is **14.0**, and Retina rendering is enabled. Edit
-**packaging/Info.plist** to change the marketing version (currently **0.1.0**) or
-build number (**1**); these are independent of the `.atispress` JSON schema version.
+Tek komutla uygulamayı derleyip DMG oluşturmak için `./scripts/make_dmg.sh`
+çalıştırın. `--skip-build`, mevcut `dist/AtışPress.app` paketini kullanır;
+onun sürümü `Contents/Info.plist` üzerinden okunur.
 
-To install, drag **AtışPress.app** from `dist` into **Applications** in Finder.
-Alternatively, copy it with these exact commands, then launch the installed copy:
+`build_app.sh`, release derlemesini her zaman `--arch arm64 --arch x86_64` ile
+yapar; her mimari için ayrı `lipo -verify_arch` çağrısıyla iki mimariyi de zorunlu tutar ve
+`lipo -info` sonucunu gösterir. `dist/AtışPress.app` ad-hoc imzalanır; imza
+`codesign --verify --deep --strict` ile doğrulanır. Mevcut paket ancak yeni paket
+başarıyla doğrulanırsa değiştirilir. Ek SwiftPM seçenekleri betiğe geçirilebilir;
+mimari, yapılandırma ve ürün seçeneklerini değiştirmeyin.
 
-```sh
-ditto "dist/AtışPress.app" "/Applications/AtışPress.app"
-open "/Applications/AtışPress.app"
-```
+`make_dmg.sh`, uygulamayı ve `/Applications` hedefli sembolik bağlantıyı **AtışPress**
+adlı HFS+ birimine koyar. `UDZO` sıkıştırmalı dosya adı ASCII’dir:
+`dist/AtisPress-0.1.0.dmg`. Sürüm, uygulamanın `Info.plist` dosyasındaki
+`CFBundleShortVersionString` değeridir; kaynağı `packaging/Info.plist` içindedir.
+Buradaki pazarlama sürümü ve build numarası `.atispress` proje şemasından bağımsızdır.
+Betik `hdiutil create` ile HFS+/UDZO görüntüsünü oluşturur, `hdiutil verify`
+çalıştırır, DMG’yi salt okunur bağlar, uygulamayı,
+Applications bağlantısını, iki mimariyi ve imzayı kontrol eder; birimi ayırır ve
+son dosyanın SHA-256 özetini yazdırır. Hata halinde önceki DMG korunur.
 
-The bundle declares `.atispress` as an editable **AtışPress Projesi** document
-using the existing exported UTI **com.atispress.project**, conforming to JSON.
-The build script registers the bundle with LaunchServices when available;
-installing and launching it also lets Finder discover the document type.
-Double-click a saved `.atispress` project to open it. If another app was previously
-chosen, use Finder **Get Info → Open with → AtışPress → Change All**. To open a
-specific project explicitly:
-
-```sh
-open -a "/Applications/AtışPress.app" "/absolute/path/example.atispress"
-```
-
-The existing URL-open handler restores the saved project, including the Turkish
-source-PDF relink dialog if needed. Source PDFs remain linked, not embedded.
-
-**App icon:** replace **packaging/AppIcon.icns** with your final icon and
-rerun the script. If that file is absent, **scripts/generate_app_icon.swift** draws
-the navy/white/teal glyph into all standard 16–1024-pixel icon representations using AppKit
-and writes a PNG-backed ICNS container directly to
-**Contents/Resources/AppIcon.icns**. It needs no external image tools or services.
-Editing an already signed bundle invalidates its signature, so rebuild after
-replacing the icon or changing metadata.
-
-**Gatekeeper:** this local bundle is ad-hoc signed, without Developer ID or Apple
-notarization. On macOS 14, if a trusted copy is blocked, right-click (or
-Control-click) **AtışPress.app → Open**, then confirm **Open**. On newer macOS
-versions where that shortcut does not offer an override, attempt to launch once,
-then use **System Settings → Privacy & Security → Open Anyway** and confirm.
-See [Apple's current Gatekeeper instructions](https://support.apple.com/en-gb/102445).
-The script does not change Gatekeeper settings or remove quarantine attributes.
-
-The default release targets the build Mac's architecture. For a universal binary,
-with the full Xcode toolchain installed, pass SwiftPM architecture flags:
+Elle kontrol:
 
 ```sh
-./scripts/build_app.sh --arch arm64 --arch x86_64
+lipo -info "dist/AtışPress.app/Contents/MacOS/AtisPressApp"
+hdiutil verify dist/AtisPress-0.1.0.dmg
+hdiutil attach -readonly -nobrowse dist/AtisPress-0.1.0.dmg
+ls -ld "/Volumes/AtışPress/AtışPress.app" "/Volumes/AtışPress/Applications"
+readlink "/Volumes/AtışPress/Applications"
+hdiutil detach "/Volumes/AtışPress"
+shasum -a 256 dist/AtisPress-0.1.0.dmg
 ```
 
-Packaging does not provide an installer, updater or notarized distribution.
-Verification: all 114 existing tests pass unchanged; release packaging, strict
-ad-hoc signature validation, bundle metadata/UTI consistency, all ten icon sizes,
-and a native bundle launch were checked. This restricted shell cannot register
-with LaunchServices, so Finder project double-click dispatch was not exercised;
-use the installed app on the desktop to verify that integration.
+Disk aygıtlarına erişimi olmayan sandbox’larda `hdiutil` oluşturma/bağlama
+adımları engellenebilir. Böyle bir durumda betiği normal macOS Terminal
+oturumunda çalıştırın; varsayılan kontrolleri atlamayın.
+
+### İsteğe bağlı Developer ID ve noter onayı
+
+`make_dmg.sh` çalıştırılırken `APPLE_ID`, `TEAM_ID` ve uygulamaya özel parola olan
+`APP_PASSWORD` ortam değişkenlerinin üçü de doluysa ve Anahtar Zinciri’nde aynı
+`TEAM_ID` için geçerli bir **Developer ID Application** imza kimliği varsa,
+DMG’ye konacak uygulama kopyası Developer ID ile, hardened runtime ve güvenilir
+zaman damgası kullanılarak imzalanır. Ardından DMG imzalanır, `xcrun notarytool
+submit --wait` ile Apple’a gönderilir ve yalnız **Accepted** sonucunda
+`xcrun stapler staple` / `validate` çalıştırılır. Bu yol ağ ve Apple Developer
+hesabı gerektirir. `dist/AtışPress.app` yerel ad-hoc paket olarak kalır.
+
+Değişkenler veya uygun kimlik yoksa betik nedeni açıkça bildirir ve ad-hoc imzalı
+DMG üretir. Noter hizmeti, kimlik doğrulama veya imzalama hatası varsa işlem başarısız
+olur; sessizce onaysız bir DMG yayımlamaz. Betikler kimlik bilgilerini depoya yazmaz.
+Dosyayı Releases’a yüklemek ve Git push ayrı, elle yapılan adımlardır.
+
+Paket kimliği **com.atisajans.atispress**, minimum sistem **14.0** ve Retina desteği
+korunur. `.atispress` UTI’si **com.atispress.project** olarak kalır. İkon için
+`packaging/AppIcon.icns` kullanılır; yoksa `scripts/generate_app_icon.swift`
+16–1024 piksel temsillerini üretir. İmzalı paketi değiştirdikten sonra yeniden
+derleyin. Betikler Gatekeeper ayarlarını veya karantina özniteliklerini değiştirmez.
+LaunchServices kaydı sandbox’ta engellenebilir; bu durum paket üretimini engellemez.
+
+### Paketleme doğrulaması
+
+Mevcut **272 XCTest** değişmeden geçti. Universal release uygulamasında ve
+DMG içindeki uygulamada `lipo` ile `arm64` / `x86_64`, ayrıca strict ad-hoc imza
+kontrol edildi. `dist/AtisPress-0.1.0.dmg` UDZO olarak oluşturuldu,
+`hdiutil verify` geçti; Finder’da **AtışPress** adıyla bağlandı ve uygulama ile
+`/Applications` bağlantısı doğrulandı, ardından birim çıkarıldı.
+
+Bu sandbox `hdiutil create/attach` için disk aygıtı erişimini engellediği için
+DMG bu turda Disk İzlencesi ile oluşturulup `hdiutil convert -format UDZO` ile
+sıkıştırıldı. Otomatik betiğin tamamının normal Terminal’de çalıştırılması
+ayrıca doğrulanmalıdır; hata yolunun mevcut DMG’yi koruduğu kontrol edildi.
+Developer ID kimliği/kimlik bilgileri olmadığı için gerçek Apple noter onayı ve
+stapling denenmedi. Intel Mac üzerinde çalıştırma ayrıca denenmedi.
 
 ## API
 
