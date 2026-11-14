@@ -93,14 +93,14 @@ struct PreflightView: View {
             VStack(alignment: .leading,spacing: 7) {
                 Text(model.project.autoLayout?.production == .offset ? "Ofset: RGB bulgularını ve renk ayrımlarını kontrol edin." : "Dijital: RGB bulguları bilgilendirme amaçlıdır.")
                     .font(.caption)
-                if model.source == nil { Text("PDF yüklenince otomatik incelenir.").font(.caption).foregroundStyle(.secondary) }
+                if model.source == nil { Text("PDF yüklenince otomatik incelenir.").font(.caption).foregroundStyle(DesignSystem.muted) }
                 else {
                     ForEach(model.preflightRows) { row in
-                        Text(row.text).font(.caption).foregroundStyle(row.severity == .warning ? Color.orange : Color.secondary)
+                        Text(row.text).font(.caption).foregroundStyle(row.severity == .warning ? Color.orange : DesignSystem.muted)
                             .textSelection(.enabled)
                     }
                     Text("En iyi çaba; bulgu olmaması uygunluk onayı değildir. Renk yönetimi, bindirme, gerçek piksel mürekkep kaplaması ve tüm PDF özellikleri kontrol edilemedi. Dışa aktarımı engellemez.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(DesignSystem.muted)
                 }
             }.frame(maxWidth: .infinity,alignment: .leading).padding(5)
         }

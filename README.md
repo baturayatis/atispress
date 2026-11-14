@@ -296,7 +296,7 @@ with the trackpad/wheel, drag the canvas to pan, or use **− / Sığdır / +**.
 | Katmanlar | Show/hide only the corresponding plan marks or the sheet border; never alter layout. |
 
 Changing mark geometry automatically enables its overlay so the change is visible.
-Page labels stay readable at low zoom; purple badges identify rotation/mirroring,
+Page labels and rotation/mirroring badges follow the page-number preview overlay;
 and gray crossed slots identify blanks. Validation issues with slot references
 outline those slots in red; clicking a referenced issue jumps to its sheet/face.
 Margins/gripper have their own visibility toggle. Fit failures retain a separate
@@ -2134,90 +2134,99 @@ Sandbox LaunchServices kaydına izin vermedi; Finder çift tıklama entegrasyonu
 bu turda doğrulanmadı.
 
 
-## Kullanılabilirlik — Basit / Gelişmiş
+## Tek ekranlı iş akışı
 
-Araç çubuğundaki **Basit / Gelişmiş** seçimi uygulama tercihinde hatırlanır.
-Basit görünüm; ürün tipi, Dijital/Ofset, adet, ölçeklendirme, otomatik tabaka,
-taşma üretimi ve seri numarayı gösterir. Gelişmiş görünüm mevcut bütün ayarlara
-ulaşır. Görünüm değiştirmek, bölüm kapatmak veya aramak projeyi değiştirmez;
-automatik değerler ve daha önce elle girilmiş değerler korunur. Yalnız bir
-kontrolü değiştirmek veya **Otomatiğe döndür** seçmek üretim ayarını değiştirir.
+Ana ekran üç sütundur: **Sayfalar**, önizleme ve **Ayarlar**. Basit/Gelişmiş
+seçimi, sekme çubuğu ve kalıcı arama alanı yoktur. Araç çubuğunda **PDF Seç**,
+**Otomatik düzenle**, **PDF’i Hazırla** bulunur. **⌘E** üç hazır seçimli PDF
+hazırlama penceresini açar; **⇧⌘E** önceki doğrudan dışa aktarma yolunu korur.
+Dosya/proje açma, kaydetme, undo/redo ve diğer üretim komutları yerindedir.
 
-Ürün önerisi kaynak PDF’nin ölçüsü ve mevcut ciltleme üzerinden yapılır:
-standart kartvizitler Kartvizit, diğer düz işler Form; mevcut tel dikiş Broşür,
-katlı kitap ciltleri Kitap, yaprak ciltleri Spiral olarak gösterilir. PDF’nin
-semantik içeriği veya fiziksel cildi okunmaz. Açılışta yöntem değiştirilmez;
-ürün seçimini kullanıcı değiştirdiğinde mevcut yerleşim yöntemine geçilir.
-Kartvizit/Form aynı tekrarlı yöntemi kullanır; seçim proje kimliğine göre
-uygulama tercihinde hatırlanır. Kitap/yaprak için **Yayın adedi**, mevcut maliyet
-adedidir; PDF önceki tek yayın planını korur. Gang’da adet seçili işe aittir.
+Sağdaki tek sütun, pencere yüksekliği yetmediğinde dikey kayar:
 
-Denetçi **Ürün**, **Tabaka**, **Kenarlar ve Maşa**, **Taşma ve İşaretler**,
-**Seri Numara**, **Kitap/Cilt**, **Fiyat** bölümlerine ayrılır. Açıklık durumları
-hatırlanır. **Ayar ara** Türkçe büyük/küçük harf ve aksan farklarına duyarsızdır;
-birden fazla sözcük birlikte aranır. Bölüm adı aranırsa bölümün tamamı görünür.
-Arama sırasında ilgili kapalı bölümler geçici açılır; saklanan açıklık değişmez.
-Alanların yanındaki **?**, ne yaptığını, mevcut seçimleri/ölçülmüş değer ihtiyacını
-ve bir örneği açıklar; makine veya fiyat değeri uydurulmaz.
+1. **Ne basıyoruz?**: ürün önerisi, değiştirilebilir ürün tipi, **Adet** (adet,
+   `örn. 1000`) ve **Fire** (%). Standart kartvizitlerin arasındaki 86,7×54 mm
+   gibi ölçüler de kartvizit olarak önerilir; kaynak ölçüleri değiştirilmez.
+2. **Hangi kâğıda basılacak?**: Otomatik, A4, A3, SRA3, 33×48, 35×50, 50×70,
+   70×100 ve Özel ölçü düğmeleri. Özel seçimde en/boy mm alanları açılır.
+   Yeşil öneri mevcut otomatik düzenleyiciden gelir; kullanıcı uygulayana kadar
+   projeyi değiştirmez. Dijital/Ofset aynı karttadır.
+3. **Kesim ve taşma**: taşma üretimi/pay, çıktı kesim işaretleri ve dizilim.
+   Sabit adet fire, özel ara boşluk ve diğer önceki seçenekler ayrıntılarda kalır.
 
-**Otomatiğe döndür** yalnız bölüm kapsamını hedefler. Yerleşim alanlarının
-Manuel/Hazır ayar sahipliği kaldırılır ve mevcut otomatik düzenleyici kullanılır.
-Seri bölümünde otomatik basamak hesabına dönülür; başlangıç ve içerik korunur.
-Kitap/Cilt bölümünde forma, kapak seçimi ve boş konumları otomatiğe döner;
-ölçülmüş kâğıt ve cilt payları korunur. Fiyat bölümünde işe özel fiyat kopyaları
-ve kâr/KDV istisnaları kaldırılıp bağlantılı kitaplık değerlerine dönülür;
-kitaplık, seçili fiyat kimlikleri, adet ve teklif içeriği korunur.
+**Cilt ve kapak** kartı Kitap/Katalog/Spiral/Wire-O ürünleri için görünür.
+Diğer türlerde ilgili eski cilt seçeneklerine son ayrıntı bölümünden ulaşılır.
+Forma, kapak PDF/biçim/yüzleri, ölçülmüş kâğıt, sırt, creep, cilt payı,
+delik kılavuzları ve boş sayfa yerleşimi korunur.
 
-Önizleme altındaki durum çubuğu tabaka sayısını, tabaka kapasitesini, üretim
-adedini ve uyarı/hata sayısını gösterir. Kitapta panel/yüz, yaprakta yaprak/tabaka
-etiketi kullanılır. Uyarı menüsü ve mevcut doğrulama listesi aynı gezinmeyi yapar:
-yuva referansı varsa tabaka/yüz seçilir; yoksa ilgili ayar bölümü açılır.
+**Eklemek istersen** satırları seri/QR, ölçekleme, renk skalası/dizler,
+bilgi şeridi ve maliyet/teklif editörlerini doğrudan altında açar. Satır anahtarı
+ayrıntıları gösterir/gizler; yapılandırılmış değerleri silmez veya kendiliğinden
+çıktıya yeni öğe eklemez. Etkin öğelerin özeti satırda görünür; gerçek etkinlik
+kontrolleri kendi editöründedir. Maliyet ve fiyat kitaplığı da aynı sütunda
+çalışır; fiyat/teklif bilgileri otomatik doldurulmaz.
 
-**PDF’i Hazırla / Dışa Aktar** penceresi mevcut ayarları değiştirmeden açılır.
-Hazır seçime tıklamak yalnız mevcut `ExportMarks` bayraklarını değiştirir;
-çizgi rengi, kalınlığı, skala/diz ölçüleri, kaynak, adet ve kâğıt korunur.
-PDF/X veya renk dönüşümü eklenmez.
+Son **Kenar payı, maşa ve diğer ayrıntılar** açılımında marjlar, maşa,
+ara boşluk, hizalama, yön, taşma yöntemi/renk/tolerans, işaret ölçüleri,
+güvenli alan, önizleme katmanları, tüm çıktı işaretleri, A5 dahil önceki tabaka
+seçenekleri, işlere göre yüz düzeni, karışık iş ve hazır ayarlar bulunur.
+Bu bir mod değildir; bütün kontroller aynı sütunda kalır.
 
-| Hazır seçim | Açık işaretler |
-| --- | --- |
-| Matbaaya gönder | Kesim, katlama, bilgi şeridi, renk skalası, dizler |
-| Dijital baskı | Kesim |
-| Kontrol çıktısı | Kesim, katlama, taşma, güvenli alan, sayfa numaraları, bilgi şeridi |
+Sayfaların Ön/Arka rolü ve Tabakalar listesinin kapasite/yüz özeti gösterilir.
+Önizleme nötr zemin üzerinde beyaz kâğıt ve hafif gölge kullanır. Sayfa numarası,
+dönüş ve aynalama etiketleri **Sayfa numaraları** katmanına bağlıdır: yeni düz
+projelerde kapalı, kitapçık türüne geçildiğinde açıktır. Kaydedilmiş projenin
+katman tercihi açılışta aynen yüklenir. Bu ekran tercihi PDF işaretlerini değiştirmez.
 
-Üçünde de tam kesim çizgisi kapalıdır; tabloda olmayan görünürlük bayrakları
-kapalıdır. **İşaret ayrıntıları** bütün önceki seçenekleri açar; ardından mevcut
-tek PDF veya her tabakaya ayrı PDF kaydetme paneline geçilir.
+Durum çubuğu hazır bilgisini veya tıklanabilir uyarı/hata çipini gösterir.
+Uyarı ilgili ayar kartını açıp kaydırır; varsa tabaka/yüz referansına da gider.
+Marj, maşa, ara boşluk, taşma veya işaret alanına odaklanmak ilgili mevcut plan
+kılavuzunu turkuaz vurgular. Odak vurgusu ve gölge PDF’ye aktarılmaz.
 
-Kısayollar: **⌘1** Basit, **⌘2** Gelişmiş, **⌘F** Ayar ara, **⌘E** PDF hazırlama.
-Önceki **⇧⌘E** doğrudan tek PDF dışa aktarma ve bütün diğer kısayollar korunur.
-Boş çalışma alanında **PDF seç → Ayarları kontrol et → Dışa aktar** rehberi,
-PDF Seç / Proje Aç düğmeleri ve son dosyalar bulunur.
+`DesignSystem.swift`: navy `#16213E`, teal `#0B7F86`, başarı/uyarı çiftleri,
+semantik açık/koyu yüzeyler, 4/8/12/16/24 aralıkları ve 8/12 köşeler.
+Yazı sistemi native SF Pro’dur. Marka metin/zemin çiftleri iki görünümde de
+**en az 4,5:1** kontrast testinden geçer. Kâğıt beyaz kalır; ikon düğmelerinde
+VoiceOver etiketleri vardır. Açılımlar kısa animasyon kullanır; Hareketi Azalt
+tercihi açıkken animasyon uygulanmaz. Minimum içerik alanı **1180×760**’tır.
 
-Tercihler `UserDefaults` içinde `atispress.ui.*` anahtarlarında saklanır; arama
-metni ve geçici dışa aktarma penceresi saklanmaz. Proje şeması **18** kalır;
-eski proje açma, undo/redo, kurtarma ve PDF çizim yolu değişmez.
+Yeni açılım tercihleri uygulamada `atispress.workflow.details` ve
+`atispress.workflow.addons` anahtarlarında saklanır. Eski mod/arama tercihleri
+yeni ekran tarafından kullanılmaz. Ürün tercihi ve mevcut proje ayarları
+korunur; `.atispress` şeması **18** kalır. Planlayıcı ve PDF motoru değiştirilmedi.
 
-Çalıştırma ve doğrulama:
+### Doğrulama
 
 ```sh
 cd /Users/baturayatis/Developer/AtisPressCore
 swift run --disable-sandbox AtisPressApp
 swift test --disable-sandbox
-swift test --disable-sandbox --filter UsabilityTests
+swift test --disable-sandbox --filter 'WorkflowCardTests|UprightSheetPreferenceTests'
+./scripts/build_app.sh
 ```
 
-Yeni testler görünüm/bölüm tercihlerinin kalıcılığını, Türkçe aramayı, gizli
-automatik/manuel değerlerin korunmasını, uyarı gezinmesini, kapsamlı bölüm
-sıfırlamasını, ürün tercihini ve üç çıktı bayrağı eşlemesini kapsar. Sabit bir
-2×2 tekrarlı planın kaynak sırası/kapasitesi ve render edilmiş PDF’si görünüm,
-arama ve kaydet/aç boyunca aynı kalır. Masaüstünde boş durum, modun yeniden
-açılışta hatırlanması, kısayollar, maşa araması, uyarıdan bölüme kaydırma ve
-PDF hazırlamadan mevcut kaydetme paneline geçiş doğrulandı.
+[Ayar erişim envanteri](docs/UI_SETTING_REACHABILITY.md), önceki editörlerden
+sabitlenen **257 üretim ayarı/bağ/key-path kaydını** yeni erişim yollarıyla listeler.
+Test bunların kaynak bağlarını ve editör erişim grafiğini denetler; otomatik
+alanların tamamı ayrıca kontrol edilir. Silinen mod/arama ortamı ve pencere açma
+eylemi üretim ayarı sayılmaz. Önceki test dosyaları korunmuştur.
 
-Son doğrulama: **280 XCTest, sıfır hata** (123 çekirdek, 60 PDF, 97 uygulama).
-Mevcut test dosyaları, `ImpositionCore` ve `PDFEngine` değiştirilmedi. Son küçük
-rozet/yardım düzenlemelerinden sonra 8 kullanılabilirlik testi ayrıca geçti.
-Universal release uygulaması oluşturuldu; `arm64` / `x86_64` ve ad-hoc imza
-kontrol edildi. Ürün önerisi semantik PDF analizi değildir; fiziksel spiral/cilt
-niyetini kullanıcı doğrular. Her makine/cilt kombinasyonu için fiziksel üretim
-provası bu UI turunun kapsamında değildir.
+86,7×54 mm kartın 33×48 tabakada iki yönde 25 adet verdiği regresyon testi,
+UI değişikliklerinden **önce** çalıştırıldı ve geçti: mevcut planlayıcı zaten
+0° ürün yerleşimini tercih ediyor. Bu nedenle eşitlik kuralı veya başka plan
+mantığı değiştirilmedi. Sabit 2×2 plan ve render edilmiş PDF, kart açma/kapama,
+odak ve öneri hesaplama boyunca aynı kalır; mevcut kaydet/aç ve PDF testleri de
+çalıştırılır. Açık/koyu minimum boyut görüntüleri `.build/WorkflowQA/light.png`
+ve `dark.png` içinde üretilir.
+
+Ürün önerisi ölçü/mevcut yöntem temellidir; PDF içeriğinden fiziksel cilt türünü
+kesin çıkarmaya çalışmaz. Kitap/yaprak yayın adedi önceki gibi maliyet adedidir;
+PDF tek yayın planını korur. Fiziksel baskı/katlama provası bu UI turuna dahil değildir.
+
+Son doğrulama: **290 XCTest, sıfır hata** (124 çekirdek, 60 PDF, 106 uygulama).
+Son görünür etiket ve kâğıt üstü kontrast düzenlemelerinden sonra 15 hedefli
+UI/yerleşim testi ayrıca geçti. Açık/koyu minimum boyut görüntüleri incelendi;
+PDF yüklü ana görünüm ve aynı sütunda maliyet açılımı masaüstünde kontrol edildi.
+Universal release paketi `dist/AtışPress.app` oluşturuldu; iki mimari ve ad-hoc
+imza doğrulandı. Sandbox LaunchServices kaydını engelledi; bu mevcut paketleme
+sınırı kaynak uygulamayı veya testleri etkilemez. Push yapılmadı.

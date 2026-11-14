@@ -13,102 +13,191 @@ struct InspectorView: View {
             if let selected = presets[value] { model.project.sheet.size = selected.size }
         })
     }
-    @FocusState private var searching: Bool
-    @Environment(\.openWindow) private var openWindow
-    private var advanced: Bool { model.ui.mode == .advanced || !model.ui.search.isEmpty }
-    var body: some View {
+    @ObservedObject var prices:PricingStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @FocusState private var focusedField:AutoLayoutField?
+    private var bindingCardVisible:Bool { WorkflowPresentation.showsBindingCard(model.productKind) }
+    var body:some View {
         ScrollViewReader { scroll in
-            VStack(alignment:.leading,spacing:10) {
-                TextField("Ayar ara",text:Binding(get:{ model.ui.search },set:{ model.ui.search = $0 }))
-                    .textFieldStyle(.roundedBorder).focused($searching).accessibilityLabel("Ayar ara")
-                    .onChange(of:model.ui.searchFocusRequest) { _,_ in searching = true }
-                ScrollView {
-                    VStack(alignment:.leading,spacing:12) {
-                        if !model.ui.search.isEmpty && !InspectorSection.allCases.contains(where:model.ui.shows) {
-                            Text("Eşleşen ayar bulunamadı.").foregroundStyle(.secondary)
-                            Button("Aramayı temizle") { model.ui.search = "" }
+            ScrollView {
+                VStack(alignment:.leading,spacing:DesignSystem.Space.lg) {
+                    Text("Ayarlar").font(.title2.bold()).padding(.top,DesignSystem.Space.xs)
+                    WorkflowCard(1,"Ne basıyoruz?") { workflowProduct }.id(InspectorSection.product)
+                    WorkflowCard(2,"Hangi kâğıda basılacak?") { workflowPaper }.id(InspectorSection.sheet)
+                    if bindingCardVisible { WorkflowCard("Cilt ve kapak") { bindingSettings }.id(InspectorSection.binding) }
+                    WorkflowCard(3,"Kesim ve taşma") { workflowCut }.id(InspectorSection.marks)
+                    WorkflowCard("Eklemek istersen") {
+                        ForEach(WorkflowAddon.allCases) { addon in
+                            addonRow(addon)
+                            if addon != WorkflowAddon.allCases.last { Divider() }
                         }
-                        if model.ui.shows(.product) {
-                            section(.product) {
-                                productControls
-                                productionControls
-                                quantityControls
-                                RescaleInspectorView(model:model).inspectorFilter(model,"Ölçeklendir hedef ebat mod sığdır doldur esnet")
-                                if advanced {
-                                    automaticControls
-                                    if model.project.binding == .stepAndRepeat { repeatControls }
-                                    if model.project.binding == .gang { GangInspectorView(model:model) }
-                                    PresetInspectorView(model:model).inspectorSetting(model,"Hazır ayar","Kayıtlı üretim ayarlarını uygular. Seçenekler: mevcut hazır ayarlar. Örnek: hazır ayar kaynak PDF’yi veya seri içeriğini değiştirmez.")
-                                }
-                            }
-                        }
-                        if model.ui.shows(.sheet) {
-                            section(.sheet) {
-                                if advanced {
-                                    sheetControls
-                                    Picker(model.autoLabel("Hizalama",.alignment),selection:model.autoBinding($model.project.blockAlignment,.alignment)) {
-                                        Text("Ortala").tag(BlockAlignment.center)
-                                        Text("Maşa kenarına yasla").tag(BlockAlignment.gripper)
-                                    }.automaticReset(model,.alignment)
-                                    if model.project.binding == .gang && model.project.gang?.mode == .manual { Text("Elle yerleştirilmiş bloklar taşınmaz; hizalama otomatik düzen için uygulanır.").font(.caption) }
-                                } else {
-                                    HStack { Text("Tabaka"); Spacer(); Text(model.sheetPreset == Workspace.automaticSheetTitle ? "Otomatik" : model.sheetPreset) }
-                                    if model.isManual(.sheetSize) { Button("Otomatik tabaka seç") { model.returnToAutomaticSheet() } }
-                                    Text("Kullanılan: \(SmartAutoLayout.presetName(for:model.project.sheet.size))").font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        if model.ui.shows(.edges) { section(.edges) { edgeControls } }
-                        if model.ui.shows(.marks) {
-                            section(.marks) {
-                                if advanced { markControls; generatedBleedControls; overlayControls; PreflightView(model:model) }
-                                else {
-                                    Toggle("Taşma üret",isOn:model.autoBinding($model.editableGeneratedBleed.enabled,.generatedEnabled))
-                                        .automaticReset(model,.generatedEnabled)
-                                }
-                            }
-                        }
-                        if model.ui.shows(.serial) { section(.serial) {
-                            SerialInspectorView(model:model,compact:!advanced)
-                                .inspectorFilter(model,InspectorSection.serial.keywords)
-                        } }
-                        if model.ui.shows(.binding) { section(.binding) {
-                            methodControls
-                            if model.project.isLeafBinding { LeafInspectorView(model:model) }
-                            else if model.project.isBooklet { BookInspectorView(model:model); BlankPlacementInspector(model:model) }
-                            else { Text("Kitap veya spiral ürün seçildiğinde cilt ayarları burada gösterilir.").font(.caption) }
-                        } }
-                        if model.ui.shows(.price) { section(.price) {
-                            HStack { Button("Fiyatlar…") { openWindow(id:"prices") }; Button("İş maliyeti…") { openWindow(id:"costing") } }
-                                .inspectorSetting(model,InspectorSection.price.keywords,"Kayıtlı fiyatları ve bu işe ait teklifi açar. Değer: sizin fiyat listeniz; otomatik fiyat üretilmez. Örnek: işe özel fiyat, kitaplığı değiştirmez.")
-                        } }
-                    }.padding(.vertical,4)
+                    }
+                    WorkflowCard(nil,"Ayrıntılar") {
+                        DisclosureGroup("Kenar payı, maşa ve diğer ayrıntılar",isExpanded:Binding(get:{ model.ui.detailsExpanded },set:{ model.ui.detailsExpanded = $0 })) {
+                            workflowDetails.padding(.top,DesignSystem.Space.md)
+                        }.font(.headline)
+                    }.id(InspectorSection.edges)
+                }.padding(DesignSystem.Space.lg)
+                    .animation(reduceMotion ? nil : .easeInOut(duration:0.16),value:model.ui.expandedAddons)
+                    .animation(reduceMotion ? nil : .easeInOut(duration:0.16),value:model.ui.detailsExpanded)
+            }.background(DesignSystem.workspace)
+                .onChange(of:model.ui.revealedSection) { _,section in
+                    guard let section else { return }
+                    let target:InspectorSection
+                    switch section {
+                    case .serial: model.ui.expandedAddons.insert(.serial); target = .serial
+                    case .price: model.ui.expandedAddons.insert(.pricing); target = .price
+                    case .binding: if !bindingCardVisible { model.ui.detailsExpanded = true }; target = bindingCardVisible ? .binding : .edges
+                    case .edges: model.ui.detailsExpanded = true; target = .edges
+                    default: target = section
+                    }
+                    if reduceMotion { scroll.scrollTo(target,anchor:.top) }
+                    else { withAnimation(.easeInOut(duration:0.16)) { scroll.scrollTo(target,anchor:.top) } }
+                    model.ui.revealedSection = nil
                 }
-            }.padding(12)
-                .onChange(of:model.ui.revealedSection) { _,section in if let section { withAnimation { scroll.scrollTo(section,anchor:.top) }; model.ui.revealedSection = nil } }
-        }.environment(\.inspectorSearchEnabled,true).disabled(model.loading || model.autoArranging)
+        }.tint(DesignSystem.teal).disabled(model.loading || model.autoArranging)
+            .onChange(of:focusedField) { _,field in model.ui.focusedArea = field.flatMap(WorkflowPresentation.focus) }
+            .task { model.refreshWorkflowRecommendation() }
+            .onChange(of:model.project) { _,_ in model.refreshWorkflowRecommendation() }
     }
-    private func section<Content:View>(_ section:InspectorSection,@ViewBuilder content:@escaping ()->Content) -> some View {
-        DisclosureGroup(isExpanded:Binding(get:{ model.ui.isExpanded(section) },set:{ model.ui.setExpanded(section,$0) })) {
-            VStack(alignment:.leading,spacing:10) {
-                HStack {
-                    Text(model.sectionBadge(section)).font(.caption2).padding(.horizontal,6).padding(.vertical,2).background(.quaternary,in:Capsule())
-                    Spacer()
-                    Button("Otomatiğe döndür") { model.resetInspectorSection(section) }
-                        .font(.caption2).buttonStyle(.borderless)
-                        .help("Bölümün otomatik alanlarını geri yükler. Ölçülmüş kâğıt, cilt payı, seri içeriği ve fiyat kitaplığı korunur.")
+    private var workflowProduct:some View {
+        VStack(alignment:.leading,spacing:DesignSystem.Space.md) {
+            Text(model.workflowProductSummary).font(.callout.weight(.medium)).fixedSize(horizontal:false,vertical:true)
+            Picker("Ürün tipi",selection:Binding(get:{ model.productKind },set:model.setProductKind)) {
+                ForEach(ProductKind.allCases,id:\.self) { Text($0.rawValue).tag($0) }
+            }
+            Text("PDF ölçüsü ve mevcut yöntemden otomatik algılandı. Ürün tipini değiştirebilirsiniz.").font(.caption).foregroundStyle(DesignSystem.muted)
+            HStack(spacing:DesignSystem.Space.sm) {
+                Text("Adet").frame(width:48,alignment:.leading)
+                TextField("örn. 1000",value:Binding<Int?>(get:{ model.basicQuantity },set:{ model.basicQuantity = $0 }),format:.number)
+                    .textFieldStyle(.roundedBorder).accessibilityLabel("Adet").accessibilityIdentifier("setting.quantity")
+                Text("adet").font(.callout).foregroundStyle(DesignSystem.muted)
+            }
+            if model.project.isBooklet || model.project.isLeafBinding { Text("Yayın adedi maliyet hesabı içindir; PDF tek yayın planını korur.").font(.caption).foregroundStyle(DesignSystem.muted) }
+            HStack(spacing:DesignSystem.Space.sm) {
+                Text("Fire").frame(width:48,alignment:.leading)
+                TextField("0",value:Binding(get:{ model.workflowWaste.percent },set:{ value in var waste = model.workflowWaste; waste.percent = value; waste.mode = .percent; model.workflowWaste = waste }),format:.number)
+                    .textFieldStyle(.roundedBorder).accessibilityLabel("Fire yüzdesi").accessibilityIdentifier("setting.waste.percent")
+                Text("%").foregroundStyle(DesignSystem.muted)
+            }
+            Text(model.workflowWaste.mode == .fixed ? "Sabit adet fire korunuyor; yüzde girerseniz yüzde hesabına geçilir." : "İstenen adede eklenir; üretim yukarı yuvarlanır.").font(.caption).foregroundStyle(DesignSystem.muted)
+        }
+    }
+    private var workflowPaper:some View {
+        VStack(alignment:.leading,spacing:DesignSystem.Space.md) {
+            LazyVGrid(columns:[GridItem(.adaptive(minimum:76),spacing:DesignSystem.Space.sm)],spacing:DesignSystem.Space.sm) {
+                ForEach(WorkflowPresentation.sheetChips,id:\.self) { chip in
+                    Button { model.selectWorkflowSheet(chip) } label: {
+                        Text(chip).font(.callout.weight(.medium)).frame(maxWidth:.infinity,minHeight:30)
+                            .foregroundStyle(model.selectedWorkflowChip == chip ? DesignSystem.selectedText : DesignSystem.text)
+                            .background(model.selectedWorkflowChip == chip ? DesignSystem.selected : DesignSystem.workspace,in:RoundedRectangle(cornerRadius:DesignSystem.Radius.control))
+                    }.buttonStyle(.plain).accessibilityLabel("Tabaka \(chip)").accessibilityAddTraits(model.selectedWorkflowChip == chip ? .isSelected : [])
                 }
-                content().environment(\.inspectorSection,section)
-            }.padding(.top,6)
-        } label: { Text(section.rawValue).font(.headline) }
-            .padding(10).background(.background,in:RoundedRectangle(cornerRadius:8)).id(section)
+            }
+            if model.sheetPreset == "Özel" {
+                measurement("Genişlik",$model.project.sheet.size.width,autoField:.sheetSize,range:20...3000)
+                measurement("Yükseklik",$model.project.sheet.size.height,autoField:.sheetSize,range:20...3000)
+            }
+            AutomaticPill(model:model,field:.sheetSize)
+            if let recommendation = model.workflowRecommendation {
+                VStack(alignment:.leading,spacing:DesignSystem.Space.sm) {
+                    Label("Önerilen: \(recommendation.name) · tabakada \(recommendation.copies) adet",systemImage:"checkmark.circle.fill")
+                        .font(.caption.weight(.medium))
+                    Button { model.returnToAutomaticSheet() } label: { Text("Öneriyi uygula").foregroundStyle(DesignSystem.success) }.buttonStyle(.borderless).font(.caption.weight(.semibold))
+                }.padding(DesignSystem.Space.md).frame(maxWidth:.infinity,alignment:.leading)
+                    .foregroundStyle(DesignSystem.success).background(DesignSystem.successSurface,in:RoundedRectangle(cornerRadius:DesignSystem.Radius.control))
+            }
+            Picker("Üretim",selection:Binding(get:{ model.project.autoLayout?.production ?? .digital },set:model.setProduction)) {
+                Text("Dijital").tag(ProductionType.digital); Text("Ofset").tag(ProductionType.offset)
+            }.pickerStyle(.segmented)
+            Text("Otomatik tabaka, mevcut üretim yöntemine ve korunmuş ayarlara göre seçilir.").font(.caption).foregroundStyle(DesignSystem.muted)
+        }
+    }
+    private var workflowCut:some View {
+        VStack(alignment:.leading,spacing:DesignSystem.Space.md) {
+            Toggle("Taşma üret",isOn:model.autoBinding($model.editableGeneratedBleed.enabled,.generatedEnabled)).automaticReset(model,.generatedEnabled)
+            measurement("Taşma",Binding(get:{ model.workflowBleed },set:{ model.workflowBleed = $0 }),autoField:model.project.binding == .gang ? nil : .bleed,range:0...30)
+            Toggle("Kesim işaretleri",isOn:model.autoBinding($model.project.exportMarks.crop,.exportCrop)).automaticReset(model,.exportCrop)
+            if !model.project.isBooklet {
+                Picker("Dizilim",selection:Binding(get:{ model.repeatArrangement },set:model.setRepeatArrangement)) {
+                    Text("Bitişik").tag(RepeatArrangement.adjacent); Text("Aralıklı").tag(RepeatArrangement.spaced)
+                    if model.repeatArrangement == .custom { Text("Özel").tag(RepeatArrangement.custom) }
+                }.pickerStyle(.segmented)
+            }
+            Text(model.project.isBooklet ? "Kitap katlarında ara boşluk 0 mm kalır." : "Bitişik: ortak kesim. Aralıklı: ara boşluk taşmanın iki katıdır.").font(.caption).foregroundStyle(DesignSystem.muted)
+        }
+    }
+    private var bindingSettings:some View {
+        VStack(alignment:.leading,spacing:DesignSystem.Space.md) {
+            methodControls
+            if model.project.isLeafBinding { LeafInspectorView(model:model) }
+            if model.project.isBooklet { BookInspectorView(model:model); BlankPlacementInspector(model:model) }
+        }
+    }
+    private func addonRow(_ addon:WorkflowAddon) -> some View {
+        VStack(alignment:.leading,spacing:DesignSystem.Space.md) {
+            Toggle(isOn:Binding(get:{ model.ui.expandedAddons.contains(addon) },set:{ open in if open { model.ui.expandedAddons.insert(addon) } else { model.ui.expandedAddons.remove(addon) } })) {
+                VStack(alignment:.leading,spacing:DesignSystem.Space.xs) {
+                    Text(addon.rawValue).font(.callout.weight(.medium))
+                    if let summary = model.workflowAddonSummary(addon) { Text(summary).font(.caption).foregroundStyle(DesignSystem.muted) }
+                }
+            }.toggleStyle(.switch).accessibilityLabel(addon.rawValue+" ayarlarını göster")
+            if model.ui.expandedAddons.contains(addon) {
+                switch addon {
+                case .serial: SerialInspectorView(model:model)
+                case .scaling: RescaleInspectorView(model:model)
+                case .color:
+                    Toggle("Renk skalası",isOn:model.autoBinding($model.project.exportMarks.colorBar,.exportColorBar)).automaticReset(model,.exportColorBar)
+                    Toggle("Diz işaretleri",isOn:model.autoBinding($model.project.exportMarks.registrationTargets,.exportTargets)).automaticReset(model,.exportTargets)
+                    ColorControlSizeView(model:model)
+                case .info: SheetInfoInspectorView(model:model)
+                case .pricing:
+                    CostingView(model:model,store:prices,inline:true)
+                    DisclosureGroup("Fiyat kitaplığı") { PricingView(store:prices,inline:true) }
+                }
+                Text("Ayrıntıları kapatmak yapılandırılmış ayarları silmez.").font(.caption).foregroundStyle(DesignSystem.muted)
+            }
+        }.id(addon == .serial ? AnyHashable(InspectorSection.serial) : addon == .pricing ? AnyHashable(InspectorSection.price) : AnyHashable(addon))
+    }
+    private var workflowDetails:some View {
+        VStack(alignment:.leading,spacing:DesignSystem.Space.lg) {
+            if !bindingCardVisible { bindingSettings }
+            sheetControls
+            edgeControls
+            Picker("Hizalama",selection:model.autoBinding($model.project.blockAlignment,.alignment)) {
+                Text("Ortala").tag(BlockAlignment.center); Text("Maşa kenarına yasla").tag(BlockAlignment.gripper)
+            }.automaticReset(model,.alignment)
+            markControls
+            generatedBleedControls
+            if model.project.binding == .stepAndRepeat { repeatControls }
+            if model.project.binding == .gang { GangInspectorView(model:model) }
+            if model.project.binding == .stepAndRepeat {
+                GroupBox("İşlere göre ön / arka") {
+                    VStack {
+                        ForEach(Array(model.project.repeatJobs.enumerated()),id:\.offset) { index,job in
+                            Picker("İş \(index+1) yüzleri",selection:Binding(get:{ model.jobPageLayout(frontPage:job.front.number) },set:{ model.setJobPageLayout(frontPage:job.front.number,mode:$0) })) {
+                                Text("Genel ayar").tag(PageLayout.automatic); Text("Tek yüz").tag(PageLayout.simplex); Text("Çift yüz").tag(PageLayout.duplex)
+                            }
+                        }
+                    }
+                }
+            }
+            Picker("Önizleme kapsamı",selection:Binding(get:{ model.project.allSheetsPreview ?? false },set:{ model.project.allSheetsPreview = $0 })) {
+                Text("Tek tabaka").tag(false); Text("Tüm tabakalar").tag(true)
+            }
+            ExportMarksView(model:model,inline:true)
+            overlayControls
+            PresetInspectorView(model:model)
+            PreflightView(model:model)
+            Button("Yerleşim alanlarını otomatiğe döndür") { model.requestAutomaticLayout() }
+        }.font(.body)
     }
     private var productControls: some View {
         VStack(alignment:.leading,spacing:4) {
             Picker("Ürün tipi",selection:Binding(get:{ model.productKind },set:model.setProductKind)) {
                 ForEach(ProductKind.allCases,id:\.self) { Text($0.rawValue).tag($0) }
             }
-            Text("PDF önerisi: \(ProductKind.detect(model.project).rawValue) · ölçü ve mevcut ciltlemeye göre").font(.caption).foregroundStyle(.secondary)
+            Text("PDF önerisi: \(ProductKind.detect(model.project).rawValue) · ölçü ve mevcut ciltlemeye göre").font(.caption).foregroundStyle(DesignSystem.muted)
         }.inspectorSetting(model,"Ürün tipi","Üretim yöntemini seçer. Kartvizit/Form tekrarlı, Broşür tel dikiş, Kitap tutkallı cilt, Spiral yaprak cilt kullanır. Örnek: Broşür seçimi mevcut tel dikiş yöntemini açar. PDF içeriğinin anlamı otomatik okunmaz.",keywords:"kartvizit broşür form kitap spiral")
     }
     private var productionControls: some View {
@@ -131,7 +220,7 @@ struct InspectorView: View {
                         if model.autoArranging { ProgressView().controlSize(.small) }
                         if !(model.project.isBooklet && model.project.book != nil),let summary = model.project.autoLayout?.summary { Text(summary).font(.caption) }
                         Text("İçe aktarma elle seçilen ayarları korur. Otomatik düzenle tüm yerleşim ayarlarını sıfırlar; kâğıt kalınlığı, adet ve seri içeriği korunur.")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.caption).foregroundStyle(DesignSystem.muted)
                     }.padding(5)
                 }
     }
@@ -162,7 +251,7 @@ struct InspectorView: View {
                             Text("Takla").tag(TurnMethod.workAndTumble)
                         }.inspectorSetting(model,"Çevirme",SettingGuidance.detail("Çevirme"))
                         if model.project.binding != .stepAndRepeat && model.project.settings.turnMethod != .sheetwise {
-                            Text("Aynı kalıpta iki yarım; tabaka başına iki kopya.").font(.caption).foregroundStyle(.secondary)
+                            Text("Aynı kalıpta iki yarım; tabaka başına iki kopya.").font(.caption).foregroundStyle(DesignSystem.muted)
                         }
                     }.padding(5)
                 }
@@ -180,7 +269,7 @@ struct InspectorView: View {
                             ForEach(["A5","A4","A3","SRA3","33×48","35×50","50×70","70×100","Özel"],id: \.self) { Text($0) }
                         }.automaticReset(model,.sheetSize)
                         Text("Kullanılan: \(SmartAutoLayout.presetName(for: model.project.sheet.size)) · \(model.project.sheet.size.width,specifier: "%.0f")×\(model.project.sheet.size.height,specifier: "%.0f") mm")
-                            .font(.caption).foregroundStyle(.secondary)
+                            .font(.caption).foregroundStyle(DesignSystem.muted)
                         if model.sheetPreset == "Özel" {
                             measurement("Genişlik",$model.project.sheet.size.width,autoField: .sheetSize,range: 20...3000)
                             measurement("Yükseklik",$model.project.sheet.size.height,autoField: .sheetSize,range: 20...3000)
@@ -206,7 +295,7 @@ struct InspectorView: View {
                         }.automaticReset(model,.gripperEdge)
                         measurement("Maşa payı",$model.project.sheet.gripperWidth,autoField: .gripperWidth)
                         if model.project.isBooklet {
-                            Text("Kat komşuları: 0 mm (sabit)").font(.caption).foregroundStyle(.secondary)
+                            Text("Kat komşuları: 0 mm (sabit)").font(.caption).foregroundStyle(DesignSystem.muted)
                         } else {
                             measurement("Ara boşluk",$model.project.sheet.gutter,autoField: .gutter)
                         }
@@ -222,7 +311,7 @@ struct InspectorView: View {
                             measurement("Kesim uzaklığı",guide(\.cropMarkOffset,field: .cropOffset,overlay: \.crop),autoField: .cropOffset,range: 0...30)
                         }
                         Text(model.autoLabel("Çıktı kesim işareti: "+(model.project.exportMarks.crop ? "Açık" : "Kapalı"),.exportCrop))
-                            .font(.caption).foregroundStyle(.secondary).automaticReset(model,.exportCrop)
+                            .font(.caption).foregroundStyle(DesignSystem.muted).automaticReset(model,.exportCrop)
                         measurement("Güvenli alan",guide(\.safeAreaInset,field: .safeArea,overlay: \.safeArea),autoField: .safeArea,range: 0...30)
                     }.padding(5)
                 }
@@ -265,7 +354,7 @@ struct InspectorView: View {
                         if model.editableGeneratedBleed.method == .automatic {
                             measurement("Tolerans (%)",Binding(get: { model.editableGeneratedBleed.tolerance*100 },
                                 set: { model.editableGeneratedBleed.tolerance = $0/100 }),autoField: .generatedTolerance,range: 0...100)
-                            Text("Tek renk kenar: vektör dolgu. Değişken kenar: kenar piksellerini uzat.").font(.caption).foregroundStyle(.secondary)
+                            Text("Tek renk kenar: vektör dolgu. Değişken kenar: kenar piksellerini uzat.").font(.caption).foregroundStyle(DesignSystem.muted)
                         }
                         if model.editableGeneratedBleed.method == .solidColor {
                             Picker(model.autoLabel("Renk uzayı",.generatedColor),selection: Binding(get: { model.editableGeneratedBleed.color.components.count == 4 },
@@ -277,10 +366,10 @@ struct InspectorView: View {
                                 measurement(name+" (%)",colorComponent(index),autoField: .generatedColor,range: 0...100)
                             }
                         }
-                        if let summary = model.bleedSampleSummary { Text(summary).font(.caption).foregroundStyle(.secondary) }
-                        Text("Yalnız kesim dışını değiştirir. Sıfır ara boşlukta blok çevresi üretilir.").font(.caption).foregroundStyle(.secondary)
+                        if let summary = model.bleedSampleSummary { Text(summary).font(.caption).foregroundStyle(DesignSystem.muted) }
+                        Text("Yalnız kesim dışını değiştirir. Sıfır ara boşlukta blok çevresi üretilir.").font(.caption).foregroundStyle(DesignSystem.muted)
                     }
-                } else { Text("Üretim için taşma payını artırın.").font(.caption).foregroundStyle(.secondary) }
+                } else { Text("Üretim için taşma payını artırın.").font(.caption).foregroundStyle(DesignSystem.muted) }
             }.padding(5)
         }
     }
@@ -302,14 +391,14 @@ struct InspectorView: View {
                         Text("Tek yüz (her sayfa ayrı iş)").tag(PageLayout.simplex)
                     }.inspectorSetting(model,"Sayfa düzeni",SettingGuidance.detail("Sayfa düzeni"))
                 }
-                Text(model.pageLayoutSummary).font(.caption).foregroundStyle(.secondary)
+                Text(model.pageLayoutSummary).font(.caption).foregroundStyle(DesignSystem.muted)
                 Picker(model.autoLabel("Dizilim",.gutter),selection: Binding(get: { model.repeatArrangement },set: model.setRepeatArrangement)) {
                     Text("Bitişik (ara boşluk 0)").tag(RepeatArrangement.adjacent)
                     Text("Aralıklı (ara boşluk = 2 × taşma)").tag(RepeatArrangement.spaced)
                     Text("Özel (elle ara boşluk)").tag(RepeatArrangement.custom)
                 }.automaticReset(model,.gutter)
                 Text(model.repeatArrangement == .adjacent ? "Ortak kesim; taşma sadece blok çevresinde." : model.repeatArrangement == .spaced ? "Otomatik ara boşluk taşmanın iki katıdır." : "Elle belirlenen ara boşluk korunur.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(DesignSystem.muted)
                 Toggle(model.autoLabel("90° döndürmeye izin ver",.allowRotation),isOn: model.autoBinding($model.project.stepAndRepeat.allowRotation,.allowRotation)).automaticReset(model,.allowRotation)
                 gridOverride("Sütun",value: $model.project.stepAndRepeat.columns,
                              automatic: model.currentSheet?.repeatLayout?.columns ?? 1,field: .columns)
@@ -336,10 +425,10 @@ struct InspectorView: View {
                     Text("Tüm işler: \(model.plan.totalPressSheets) tabaka")
                 }
                 Text(model.project.sheet.gutter == 0 ? "Ortak kesim: iç taşmalar sınırda kırpılır." : "Ara boşluk, komşu taşma kutuları arasında ölçülür.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(DesignSystem.muted)
                 if model.project.settings.turnMethod != .sheetwise {
                     Text("Aynı kalıp iki yüzde kullanılır. Çevirme eksenindeki ürün sayısı çift olmalıdır.")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.caption).foregroundStyle(DesignSystem.muted)
                 }
             }.toggleStyle(.checkbox).padding(5)
         }
@@ -356,13 +445,17 @@ struct InspectorView: View {
     }
     private func measurement(_ title: String, _ value: Binding<Double>,autoField: AutoLayoutField? = nil, range: ClosedRange<Double> = 0...200) -> some View {
         let effective = autoField.map { model.autoBinding(value,$0) } ?? value
-        return HStack {
-            Text(autoField.map { model.autoLabel(title,$0) } ?? title).frame(maxWidth: .infinity,alignment: .leading)
-            TextField(title,value: effective,format: .number.precision(.fractionLength(0...2)))
-                .multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width: 65)
-                .accessibilityLabel(title)
-            Stepper(title,value: effective,in: range,step: 1).labelsHidden().fixedSize()
-            if let autoField { AutomaticResetButton(model:model,field:autoField) }
-        }.inspectorSetting(model,title,autoField.map(SettingGuidance.detail) ?? "Ölçülmüş değeri girin. Birim: alan etiketindeki mm veya yüzde. Örnek: değişiklik mevcut önizlemeye yansır.")
+        return VStack(alignment:.leading,spacing:DesignSystem.Space.xs) {
+            HStack(spacing:DesignSystem.Space.sm) {
+                Text(title.replacingOccurrences(of:" (%)",with:"")).frame(maxWidth:.infinity,alignment:.leading)
+                TextField(title,value:effective,format:.number.precision(.fractionLength(0...2)))
+                    .multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width:65)
+                    .accessibilityLabel(title).focused($focusedField,equals:autoField)
+                Text(title.contains("%") ? "%" : "mm").font(.caption).foregroundStyle(DesignSystem.muted)
+                Stepper(title,value:effective,in:range,step:1).labelsHidden().fixedSize().accessibilityLabel(title)
+            }
+            if let autoField { AutomaticPill(model:model,field:autoField) }
+        }.simultaneousGesture(TapGesture().onEnded { model.ui.focusedArea = autoField.flatMap(WorkflowPresentation.focus) })
+            .inspectorSetting(model,title,autoField.map(SettingGuidance.detail) ?? "Ölçülmüş değeri girin. Birim: alan etiketindeki mm veya yüzde. Örnek: değişiklik mevcut önizlemeye yansır.")
     }
 }

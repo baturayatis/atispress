@@ -14,18 +14,17 @@ struct RescaleEditor: View {
                 Text("Özel (mm)").tag(-1)
             }.settingHint("Hedef ebat",SettingGuidance.detail("Hedef ebat"))
             if target.wrappedValue == -1 {
-                HStack {
-                    TextField("En (mm)",value:$settings.target.width,format:.number)
-                    Text("×")
-                    TextField("Boy (mm)",value:$settings.target.height,format:.number)
+                VStack(alignment:.leading) {
+                    LabeledContent("En (mm)") { TextField("En",value:$settings.target.width,format:.number) }
+                    LabeledContent("Boy (mm)") { TextField("Boy",value:$settings.target.height,format:.number) }
                 }.textFieldStyle(.roundedBorder)
             }
             Picker("Mod",selection:$settings.mode) { ForEach(RescaleMode.allCases,id:\.self) { Text($0.title).tag($0) } }.settingHint("Mod","Sığdır küçük oranla içeriği korur; Doldur büyük oranla hedefi doldurup kırpar; Esnet iki ekseni ayrı ölçekler. Örnek: 100×60 → 90×50 için Doldur %90’dır.")
             if settings.isValid {
                 let scale = ArtworkRescale(source:sourceSize,settings:settings)
                 if showSummary { Text(scale.summary).font(.caption) }
-                if scale.aspectWarning { Text("En/boy oranı %2’den fazla değişiyor.").font(.caption).foregroundStyle(.orange) }
-            } else { Text("Geçerli bir hedef ebat girin.").foregroundStyle(.red) }
+                if scale.aspectWarning { Text("En/boy oranı %2’den fazla değişiyor.").font(.caption).foregroundStyle(DesignSystem.warning) }
+            } else { Text("Geçerli bir hedef ebat girin.").foregroundStyle(DesignSystem.error) }
         }
     }
 }
@@ -103,7 +102,7 @@ struct RescaleInspectorView: View {
             VStack(alignment:.leading,spacing:8) {
                 Toggle("Hedef ebada ölçeklendir",isOn:Binding(get:{ model.project.scaling?.enabled ?? false },set:{ enabled in model.updateScaling { $0.enabled = enabled } })).settingHint("Hedef ebada ölçeklendir",SettingGuidance.detail("Hedef ebada ölçeklendir"))
                 RescaleEditor(settings:Binding(get:{ model.project.scaling?.defaults ?? RescaleSettings() },set:{ settings in model.updateScaling { $0.defaults = settings } }),sourceSize:model.scalingRows.first?.size ?? Size(90,50),showSummary:false)
-                Text(model.scalingSummary).font(.caption).foregroundStyle(.secondary)
+                Text(model.scalingSummary).font(.caption).foregroundStyle(DesignSystem.muted)
                 DisclosureGroup("İşlere göre ayarla (\(model.scalingRows.count))",isExpanded:$expanded) {
                     let groups = model.groupedScalingRows
                     ForEach(Array((showAll ? groups : Array(groups.prefix(3))))) { group in

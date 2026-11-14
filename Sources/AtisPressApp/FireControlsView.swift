@@ -24,10 +24,10 @@ struct FireControlsView: View {
                 Text("Numarasız").tag(false); Text("Numaralı").tag(true)
             }.inspectorSetting(model,"Fire kopyalar",SettingGuidance.detail("Fire kopyalar"))
             if waste.wrappedValue.numberCopies {
-                Text("Seri aralığı fireyi içerir. Bitiş no, müşteri adedini belirler.").font(.caption).foregroundStyle(.secondary)
+                Text("Seri aralığı fireyi içerir. Bitiş no, müşteri adedini belirler.").font(.caption).foregroundStyle(DesignSystem.muted)
             }
             if let sheet = model.currentSheet,let summary = sheet.productionSummary { Text(summary).font(.caption).textSelection(.enabled) }
-            else { Text("Fire, Adet üzerine eklenir; yüzde yukarı yuvarlanır.").font(.caption).foregroundStyle(.secondary) }
+            else { Text("Fire, Adet üzerine eklenir; yüzde yukarı yuvarlanır.").font(.caption).foregroundStyle(DesignSystem.muted) }
         }
     }
 }

@@ -5,8 +5,8 @@ struct ExportPreparationView: View {
     @State private var details = false
     var body: some View {
         VStack(alignment:.leading,spacing:16) {
-            Text("PDF’i Hazırla / Dışa Aktar").font(.title2.bold())
-            Text("Hazır seçimler yalnız çıktı işaretlerini değiştirir. Açılışta mevcut tercihleriniz korunur.").foregroundStyle(.secondary)
+            Text("PDF’i Hazırla").font(.title2.bold())
+            Text("Hazır seçimler yalnız çıktı işaretlerini değiştirir. Açılışta mevcut tercihleriniz korunur.").foregroundStyle(DesignSystem.muted)
             HStack {
                 ForEach(ExportPreset.allCases,id:\.self) { preset in
                     Button(preset.rawValue) { model.project.exportMarks = preset.applying(to:model.project.exportMarks) }

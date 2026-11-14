@@ -13,6 +13,7 @@ struct PreviewCanvas: NSViewRepresentable {
     let highlighted: Set<Int>
     let zoomAction: Int
     let zoomFactor: CGFloat
+    var focusArea:WorkflowFocus? = nil
     var repetition: Int = 0
     var selectedSerial: UUID? = nil
     var selectSerial: ((UUID) -> Void)? = nil
@@ -28,7 +29,7 @@ struct PreviewCanvas: NSViewRepresentable {
         scroll.hasHorizontalScroller = true; scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true; scroll.allowsMagnification = true
         scroll.minMagnification = 0.04; scroll.maxMagnification = 12
-        scroll.backgroundColor = .underPageBackgroundColor
+        scroll.backgroundColor = DesignSystem.workspaceNS
         let canvas = SheetCanvasView()
         scroll.documentView = canvas
         update(canvas)
@@ -46,6 +47,7 @@ struct PreviewCanvas: NSViewRepresentable {
         } else if sizeChanged { (scroll as? PreviewScrollView)?.requestFit() }
     }
     private func update(_ canvas: SheetCanvasView) {
+        canvas.focusArea = focusArea
         canvas.repetition = repetition; canvas.selectedSerial = selectedSerial
         canvas.selectSerial = selectSerial; canvas.moveSerial = moveSerial; canvas.moveGangBlock = moveGangBlock; canvas.beginEdit = beginEdit; canvas.endEdit = endEdit
         canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed,controlMarks: controlMarks)
@@ -84,6 +86,7 @@ private extension CGRect { var center: CGPoint { CGPoint(x: midX,y: midY) } }
 /// All rectangles, transforms, lines and page identities come from the supplied plan.
 /// AppKit handles scrolling; PDFKit rasters are used at low zoom and Quartz draws vectors at high zoom.
 final class SheetCanvasView: NSView {
+    var focusArea:WorkflowFocus?
     var sheet: Sheet?
     var side = Side()
     var source: PDFSource?
@@ -183,12 +186,15 @@ final class SheetCanvasView: NSView {
     override func viewDidEndLiveResize() { super.viewDidEndLiveResize(); needsDisplay = true }
     override func magnify(with event: NSEvent) { super.magnify(with: event); needsDisplay = true }
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.underPageBackgroundColor.setFill(); bounds.fill()
+        DesignSystem.workspaceNS.setFill(); bounds.fill()
         guard let sheet, let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState()
         context.translateBy(x: originX,y: originY); context.scaleBy(x: pointsPerMM,y: pointsPerMM)
         let paper = CGRect(x: 0,y: 0,width: sheet.size.width,height: sheet.size.height)
-        context.setFillColor(NSColor.white.cgColor); context.fill(paper)
+        context.saveGState()
+        context.setShadow(offset:CGSize(width:0,height:-1),blur:3,color:DesignSystem.shadowNS.cgColor)
+        context.setFillColor(DesignSystem.paperNS.cgColor); context.fill(paper)
+        context.restoreGState()
         if sheet.gangLayout == nil { context.clip(to: paper) }
         let scale = max(0.01,enclosingScrollView?.magnification ?? 1)
         let visible = visibleRect.insetBy(dx: -40,dy: -40)
@@ -203,7 +209,7 @@ final class SheetCanvasView: NSView {
             let projectedPixels = max(viewRect.width,viewRect.height)*scale*(window?.backingScaleFactor ?? 2)
             let rasterPixels = projectedPixels <= 128 ? 128 : projectedPixels <= 256 ? 256 : 512
             context.saveGState()
-            context.setFillColor(NSColor.white.cgColor); context.fill(rect)
+            context.setFillColor(DesignSystem.paperNS.cgColor); context.fill(rect)
             if let number = slot.sourcePageNumber {
                 let page = vectorDocument?.page(at: number)
                 let raster = scale < 0.85 && slot.rescale == nil ? source?.cachedRaster(page: number,pixels: rasterPixels) : nil
@@ -212,9 +218,9 @@ final class SheetCanvasView: NSView {
                 try? PDFPlanRenderer.drawSlot(slot,page: page,in: context,
                     reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),repetition: repetition,raster: raster,overlays: extensions)
             } else {
-                context.setFillColor((slot.bookRegion == nil ? NSColor(white:0.93,alpha:1) : NSColor.white).cgColor); context.fill(rect)
+                context.setFillColor((slot.bookRegion == nil ? DesignSystem.blankNS : DesignSystem.paperNS).cgColor); context.fill(rect)
                 if slot.bookRegion == nil {
-                    context.setStrokeColor(NSColor.lightGray.cgColor); context.setLineWidth(0.35)
+                    context.setStrokeColor(DesignSystem.guideNS.cgColor); context.setLineWidth(0.35)
                     context.move(to: rect.origin); context.addLine(to: CGPoint(x: rect.maxX,y: rect.maxY))
                     context.move(to: CGPoint(x: rect.minX,y: rect.maxY)); context.addLine(to: CGPoint(x: rect.maxX,y: rect.minY)); context.strokePath()
                 }
@@ -223,19 +229,38 @@ final class SheetCanvasView: NSView {
             }
             context.restoreGState()
             if let id = slot.gangJobID,let job = sheet.gangLayout?.jobs.first(where: { $0.job.id==id })?.job {
-                context.setFillColor(NSColor(calibratedHue:job.tint,saturation:0.7,brightness:0.85,alpha:0.13).cgColor); context.fill(rect)
-                label(job.name,at:CGPoint(x:rect.midX,y:rect.maxY-3),size:2.5,color:NSColor(calibratedHue:job.tint,saturation:0.8,brightness:0.55,alpha:1))
+                context.setFillColor(DesignSystem.jobTint(job.tint,fill:true).cgColor); context.fill(rect)
+                if overlays.pageNumbers { label(job.name,at:CGPoint(x:rect.midX,y:rect.maxY-3),size:2.5,color:DesignSystem.jobTint(job.tint,fill:false)) }
             }
-            context.setStrokeColor((highlighted.contains(index) ? NSColor.systemRed : NSColor.gray).cgColor)
+            context.setStrokeColor((highlighted.contains(index) ? DesignSystem.errorNS : DesignSystem.guideNS).cgColor)
             context.setLineWidth((highlighted.contains(index) ? 2.5 : 0.5)/pointsPerMM/scale)
             context.stroke(rect)
-            if slot.rotation != 0 || slot.mirrored || slot.sourcePageNumber == nil {
+            if overlays.pageNumbers && (slot.rotation != 0 || slot.mirrored || slot.sourcePageNumber == nil) {
                 let text = slot.bookRegion ?? (slot.sourcePageNumber == nil ? "BOŞ" : [slot.rotation != 0 ? "↻ \(slot.rotation)°" : nil,slot.mirrored ? "AYNALI" : nil].compactMap{$0}.joined(separator: " · "))
-                label(text,at: CGPoint(x: rect.midX,y: rect.minY+min(5,rect.height/5)),size: 3,color: .systemPurple)
+                label(text,at: CGPoint(x: rect.midX,y: rect.minY+min(5,rect.height/5)),size: 3,color:DesignSystem.purpleNS)
             }
         }
+        if let focusArea {
+            context.saveGState()
+            context.setStrokeColor(DesignSystem.focusNS.cgColor); context.setLineWidth(2/pointsPerMM/scale)
+            for mark in side.marks {
+                let show:Bool
+                switch focusArea {
+                case .margins: show = mark.kind == .margin
+                case .gripper: show = mark.kind == .gripper
+                case .bleed: show = mark.kind == .bleed
+                case .marks: show = mark.kind == .crop || mark.kind == .safeArea
+                case .gutter: show = mark.kind == .sharedCut
+                }
+                if show { context.move(to:CGPoint(x:mark.start.x,y:mark.start.y)); context.addLine(to:CGPoint(x:mark.end.x,y:mark.end.y)); context.strokePath() }
+            }
+            if focusArea == .gutter {
+                for slot in side.slots { context.stroke(CGRect(x:slot.x,y:slot.y,width:slot.size.width,height:slot.size.height)) }
+            }
+            context.restoreGState()
+        }
         if let selectedSerial {
-            context.setStrokeColor(NSColor.systemCyan.cgColor); context.setLineWidth(1/pointsPerMM/scale)
+            context.setStrokeColor(DesignSystem.focusNS.cgColor); context.setLineWidth(1/pointsPerMM/scale)
             for serial in sheet.serialPlacements(side: side,kind: sideKind,repetition: repetition) where serial.field.id == selectedSerial {
                 let slot = side.slots[serial.slotIndex]
                 context.saveGState()
@@ -253,7 +278,7 @@ final class SheetCanvasView: NSView {
         if let r = sheet.diagnosticBounds {
             context.saveGState(); defer { context.restoreGState() }
             context.translateBy(x: originX,y: originY); context.scaleBy(x: pointsPerMM,y: pointsPerMM)
-            context.setStrokeColor(NSColor.systemRed.cgColor)
+            context.setStrokeColor(DesignSystem.errorNS.cgColor)
             context.setLineWidth(2/pointsPerMM/scale)
             context.stroke(CGRect(x: r.origin.x,y: r.origin.y,width: r.size.width,height: r.size.height))
         }
@@ -261,7 +286,7 @@ final class SheetCanvasView: NSView {
     private func label(_ text: String,at point: CGPoint,size: CGFloat,color: NSColor) {
         let readableSize = max(size,11/pointsPerMM/max(0.04,enclosingScrollView?.magnification ?? 1))
         let attributes: [NSAttributedString.Key:Any] = [.font:NSFont.monospacedSystemFont(ofSize: readableSize,weight: .semibold),
-            .foregroundColor:color,.backgroundColor:NSColor.white.withAlphaComponent(0.88)]
+            .foregroundColor:color,.backgroundColor:DesignSystem.paperNS.withAlphaComponent(0.88)]
         let string = NSAttributedString(string: text,attributes: attributes)
         string.draw(at: CGPoint(x: point.x-string.size().width/2,y: point.y-string.size().height/2))
     }

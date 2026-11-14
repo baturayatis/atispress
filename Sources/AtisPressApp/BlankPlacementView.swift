@@ -13,11 +13,11 @@ struct BlankPlacementInspector: View {
                 }.inspectorSetting(model,"Boş sayfalar nereye",SettingGuidance.detail("Boş sayfalar nereye"))
                 Text(model.plan.paginationSummary).font(.caption).textSelection(.enabled)
                 if model.blankSettings.mode == .manual {
-                    Text("Soldaki iç okuma sırasında boş konumları işaretleyin. Konum, kapaklar ayrıldıktan sonraki kitap sırasıdır; PDF sayfa numarası değildir.").font(.caption).foregroundStyle(.secondary)
+                    Text("Soldaki iç okuma sırasında boş konumları işaretleyin. Konum, kapaklar ayrıldıktan sonraki kitap sırasıdır; PDF sayfa numarası değildir.").font(.caption).foregroundStyle(DesignSystem.muted)
                     Button("Seçimi temizle") { model.blankSettings.positions = [] }
                 }
                 if model.project.blankPagePolicy == .reject && model.plan.addedBlankPages>0 {
-                    Text("Boş sayfa politikası çıktıyı engelliyor.").font(.caption).foregroundStyle(.orange)
+                    Text("Boş sayfa politikası çıktıyı engelliyor.").font(.caption).foregroundStyle(DesignSystem.warning)
                     Button("Boş sayfa eklemeye izin ver") { model.project.blankPagePolicy = .append }
                 }
             }.padding(5)

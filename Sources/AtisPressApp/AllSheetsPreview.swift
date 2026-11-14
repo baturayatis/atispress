@@ -121,13 +121,15 @@ final class AllSheetsDocument: NSView {
     var geometry = SheetScrollGeometry(heights: [])
     private var rows: [PreviewSheetLocation:NSView] = [:]
     private var lastSheets: [Sheet] = []
+    private var lastFocus:WorkflowFocus?
     private var lastOptions: PDFRenderOptions?
     private var lastMarks: ExportMarks?
     private weak var lastSource: PDFSource?
     override var isFlipped: Bool { true }
     func updateGeometry() {
         guard let model else { return }
-        guard lastSheets != model.displaySheets || lastOptions != model.overlays || lastMarks != model.project.exportMarks || lastSource !== model.source else { return }
+        guard lastSheets != model.displaySheets || lastOptions != model.overlays || lastMarks != model.project.exportMarks || lastSource !== model.source || lastFocus != model.ui.focusedArea else { return }
+        lastFocus = model.ui.focusedArea
         lastSheets = model.displaySheets; lastOptions = model.overlays; lastMarks = model.project.exportMarks; lastSource = model.source
         geometry = SheetScrollGeometry(heights: model.displaySheets.map { $0.size.height*PDFPreviewDrawing.pointsPerMM+110 },repetitions:model.displaySheets.map { max(1,$0.repeatCount) })
         let width = (model.displaySheets.map { $0.size.width*PDFPreviewDrawing.pointsPerMM+64 }.max() ?? 500)*2
@@ -165,6 +167,7 @@ final class AllSheetsDocument: NSView {
             label.frame = NSRect(x:20,y:row.frame.height-46,width:frame.width-40,height:44); row.addSubview(label)
             for (column,kind) in [SideKind.front,.back].enumerated() {
                 let canvas = SheetCanvasView()
+                canvas.focusArea = model.ui.focusedArea
                 canvas.repetition = location.repetition
                 canvas.configure(sheet:sheet,side:kind == .front ? sheet.front : sheet.back,source:model.source,overlays:model.overlays,highlighted:[],sheetIndex:index,kind:kind,generatedBleed:model.plan.generatedBleed,controlMarks:model.project.exportMarks)
                 canvas.setFrameOrigin(NSPoint(x:CGFloat(column)*frame.width/2,y:0))

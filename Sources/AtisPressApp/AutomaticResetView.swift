@@ -14,16 +14,14 @@ struct AutomaticResetButton: View {
 private struct AutomaticResetModifier: ViewModifier {
     @ObservedObject var model: Workspace
     let field: AutoLayoutField
-    @Environment(\.inspectorSection) private var section
-    @Environment(\.inspectorSearchEnabled) private var searchEnabled
+    @FocusState private var active:Bool
     func body(content: Content) -> some View {
-        if !searchEnabled || model.ui.matches(SettingGuidance.title(field),section:section) {
-            HStack(alignment:.center,spacing:5) {
-                content
-                SettingHelp(title:SettingGuidance.title(field),detail:SettingGuidance.detail(field))
-                AutomaticResetButton(model:model,field:field)
-            }
+        VStack(alignment:.leading,spacing:DesignSystem.Space.xs) {
+            content.focused($active)
+            AutomaticPill(model:model,field:field)
         }
+        .simultaneousGesture(TapGesture().onEnded { model.ui.focusedArea = WorkflowPresentation.focus(field) })
+        .onChange(of:active) { _,focused in if focused { model.ui.focusedArea = WorkflowPresentation.focus(field) } }
     }
 }
 extension View {

@@ -37,7 +37,7 @@ struct BookInspectorView: View {
                 Text("Ayrı PDF").tag(CoverMode.separate)
             }.inspectorSetting(model,"Kapak modu",SettingGuidance.detail("Kapak modu"))
             if model.project.coverMode == .included {
-                Text("İlk iki / son iki sayfa otomatik kapaktır. Seçilen kapak yüzleri iç bloktan ayrılır ve bağımsız basılır.").font(.caption).foregroundStyle(.secondary)
+                Text("İlk iki / son iki sayfa otomatik kapaktır. Seçilen kapak yüzleri iç bloktan ayrılır ve bağımsız basılır.").font(.caption).foregroundStyle(DesignSystem.muted)
             }
             if model.project.coverMode == .separate {
                 Button("Kapak PDF yükle…",action:model.chooseCoverPDF).disabled(model.source == nil || model.loading)
@@ -52,7 +52,7 @@ struct BookInspectorView: View {
             if model.project.coverMode == .separate && model.bookSettings.coverArtwork == .spread {
                 pagePicker("Dış açılım",\.front)
                 pagePicker("İç açılım",\.insideFront,allowBlank:true)
-                Text("Açılım PDF’si ölçeklenmez. Ölçü farkı tam sayılarla bildirilir; artwork hesaplanan açılıma kırpılır.").font(.caption).foregroundStyle(.secondary)
+                Text("Açılım PDF’si ölçeklenmez. Ölçü farkı tam sayılarla bildirilir; artwork hesaplanan açılıma kırpılır.").font(.caption).foregroundStyle(DesignSystem.muted)
             } else {
                 pagePicker("Ön kapak",\.front)
                 pagePicker("İç ön",\.insideFront,allowBlank:true)
@@ -88,19 +88,19 @@ struct BookInspectorView: View {
             Text("Sırt = (iç sayfa / 2) × iç kâğıt kalınlığı + kapak payı + yapıştırıcı payı").font(.caption)
             if let info,let spine = info.spine,let thickness = info.interiorPaper.millimetres {
                 Text(String(format:"(%d / 2) × %.4f + %.3f + %.3f ≈ %.3f mm",info.interiorPageCount,thickness,model.bookSettings.coverAllowance,model.bookSettings.adhesiveAllowance,spine)).font(.caption).textSelection(.enabled)
-            } else { Text("Kalınlık girilmeden sırt hesaplanamaz; çıktı engellenir.").font(.caption).foregroundStyle(.orange) }
-            Text("İç sayfa sayısı, forma için eklenen boşları içerir. Kapak kalınlığı otomatik pay olarak eklenmez; kapak payını siz girin.").font(.caption).foregroundStyle(.secondary)
+            } else { Text("Kalınlık girilmeden sırt hesaplanamaz; çıktı engellenir.").font(.caption).foregroundStyle(DesignSystem.warning) }
+            Text("İç sayfa sayısı, forma için eklenen boşları içerir. Kapak kalınlığı otomatik pay olarak eklenmez; kapak payını siz girin.").font(.caption).foregroundStyle(DesignSystem.muted)
             measure("Sol kulak (mm)",book.leftFlap)
             measure("Sağ kulak (mm)",book.rightFlap)
-            Text("Panellerde kulak ve sırt boştur. Baskılı kulak / sırt için hazır açılım PDF’si kullanın.").font(.caption).foregroundStyle(.secondary)
+            Text("Panellerde kulak ve sırt boştur. Baskılı kulak / sırt için hazır açılım PDF’si kullanın.").font(.caption).foregroundStyle(DesignSystem.muted)
         }
     }
     private var creepControls: some View {
         VStack(alignment:.leading,spacing:7) {
             Toggle("Creep açık",isOn:book.creepEnabled).inspectorSetting(model,"Creep açık",SettingGuidance.detail("Creep açık"))
-            if model.bookSettings.creepEnabled && (model.bookSettings.interiorPaper.millimetres == nil || model.bookSettings.coverPaper.millimetres == nil) { Text("En çok kaydırma: hesaplanamadı").font(.caption).foregroundStyle(.orange) }
+            if model.bookSettings.creepEnabled && (model.bookSettings.interiorPaper.millimetres == nil || model.bookSettings.coverPaper.millimetres == nil) { Text("En çok kaydırma: hesaplanamadı").font(.caption).foregroundStyle(DesignSystem.warning) }
             else { Text("En çok kaydırma: \(info?.maximumCreep ?? 0,specifier:"%.3f") mm").font(.caption) }
-            Text("Basit doğrusal yaklaşım: iç yaprak i için kapak kalınlığı + i × iç kâğıt kalınlığı. Kapak kaydırılmaz; iç artwork kat yerine doğru kayar. Fiziksel katlama / kesim testiyle doğrulayın.").font(.caption).foregroundStyle(.secondary)
+            Text("Basit doğrusal yaklaşım: iç yaprak i için kapak kalınlığı + i × iç kâğıt kalınlığı. Kapak kaydırılmaz; iç artwork kat yerine doğru kayar. Fiziksel katlama / kesim testiyle doğrulayın.").font(.caption).foregroundStyle(DesignSystem.muted)
         }
     }
     private func measure(_ title: String,_ binding: Binding<Double>) -> some View {
@@ -123,9 +123,9 @@ private struct PaperCaliperEditor: View {
             else {
                 optional("Gramaj (g/m²)",$paper.grammage)
                 optional("Cilt katsayısı (cm³/g)",$paper.bulk)
-                Text("Gramaj × katsayı = µm; varsayılan katsayı yoktur.").font(.caption).foregroundStyle(.secondary)
+                Text("Gramaj × katsayı = µm; varsayılan katsayı yoktur.").font(.caption).foregroundStyle(DesignSystem.muted)
             }
-            Text(paper.description).font(.caption).foregroundStyle(paper.millimetres == nil ? .orange : .secondary)
+            Text(paper.description).font(.caption).foregroundStyle(paper.millimetres == nil ? DesignSystem.warning : DesignSystem.muted)
         }
     }
     private func optional(_ title: String,_ binding: Binding<Double?>) -> some View {

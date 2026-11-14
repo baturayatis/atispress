@@ -4,15 +4,18 @@ import PDFEngine
 
 struct ExportMarksView: View {
     @ObservedObject var model: Workspace
-    var body: some View {
-        ScrollView {
+    var inline = false
+    @ViewBuilder var body: some View {
+        if inline { fields } else { ScrollView { fields }.frame(width:540,height:390) }
+    }
+    private var fields:some View {
         VStack(alignment: .leading,spacing: 8) {
             if model.plan.hasBlankBacks {
                 if model.plan.hasBackContent {
                     Toggle("Boş arka yüzleri çıktıya ekle",isOn: Binding(get: { model.project.includeBlankBacks ?? true },set: { model.project.includeBlankBacks = $0 })).settingHint("Boş arka yüzleri çıktıya ekle",SettingGuidance.detail("Boş arka yüzleri çıktıya ekle"))
-                    Text("Çift yönlü baskı hizalaması için açık bırakın.").font(.caption).foregroundStyle(.secondary)
+                    Text("Çift yönlü baskı hizalaması için açık bırakın.").font(.caption).foregroundStyle(DesignSystem.muted)
                 } else {
-                    Text("Arka yüz boş: çıktıya eklenmedi.").font(.caption).foregroundStyle(.secondary)
+                    Text("Arka yüz boş: çıktıya eklenmedi.").font(.caption).foregroundStyle(DesignSystem.muted)
                 }
                 Divider()
             }
@@ -27,13 +30,13 @@ struct ExportMarksView: View {
             Toggle(model.autoLabel("Sayfa numaraları / yuva etiketleri",.exportPageNumbers),isOn: model.autoBinding($model.project.exportMarks.pageNumbers,.exportPageNumbers)).automaticReset(model,.exportPageNumbers)
             Toggle(model.autoLabel("Tabaka bilgi şeridi (iş adı, tabaka no, ön/arka)",.exportSheetInfo),isOn: model.autoBinding($model.project.exportMarks.sheetInfo,.exportSheetInfo)).automaticReset(model,.exportSheetInfo)
             if model.project.exportMarks.sheetInfo {
-                TextField("İş adı",text: Binding(get: { model.infoJobName },set: { model.infoJobName = $0 })).textFieldStyle(.roundedBorder)
-                HStack {
+                LabeledContent("İş adı") { TextField("İş adı",text: Binding(get: { model.infoJobName },set: { model.infoJobName = $0 })).textFieldStyle(.roundedBorder) }
+                VStack(alignment:.leading) {
                     Toggle("İş adı",isOn: model.sheetInfoBinding(\.showJobName)).settingHint("İş adı",SettingGuidance.detail("İş adı"))
                     Toggle("Tarih",isOn: model.sheetInfoBinding(\.date)).settingHint("Tarih",SettingGuidance.detail("Tarih"))
                     Toggle("Tabaka no / toplam",isOn: model.sheetInfoBinding(\.sheetNumber)).settingHint("Tabaka no / toplam",SettingGuidance.detail("Tabaka no / toplam"))
                 }
-                HStack {
+                VStack(alignment:.leading) {
                     Toggle("Ön/Arka",isOn: model.sheetInfoBinding(\.side)).settingHint("Ön/Arka",SettingGuidance.detail("Ön/Arka"))
                     Toggle("Tabaka boyutu",isOn: model.sheetInfoBinding(\.sheetSize)).settingHint("Tabaka boyutu",SettingGuidance.detail("Tabaka boyutu"))
                     Toggle("Ofset/Dijital",isOn: model.sheetInfoBinding(\.production)).settingHint("Ofset/Dijital",SettingGuidance.detail("Ofset/Dijital"))
@@ -42,24 +45,26 @@ struct ExportMarksView: View {
                     let text = model.sheetInfoText(sheet: sheet,number: model.plan.sheets.prefix(model.sheetIndex).reduce(0) { $0+$1.repeatCount }+model.repetition+1,kind: model.side)
                     Text("Örnek (6 pt): "+(text.isEmpty ? "Alan seçilmedi; şerit basılmaz." : text)).font(.caption)
                     if !text.isEmpty,PDFSheetInfo.placement(text: text,side: model.currentSide ?? sheet.front,sheet: sheet,marks: model.project.exportMarks,kind: model.side) == nil {
-                        Text(PDFSheetInfo.noRoomWarning).font(.caption).foregroundStyle(.orange)
+                        Text(PDFSheetInfo.noRoomWarning).font(.caption).foregroundStyle(DesignSystem.warning)
                     }
                 }
             }
             Toggle(model.autoLabel("Kesim çizgisi tam uzunlukta (artwork üzerinde)",.exportFullCut),isOn: model.autoBinding($model.project.exportMarks.fullCut,.exportFullCut)).automaticReset(model,.exportFullCut)
-            HStack {
-                Picker(model.autoLabel("Renk",.exportColor),selection: model.autoBinding($model.project.exportMarks.color,.exportColor)) {
+            VStack(alignment:.leading,spacing:DesignSystem.Space.sm) {
+                Picker("Çizgi rengi",selection:model.autoBinding($model.project.exportMarks.color,.exportColor)) {
                     Text("Siyah (CMYK 0,0,0,100)").tag(ExportMarks.Color.black)
                     Text("Kayıt rengi (100,100,100,100)").tag(ExportMarks.Color.registration)
                 }.automaticReset(model,.exportColor)
-                TextField("Kalınlık (pt)",value: model.autoBinding($model.project.exportMarks.lineWidth,.exportLineWidth),format: .number).frame(width: 70)
-                Text(model.autoLabel("pt",.exportLineWidth)).automaticReset(model,.exportLineWidth)
+                HStack {
+                    Text("Çizgi kalınlığı")
+                    TextField("Kalınlık",value:model.autoBinding($model.project.exportMarks.lineWidth,.exportLineWidth),format:.number).frame(width:70).textFieldStyle(.roundedBorder)
+                    Text("pt")
+                }.automaticReset(model,.exportLineWidth)
             }
             let warnings = Set(model.plan.sheets.flatMap { sheet in
                 [sheet.front,sheet.back].flatMap { PDFExportMarkRenderer.geometry(side: $0,sheet: sheet,settings: model.project.exportMarks).warnings } + PDFColorControlRenderer.geometry(sheet: sheet,settings: model.project.exportMarks).warnings
             }).sorted()
-            ForEach(warnings,id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
+            ForEach(warnings,id: \.self) { Text($0).font(.caption).foregroundStyle(DesignSystem.warning) }
         }.toggleStyle(.checkbox).padding(12).frame(maxWidth: .infinity,alignment: .leading)
-        }.frame(width: 540,height: 390)
     }
 }

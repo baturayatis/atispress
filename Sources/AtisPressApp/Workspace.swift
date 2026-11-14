@@ -10,6 +10,8 @@ typealias PreviewOverlays = PDFRenderOptions
 final class Workspace: ObservableObject {
     let ui: UsabilitySettings
     private var uiSubscription: AnyCancellable?
+    @Published private(set) var workflowRecommendation:WorkflowSheetRecommendation?
+    private var workflowRecommendationTask:Task<Void,Never>?
     @Published var preparingExport = false
     @Published var rescalePrompt: RescalePrompt?
     var pendingScalePrompts: [RescalePrompt] = []
@@ -97,7 +99,8 @@ final class Workspace: ObservableObject {
     @Published var repetition = 0
     @Published var selectedSerialID: UUID?
     @Published var side: SideKind = .front { didSet { warmGeneratedBleed() } }
-    @Published var overlays = PreviewOverlays() { didSet { refreshModified() } }
+    static func defaultPreviewOverlays() -> PreviewOverlays { var options = PreviewOverlays(); options.pageNumbers = false; return options }
+    @Published var overlays = Workspace.defaultPreviewOverlays() { didSet { refreshModified() } }
     @Published var sheetPreset = Workspace.automaticSheetTitle { didSet { refreshModified() } }
     @Published private(set) var isModified = false
     @Published private(set) var projectURL: URL?
@@ -316,6 +319,7 @@ final class Workspace: ObservableObject {
             selectedGangJobID = next.gang?.jobs.first?.id
         }
         project = next
+        overlays.pageNumbers = next.isBooklet
     }
     // ⌘O, home buttons and the toolbar differ only in their picker filter.
     func openPanel() { chooseFile(.any) }
@@ -492,7 +496,7 @@ extension Workspace {
         restoring = true; projectIdentifier = UUID()
         gangAssets = []; selectedGangJobID = nil; selectedGangBlockID = nil
         source = nil; sourceReference = nil; projectURL = nil; projectAccess = nil
-        order = []; included = []; selectedPages = []; overlays = PreviewOverlays(); sheetPreset = Self.automaticSheetTitle
+        order = []; included = []; selectedPages = []; overlays = Self.defaultPreviewOverlays(); sheetPreset = Self.automaticSheetTitle
         bookletGutter = nil; repeatGutter = 0; gangGutter = nil
         project = Self.newProject()
         planTask?.cancel(); revision = UUID()
@@ -1454,5 +1458,84 @@ extension Workspace {
         if project.binding == .gang { return "\(plan.totalPressSheets) tabaka · \(copies) adet/tabaka · İş adedi \(basicQuantity.map(String.init) ?? "—")" }
         let quantity = currentSheet?.producedQuantityDescription ?? "—"
         return "\(plan.totalPressSheets) tabaka · \(copies) adet/tabaka · Üretim \(quantity) adet"
+    }
+}
+
+
+extension Workspace {
+    var workflowProductSummary:String {
+        guard let size = project.pages.first?.trimSize else { return "PDF seçerek başlayın" }
+        let format = NumberFormatter(); format.locale = Locale(identifier:"tr_TR"); format.maximumFractionDigits = 2
+        let width = format.string(from:NSNumber(value:size.width)) ?? "—", height = format.string(from:NSNumber(value:size.height)) ?? "—"
+        return "\(productKind.rawValue) · \(width) × \(height) mm · \(project.resolvedPageLayout == .simplex ? "tek yüz" : "çift yüz")"
+    }
+    var selectedWorkflowChip:String {
+        if project.autoLayout?.sheetSelection == .automatic { return "Otomatik" }
+        if sheetPreset == "Özel" { return "Özel ölçü…" }
+        return WorkflowPresentation.sheetPresets.first { $0.value.size == project.sheet.size }?.key ?? "Özel ölçü…"
+    }
+    func selectWorkflowSheet(_ chip:String) {
+        if chip == "Otomatik" { returnToAutomaticSheet(); return }
+        markManual(.sheetSize)
+        if let preset = WorkflowPresentation.sheetPresets[chip] { sheetPreset = chip; project.sheet.size = preset.size }
+        else { sheetPreset = "Özel" }
+    }
+    var workflowWaste:WasteSettings {
+        get { selectedGangJob?.waste ?? project.stepAndRepeat.waste ?? WasteSettings() }
+        set { if let job = selectedGangJob { editGangJob(job.id) { $0.waste = newValue } } else { project.stepAndRepeat.waste = newValue } }
+    }
+    func workflowAddonSummary(_ addon:WorkflowAddon) -> String? {
+        switch addon {
+        case .serial: return editableSerialFields.isEmpty ? nil : "\(editableSerialFields.count) alan yapılandırıldı"
+        case .scaling: return project.hasRescaling ? scalingSummary : nil
+        case .color: return project.exportMarks.colorBar || project.exportMarks.registrationTargets ? "Çıktı işaretleri etkin" : nil
+        case .info: return project.exportMarks.sheetInfo ? "Çıktıda etkin" : nil
+        case .pricing: return project.costing == nil ? nil : "Bu proje için teklif ayarları var"
+        }
+    }
+    func refreshWorkflowRecommendation() {
+        workflowRecommendationTask?.cancel()
+        guard !project.pages.isEmpty else { workflowRecommendation = nil; return }
+        var snapshot = project
+        var automatic = snapshot.autoLayout ?? AutoLayoutSettings()
+        automatic.sheetSelection = .automatic; automatic.manualFields.remove(.sheetSize); automatic.presetFields?.remove(.sheetSize)
+        snapshot.autoLayout = automatic
+        workflowRecommendationTask = Task { [snapshot] in
+            try? await Task.sleep(for:.milliseconds(160))
+            guard !Task.isCancelled else { return }
+            let result = await Task.detached(priority:.utility) { SmartAutoLayout.arrange(snapshot) }.value
+            guard !Task.isCancelled else { return }
+            if let sheet = result.plan.sheets.first,result.plan.canExport {
+                workflowRecommendation = WorkflowSheetRecommendation(name:result.presetName,copies:sheet.repeatLayout?.copiesPerSheet ?? sheet.front.slots.count)
+            } else { workflowRecommendation = nil }
+        }
+    }
+    var workflowReadyText:String {
+        if source == nil { return "PDF seçerek başlayın" }
+        if planning || autoArranging { return "Yerleşim hesaplanıyor…" }
+        if exporting { return "PDF hazırlanıyor…" }
+        return "Her şey hazır · \(plan.totalPressSheets) tabaka · \(currentSheet?.repeatLayout?.copiesPerSheet ?? currentSheet?.front.slots.count ?? 0) adet"
+    }
+}
+
+
+extension Workspace {
+    func revealWorkflowIssue(_ issue:ValidationIssue) {
+        reveal(issue)
+        ui.reveal(inspectorSection(for:issue))
+        switch issue.code {
+        case .missingBleed,.sharedCutBleed: ui.focusedArea = .bleed
+        case .insufficientGutter: ui.focusedArea = .gutter
+        case .exceedsSheet: ui.focusedArea = .margins
+        default: break
+        }
+    }
+    var workflowBleed:Double {
+        get { selectedGangJob?.bleed ?? project.settings.bleed }
+        set {
+            if let job = selectedGangJob { editGangJob(job.id) { $0.bleed = newValue } }
+            else { project.settings.bleed = newValue }
+            overlays.bleed = true
+        }
     }
 }

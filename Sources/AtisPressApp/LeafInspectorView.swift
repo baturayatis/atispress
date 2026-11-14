@@ -19,7 +19,7 @@ struct LeafInspectorView: View {
                     Text("Küçült").tag(BindingAllowanceBehavior.shrink)
                     Text("Kaydır").tag(BindingAllowanceBehavior.shift)
                 }.inspectorSetting(model,"Cilt payı davranışı",SettingGuidance.detail("Cilt payı davranışı"))
-                if (model.project.leafSettings.allowance ?? 0)==0 { Text("Cilt payı girilmedi; makinenizin gerektirdiği payı girin.").foregroundStyle(.orange) }
+                if (model.project.leafSettings.allowance ?? 0)==0 { Text("Cilt payı girilmedi; makinenizin gerektirdiği payı girin.").foregroundStyle(DesignSystem.warning) }
                 Text("Kesim ölçüsü korunur. Koru: artwork değişmez. Küçült: güvenli alana orantılı sığdırır. Kaydır: cilt kenarından uzaklaştırır; taşan artwork kırpılmaz.").font(.caption)
                 Toggle("Delik işaretlerini çıktıya ekle",isOn:Binding(get:{ model.project.leafSettings.holes },set:{ model.project.leafSettings.holes = $0; model.overlays.punch = true })).inspectorSetting(model,"Delik işaretlerini çıktıya ekle",SettingGuidance.detail("Delik işaretlerini çıktıya ekle"))
                 if model.project.leafSettings.holes {

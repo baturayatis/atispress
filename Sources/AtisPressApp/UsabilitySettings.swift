@@ -3,17 +3,19 @@ import ImpositionCore
 
 enum InspectorMode: String, CaseIterable { case simple = "Basit", advanced = "Gelişmiş" }
 enum ProductKind: String, CaseIterable {
-    case card = "Kartvizit", brochure = "Broşür", form = "Form", book = "Kitap", spiral = "Spiral"
+    case card = "Kartvizit", brochure = "Broşür", form = "Form", book = "Kitap", spiral = "Spiral", catalog = "Katalog", wireO = "Wire-O"
     static func detect(_ project: Project) -> ProductKind {
+        if project.binding == .wireO { return .wireO }
         if project.isLeafBinding { return .spiral }
         if project.binding == .saddleStitch { return .brochure }
         if project.isBooklet { return .book }
         guard let size = project.pages.first?.trimSize else { return .card }
-        if RescaleSettings.targets.prefix(2).contains(where: { abs($0.1.width-size.width)<0.1 && abs($0.1.height-size.height)<0.1 }) { return .card }
+        let short = min(size.width,size.height), long = max(size.width,size.height)
+        if (50...55).contains(short) && (85...90).contains(long) { return .card }
         return .form
     }
     var binding: BindingMethod {
-        switch self { case .card,.form: return .stepAndRepeat; case .brochure: return .saddleStitch; case .book: return .perfectBound; case .spiral: return .spiral }
+        switch self { case .card,.form: return .stepAndRepeat; case .brochure: return .saddleStitch; case .book: return .perfectBound; case .spiral: return .spiral; case .catalog: return .saddleStitch; case .wireO: return .wireO }
     }
 }
 enum InspectorSection: String, CaseIterable, Identifiable {
@@ -46,10 +48,15 @@ final class UsabilitySettings: ObservableObject {
     @Published var mode: InspectorMode { didSet { defaults.set(mode.rawValue,forKey:"atispress.ui.mode"); if mode == .simple { search = "" } } }
     @Published var search = ""
     @Published var searchFocusRequest = 0
+    @Published var detailsExpanded = false { didSet { defaults.set(detailsExpanded,forKey:"atispress.workflow.details") } }
+    @Published var focusedArea:WorkflowFocus?
+    @Published var expandedAddons:Set<WorkflowAddon> = [] { didSet { defaults.set(expandedAddons.map(\.rawValue),forKey:"atispress.workflow.addons") } }
     @Published var revealedSection: InspectorSection?
     @Published private var collapsed: Set<String> { didSet { defaults.set(Array(collapsed),forKey:"atispress.ui.collapsed") } }
     init(defaults:UserDefaults = .standard) {
         self.defaults = defaults
+        detailsExpanded = defaults.bool(forKey:"atispress.workflow.details")
+        expandedAddons = Set((defaults.stringArray(forKey:"atispress.workflow.addons") ?? []).compactMap(WorkflowAddon.init(rawValue:)))
         mode = defaults.string(forKey:"atispress.ui.mode").flatMap(InspectorMode.init(rawValue:)) ?? .simple
         collapsed = Set(defaults.stringArray(forKey:"atispress.ui.collapsed") ?? [InspectorSection.serial.rawValue,InspectorSection.binding.rawValue,InspectorSection.price.rawValue])
     }
@@ -76,7 +83,7 @@ struct SettingHelp: View {
     let detail: String
     @State private var open = false
     var body: some View {
-        Button { open.toggle() } label: { Image(systemName:"questionmark.circle").foregroundStyle(.secondary) }
+        Button { open.toggle() } label: { Image(systemName:"questionmark.circle").foregroundStyle(DesignSystem.muted) }
             .buttonStyle(.borderless).accessibilityLabel(title+" yardımı")
             .popover(isPresented:$open) {
                 VStack(alignment:.leading,spacing:8) { Text(title).font(.headline); Text(detail).fixedSize(horizontal:false,vertical:true) }.padding(14).frame(width:290)
@@ -147,7 +154,10 @@ private struct SettingRowModifier: ViewModifier {
     let keywords:String
     @Environment(\.inspectorSection) private var section
     func body(content:Content) -> some View {
-        if model.ui.matches(title+" "+keywords,section:section) { HStack(alignment:.top,spacing:5) { content; SettingHelp(title:title,detail:detail) } }
+        VStack(alignment:.leading,spacing:DesignSystem.Space.xs) {
+            content
+            Text(detail.components(separatedBy:". ").first ?? detail).font(.caption).foregroundStyle(DesignSystem.muted).fixedSize(horizontal:false,vertical:true)
+        }
     }
 }
 extension View {
@@ -181,7 +191,12 @@ extension EnvironmentValues {
 private struct SettingHintModifier: ViewModifier {
     let title:String
     let detail:String
-    func body(content:Content) -> some View { HStack(alignment:.center,spacing:5) { content; SettingHelp(title:title,detail:detail) } }
+    func body(content:Content) -> some View {
+        VStack(alignment:.leading,spacing:DesignSystem.Space.xs) {
+            content
+            Text(detail.components(separatedBy:". ").first ?? detail).font(.caption).foregroundStyle(DesignSystem.muted).fixedSize(horizontal:false,vertical:true)
+        }
+    }
 }
 extension View {
     func settingHint(_ title:String,_ detail:String) -> some View { modifier(SettingHintModifier(title:title,detail:detail)) }
@@ -215,7 +230,7 @@ private struct InspectorFilterModifier: ViewModifier {
     @ObservedObject var model:Workspace
     let keywords:String
     @Environment(\.inspectorSection) private var section
-    func body(content:Content) -> some View { if model.ui.matches(keywords,section:section) { content } }
+    func body(content:Content) -> some View { if true { content } }
 }
 extension View {
     func inspectorFilter(_ model:Workspace,_ keywords:String) -> some View { modifier(InspectorFilterModifier(model:model,keywords:keywords)) }

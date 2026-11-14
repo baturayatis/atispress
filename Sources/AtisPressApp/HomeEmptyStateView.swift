@@ -6,12 +6,12 @@ struct HomeEmptyStateView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                Image(systemName: "doc.richtext").font(.system(size: 48)).foregroundStyle(.secondary)
+                Image(systemName: "doc.richtext").font(.system(size: 48)).foregroundStyle(DesignSystem.muted)
                 Text("PDF ile başlayın").font(.title2.bold())
                 Text("1. PDF seç → 2. Ayarları kontrol et → 3. Dışa aktar")
                     .font(.headline).multilineTextAlignment(.center)
                 Text("PDF dosyasını buraya sürükle veya ⌘O ile yükle")
-                    .foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    .foregroundStyle(DesignSystem.muted).multilineTextAlignment(.center)
                 HStack(spacing: 12) {
                     Button(action: model.choosePDF) { Label("PDF Seç…",systemImage: "doc.badge.plus") }
                         .buttonStyle(.borderedProminent).controlSize(.large)
@@ -21,7 +21,7 @@ struct HomeEmptyStateView: View {
                 VStack(alignment: .leading,spacing: 8) {
                     Text("Son kullanılanlar").font(.headline)
                     if model.recentFiles.isEmpty {
-                        Text("Henüz dosya açılmadı.").font(.callout).foregroundStyle(.secondary)
+                        Text("Henüz dosya açılmadı.").font(.callout).foregroundStyle(DesignSystem.muted)
                     }
                     ForEach(model.recentFiles) { file in
                         Button { model.openRecent(file) } label: {
@@ -30,14 +30,14 @@ struct HomeEmptyStateView: View {
                                 VStack(alignment: .leading,spacing: 2) {
                                     Text(file.url.lastPathComponent).lineLimit(1).truncationMode(.middle)
                                     Text(file.url.deletingLastPathComponent().path)
-                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                        .font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1).truncationMode(.middle)
                                 }
                                 Spacer(minLength: 0)
                                 if !file.isAvailable { Text("Bulunamadı").font(.caption) }
                             }.padding(8).frame(maxWidth: .infinity,alignment: .leading).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain).disabled(busy || !file.isAvailable)
-                        .foregroundStyle(file.isAvailable ? Color.primary : Color.secondary)
+                        .foregroundStyle(file.isAvailable ? DesignSystem.text : DesignSystem.muted)
                         .opacity(file.isAvailable ? 1 : 0.5)
                         .help(file.url.path)
                     }

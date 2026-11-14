@@ -19,9 +19,9 @@ struct ColorControlSizeView: View {
                 Text("Maşa tarafı").tag(ColorControlSettings.BarSide.gripper)
                 Text("Maşanın karşısı").tag(ColorControlSettings.BarSide.opposite)
             }.automaticReset(model,.exportBarSide)
-            Text("12 CMYK yama · CMY gri: %50 / %40 / %40").font(.caption).foregroundStyle(.secondary)
+            Text("12 CMYK yama · CMY gri: %50 / %40 / %40").font(.caption).foregroundStyle(DesignSystem.muted)
             Text("Ölçüler önizleme ve çıktı için ortaktır; görünürlük anahtarları bağımsızdır. Dizler registration, yamalar CMYK basılır.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).foregroundStyle(DesignSystem.muted)
         }
     }
 }

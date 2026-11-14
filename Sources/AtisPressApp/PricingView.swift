@@ -30,10 +30,10 @@ struct PriceNumber: View {
 struct PriceEntryEditor: View {
     @Binding var entry: PriceEntry
     var body: some View {
-        TextField("Ad",text:$entry.name)
+        LabeledContent("Ad") { TextField("Fiyat adı",text:$entry.name) }
         if entry.kind == .paper {
-            TextField("Gramaj (g/m²)",value:$entry.grammage,format:.number,prompt:Text("girilmedi"))
-            HStack { TextField("En (mm)",value:$entry.size.width,format:.number); TextField("Boy (mm)",value:$entry.size.height,format:.number) }
+            LabeledContent("Gramaj (g/m²)") { TextField("girilmedi",value:$entry.grammage,format:.number) }
+            VStack { LabeledContent("En (mm)") { TextField("En",value:$entry.size.width,format:.number) }; LabeledContent("Boy (mm)") { TextField("Boy",value:$entry.size.height,format:.number) } }
             Toggle("1000 tabaka fiyatı",isOn:$entry.perThousand)
             Toggle("KDV dahil",isOn:$entry.includesVAT)
         }
@@ -42,19 +42,22 @@ struct PriceEntryEditor: View {
         if entry.kind == .offset {
             PriceNumber(title:"Kalıp başına (₺)",value:$entry.platePrice)
             PriceNumber(title:"Hazırlık / ayar (₺ / kalıp takımı)",value:$entry.setupPrice)
-            TextField("Renk sayısı",value:$entry.colors,format:.number,prompt:Text("girilmedi"))
+            LabeledContent("Renk sayısı") { TextField("girilmedi",value:$entry.colors,format:.number) }
         }
         if entry.kind == .finishing { Picker("Birim",selection:$entry.unit) { ForEach(PriceUnit.allCases,id:\.self) { Text($0.rawValue).tag($0) } } }
     }
 }
 struct PricingView: View {
     @ObservedObject var store: PricingStore
-    var body: some View {
-        ScrollView {
+    var inline = false
+    @ViewBuilder var body:some View {
+        if inline { fields } else { ScrollView { fields }.frame(minWidth:760,minHeight:650) }
+    }
+    private var fields:some View {
             VStack(alignment:.leading,spacing:16) {
-                Text("Fiyatlar").font(.largeTitle.bold())
-                Text("Bütün fiyatları siz girin. Boş alanlar girilmedi olarak kalır. Sıfır, açıkça girildiğinde geçerlidir.").foregroundStyle(.secondary)
-                HStack { PriceNumber(title:"Kâr marjı (%)",value:$store.library.margin); PriceNumber(title:"KDV (%)",value:$store.library.vat) }
+                Text("Fiyatlar").font(inline ? .headline : .largeTitle.bold())
+                Text("Bütün fiyatları siz girin. Boş alanlar girilmedi olarak kalır. Sıfır, açıkça girildiğinde geçerlidir.").foregroundStyle(DesignSystem.muted)
+                VStack { PriceNumber(title:"Kâr marjı (%)",value:$store.library.margin); PriceNumber(title:"KDV (%)",value:$store.library.vat) }
                 ForEach(PriceKind.allCases,id:\.self) { kind in
                     GroupBox(kind.rawValue) {
                         VStack(alignment:.leading) {
@@ -78,10 +81,9 @@ struct PricingView: View {
                     Button("Tablo dışa aktar…") { exportTable() }
                     Button("Tablo içe aktar…") { importTable() }
                 }
-                if let error = store.error { Text(error).foregroundStyle(.red) }
+                if let error = store.error { Text(error).foregroundStyle(DesignSystem.error) }
                 Text("Kâğıt: seçilen KDV oranıyla netleştirilir. Baskı ve işçilik fiyatları KDV hariçtir. İçe aktarma kitaplığı değiştirir; önce dışa aktararak yedekleyebilirsiniz.").font(.caption)
-            }.textFieldStyle(.roundedBorder).padding(24)
-        }.frame(minWidth:640,minHeight:600)
+            }.textFieldStyle(.roundedBorder).padding(inline ? 0 : 24)
         .onChange(of:store.library) { _,_ in store.save() }
     }
     private func importTable() {
@@ -99,10 +101,13 @@ struct CostingView: View {
     @State private var comparison: [SheetComparison] = []
     private var settings: Binding<JobCostSettings> { Binding(get:{ model.project.costing ?? JobCostSettings() },set:{ model.project.costing = $0 }) }
     private var result: CostResult { CostCalculator.calculate(project:model.project,plan:model.plan,library:store.library) }
-    var body: some View {
-        ScrollView {
+    var inline = false
+    @ViewBuilder var body:some View {
+        if inline { fields } else { ScrollView { fields }.frame(minWidth:760,minHeight:650) }
+    }
+    private var fields:some View {
             VStack(alignment:.leading,spacing:16) {
-                Text("İş maliyeti").font(.largeTitle.bold())
+                Text("İş maliyeti").font(inline ? .headline : .largeTitle.bold())
                 Text("Bu proje bir teklif işidir. Karışık işte ortak tabaka yalnız bir kez hesaplanır; adet bazlı işçilik bütün işlerin toplam adedine uygulanır.").font(.caption)
                 selection("Kâğıt",kind:.paper,value:settings.paper)
                 selection("Baskı",kind:nil,value:settings.printing)
@@ -120,15 +125,15 @@ struct CostingView: View {
                         }
                     }
                 }
-                HStack {
+                VStack {
                     PriceNumber(title:"Bu işe özel kâr (%)",value:settings.margin)
                     PriceNumber(title:"Bu işe özel KDV (%)",value:settings.vat)
                 }
                 Text("Boş bırakılan kâr/KDV kitaplıktan alınır. Kitaplık: kâr \(store.library.margin.map { "\($0)%" } ?? "girilmedi"), KDV \(store.library.vat.map { "\($0)%" } ?? "girilmedi")").font(.caption)
-                if model.project.isBooklet || model.project.isLeafBinding { TextField("Yayın adedi",value:settings.copies,format:.number,prompt:Text("girilmedi")) }
-                TextField("Ek fire tabakası (plandaki fireye ek)",value:settings.extraWasteSheets,format:.number)
+                if model.project.isBooklet || model.project.isLeafBinding { LabeledContent("Yayın adedi (adet)") { TextField("girilmedi",value:settings.copies,format:.number) } }
+                LabeledContent("Ek fire (tabaka)") { TextField("0",value:settings.extraWasteSheets,format:.number) }
                 Text("Plan + fire: \(result.sheets) tabaka · Satış adedi: \(result.quantity)")
-                if model.planning { Text("Plan hesaplanıyor…").foregroundStyle(.orange) }
+                if model.planning { Text("Plan hesaplanıyor…").foregroundStyle(DesignSystem.warning) }
                 breakdown(result)
                 Button("Tabaka karşılaştır") { comparison = EconomicSheets.compare(project:model.project,library:store.library) }.disabled(model.planning)
                 ForEach(comparison) { row in
@@ -140,11 +145,10 @@ struct CostingView: View {
                         }
                         Spacer()
                         Button("Uygula") { model.project = row.project; model.sheetPreset = row.title; comparison = [] }.disabled(row.result.sale == nil)
-                    }.padding(8).background(row.cheapest ? Color.green.opacity(0.12) : Color.gray.opacity(0.05))
+                    }.padding(8).background(row.cheapest ? DesignSystem.success.opacity(0.12) : DesignSystem.muted.opacity(0.05))
                 }
                 quoteEditor
-            }.padding(24).textFieldStyle(.roundedBorder)
-        }.frame(minWidth:760,minHeight:650)
+            }.padding(inline ? 0 : 24).textFieldStyle(.roundedBorder)
         .onChange(of:model.project) { old,new in
             comparison = []
             if old.costing?.printing?.id != new.costing?.printing?.id,let p = new.costing?.printing?.resolved(in:store.library) { model.setProduction(p.kind == .offset ? .offset : .digital) }
@@ -178,7 +182,7 @@ struct CostingView: View {
                 ForEach(Array(r.lines.enumerated()),id:\.offset) { _,line in
                     HStack { Text(line.name); Spacer(); Text("\(NSDecimalNumber(decimal:line.quantity).stringValue) × \(money(line.unitPrice)) = \(money(line.amount))").monospacedDigit() }
                 }
-                ForEach(r.missing,id:\.self) { Text($0).foregroundStyle(.red) }
+                ForEach(r.missing,id:\.self) { Text($0).foregroundStyle(DesignSystem.error) }
                 Divider()
                 Text("Toplam maliyet: \(money(r.cost)) · Kâr: \(money(r.profit))")
                 Text("KDV: \(money(r.tax)) · Satış fiyatı: \(money(r.sale))").bold()
@@ -189,7 +193,7 @@ struct CostingView: View {
     private var quoteEditor: some View {
         GroupBox("Teklif PDF’i") {
             VStack(alignment:.leading) {
-                TextField("Firma adı (isteğe bağlı)",text:settings.quote.company)
+                LabeledContent("Firma adı (isteğe bağlı)") { TextField("Firma adı (isteğe bağlı)",text:settings.quote.company) }
                 HStack {
                     Button("Logo seç…") {
                         let p = NSOpenPanel(); p.allowedContentTypes = [.png,.jpeg,.pdf]
@@ -197,12 +201,12 @@ struct CostingView: View {
                     }
                     if settings.quote.logo.wrappedValue != nil { Button("Logoyu kaldır") { settings.quote.logo.wrappedValue = nil } }
                 }
-                TextField("İş adı",text:settings.quote.jobName)
-                TextField("Geçerlilik süresi",text:settings.quote.validity)
-                TextField("Not",text:settings.quote.note,axis:.vertical).lineLimit(3...6)
+                LabeledContent("İş adı") { TextField("İş adı",text:settings.quote.jobName) }
+                LabeledContent("Geçerlilik süresi") { TextField("Geçerlilik süresi",text:settings.quote.validity) }
+                VStack(alignment:.leading) { Text("Not"); TextField("Teklif notu",text:settings.quote.note,axis:.vertical).lineLimit(3...6) }
                 Toggle("Ayrıntılı maliyet dökümünü ekle",isOn:settings.quote.showCosts)
                 Button("Teklif PDF’i dışa aktar…") { exportQuote() }.disabled(result.sale == nil || model.planning || settings.wrappedValue.quote.validity.trimmingCharacters(in:.whitespaces).isEmpty)
-                if settings.wrappedValue.quote.validity.isEmpty { Text("Geçerlilik süresi girilmedi").foregroundStyle(.secondary) }
+                if settings.wrappedValue.quote.validity.isEmpty { Text("Geçerlilik süresi girilmedi").foregroundStyle(DesignSystem.muted) }
             }
         }
     }

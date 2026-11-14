@@ -16,9 +16,9 @@ struct GangInspectorView: View {
                     Text("Otomatik giyotin").tag(GangSettings.Mode.automatic)
                     Text("Elle yerleştir").tag(GangSettings.Mode.manual)
                 }.inspectorSetting(model,"Düzen",SettingGuidance.detail("Düzen"))
-                Text("Her iş bir dikdörtgen ızgara bloğudur. Bitişik kesimde boşluk 0; aralıklı düzende boşluk en az 2 × taşma olmalı.").font(.caption).foregroundStyle(.secondary)
+                Text("Her iş bir dikdörtgen ızgara bloğudur. Bitişik kesimde boşluk 0; aralıklı düzende boşluk en az 2 × taşma olmalı.").font(.caption).foregroundStyle(DesignSystem.muted)
                 if let job = model.selectedGangJob {
-                    TextField("İş adı",text:binding(job,\.name))
+                    LabeledContent("İş adı") { TextField("Ad",text:binding(job,\.name)) }
                     Text("\(job.front.trimSize.width,specifier:"%.1f") × \(job.front.trimSize.height,specifier:"%.1f") mm · PDF kesim ölçüsü").font(.caption)
                     let pages = model.gangSourcePages(job.sourceID)
                     Picker("Ön sayfa",selection:Binding(get: { job.front.number },set: { n in if let p = pages.first(where: { $0.number==n }) { model.editGangJob(job.id) { $0.front = p } } })) {
@@ -63,7 +63,7 @@ struct GangInspectorView: View {
                 Button("Blok sil") { model.project.gang?.blocks.removeAll { $0.id==block.id }; model.selectedGangBlockID = model.project.gang?.blocks.first?.id }
             }
         }
-        Text("Blokları önizlemede sürükleyin (1 mm). Çakışma ve kesilemeyen düzen kırmızı uyarıdır; konumlar kendiliğinden değiştirilmez.").font(.caption).foregroundStyle(.secondary)
+        Text("Blokları önizlemede sürükleyin (1 mm). Çakışma ve kesilemeyen düzen kırmızı uyarıdır; konumlar kendiliğinden değiştirilmez.").font(.caption).foregroundStyle(DesignSystem.muted)
     }
 }
 
@@ -72,12 +72,12 @@ struct GangSidebarView: View {
     var body: some View {
         VStack(alignment:.leading,spacing:8) {
             HStack { Text("Karışık İşler").font(.headline); Spacer(); Button("PDF ekle…",action:model.chooseGangPDFs) }.padding(10)
-            ForEach(model.gangAssets,id:\.saved.id) { asset in Text(asset.saved.reference.fileName).font(.caption).foregroundStyle(.secondary).padding(.horizontal) }
+            ForEach(model.gangAssets,id:\.saved.id) { asset in Text(asset.saved.reference.fileName).font(.caption).foregroundStyle(DesignSystem.muted).padding(.horizontal) }
             if let layout = model.currentSheet?.gangLayout { Text(layout.summary).font(.callout).padding(.horizontal) }
             List(selection:$model.selectedGangJobID) {
                 ForEach(model.project.gang?.jobs ?? []) { job in
                     VStack(alignment:.leading,spacing:5) {
-                        HStack { Circle().fill(Color(hue:job.tint,saturation:0.65,brightness:0.8)).frame(width:10,height:10); Text(job.name).fontWeight(.medium) }
+                        HStack { Circle().fill(Color(nsColor:DesignSystem.jobTint(job.tint,fill:false))).frame(width:10,height:10); Text(job.name).fontWeight(.medium) }
                         Text("Adet \(job.quantity) + fire \(job.waste.quantities(for:job.quantity)?.waste ?? 0) · \(job.back == nil ? "Tek yüz" : "Çift yüz")").font(.caption)
                         if let result = model.currentSheet?.gangLayout?.jobs.first(where: { $0.job.id==job.id }) {
                             Text("\(result.copiesPerSheet) adet/tabaka · Fazla: \(result.surplus) adet").font(.caption)
@@ -95,7 +95,7 @@ struct GangSidebarView: View {
                             Button("Tabaka \(r+1)") { model.repetition = r }.buttonStyle(.borderless)
                             ForEach(sheet.gangLayout?.jobs ?? [],id:\.job.id) { job in
                                 if let field = job.serialPlan.fields.first {
-                                    Text(job.job.name+": "+(job.serialPlan.range(field:field,repetition:r) ?? "Numarasız")).font(.caption).foregroundStyle(.secondary)
+                                    Text(job.job.name+": "+(job.serialPlan.range(field:field,repetition:r) ?? "Numarasız")).font(.caption).foregroundStyle(DesignSystem.muted)
                                 }
                             }
                         }

@@ -60,8 +60,8 @@ struct AtisPressApp: App {
     @Environment(\.openWindow) private var openWindow
     var body: some Scene {
         Window("AtışPress — Canlı Önizleme",id: "workspace") {
-            WorkspaceView(model: workspace)
-                .frame(minWidth: 1080,minHeight: 700)
+            WorkspaceView(model:workspace,prices:prices)
+                .frame(minWidth:DesignSystem.minimumWindow.width,minHeight:DesignSystem.minimumWindow.height)
                 .background(ProjectWindowControl(model: workspace))
                 .onOpenURL { delegate.receiveOpenURLs([$0]) }
                 .task {
@@ -79,11 +79,6 @@ struct AtisPressApp: App {
             CommandGroup(replacing:.undoRedo) {
                 Button("Geri Al") { workspace.undoEdit() }.keyboardShortcut("z").disabled((!workspace.canUndo && !(NSApp?.keyWindow?.firstResponder is NSTextView)) || workspace.loading || workspace.autoArranging || workspace.exporting)
                 Button("Yinele") { workspace.redoEdit() }.keyboardShortcut("z",modifiers:[.command,.shift]).disabled(!workspace.canRedo || workspace.loading || workspace.autoArranging || workspace.exporting)
-            }
-            CommandMenu("Çalışma görünümü") {
-                Button("Basit") { workspace.ui.mode = .simple }.keyboardShortcut("1")
-                Button("Gelişmiş") { workspace.ui.mode = .advanced }.keyboardShortcut("2")
-                Button("Ayar ara") { workspace.ui.focusSearch() }.keyboardShortcut("f")
             }
             CommandMenu("Fiyatlar") {
                 Button("Fiyatlar…") { openWindow(id:"prices") }
@@ -117,7 +112,7 @@ struct AtisPressApp: App {
                 Button("Farklı Kaydet…") { workspace.chooseSave(asNew: true) }.keyboardShortcut("s",modifiers: [.command,.shift])
                     .disabled(workspace.loading || workspace.autoArranging)
                 Divider()
-                Button("PDF’i Hazırla / Dışa Aktar…") { workspace.preparingExport = true }.keyboardShortcut("e").disabled(!workspace.canExportNow)
+                Button("PDF’i Hazırla…") { workspace.preparingExport = true }.keyboardShortcut("e").disabled(!workspace.canExportNow)
                 Button("PDF Dışa Aktar…") { workspace.chooseExport(perSheet: false) }
                     .keyboardShortcut("e",modifiers: [.command,.shift]).disabled(!workspace.canExportNow)
                 Button("Her Tabaka İçin PDF…") { workspace.chooseExport(perSheet: true) }.disabled(!workspace.canExportNow)

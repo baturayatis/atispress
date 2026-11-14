@@ -13,7 +13,7 @@ struct PresetInspectorView: View {
                     ForEach(model.presets) { Text($0.name).tag(Optional($0.id)) }
                 }
                 Button("Hazır ayar uygula") { if let selected { model.applyPreset(selected) } }.disabled(selected == nil)
-                TextField("Hazır ayar adı",text:$name).textFieldStyle(.roundedBorder)
+                LabeledContent("Hazır ayar adı") { TextField("Ad",text:$name).textFieldStyle(.roundedBorder) }
                 Button("Yeni hazır ayar kaydet") { run { _ = try model.savePreset(name:name); name = "" } }.disabled(name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
                 HStack {
                     Button("Yeniden adlandır") { if let selected { run { try model.renamePreset(selected.id,to:name) } } }.disabled(selected == nil || name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
@@ -25,8 +25,8 @@ struct PresetInspectorView: View {
                     Button("Paket dışa aktar…",action:model.choosePresetExport)
                 }.font(.caption)
                 if let name = model.project.autoLayout?.presetName {
-                    Text("Hazır ayar kaynağı: "+name+". PDF, sayfa seçimi, adet/fire ve seri alanları korunur.").font(.caption).foregroundStyle(.secondary)
-                } else { Text("PDF, sayfa seçimi, adet/fire ve seri alanları hazır ayara kaydedilmez.").font(.caption).foregroundStyle(.secondary) }
+                    Text("Hazır ayar kaynağı: "+name+". PDF, sayfa seçimi, adet/fire ve seri alanları korunur.").font(.caption).foregroundStyle(DesignSystem.muted)
+                } else { Text("PDF, sayfa seçimi, adet/fire ve seri alanları hazır ayara kaydedilmez.").font(.caption).foregroundStyle(DesignSystem.muted) }
             }.padding(5)
         }.disabled(model.loading || model.exporting || model.autoArranging)
     }

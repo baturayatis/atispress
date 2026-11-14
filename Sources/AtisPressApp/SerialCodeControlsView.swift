@@ -6,8 +6,8 @@ struct SerialCodeControlsView: View {
     @Binding var field: SerialField
     var body: some View {
         VStack(alignment: .leading,spacing: 7) {
-            TextField("İçerik şablonu",text: $field.codeSettings.template).textFieldStyle(.roundedBorder).inspectorSetting(model,"İçerik şablonu QR barkod",SettingGuidance.detail("İçerik şablonu"))
-            Text("{no}: önek + basamak + sonek. Yer tutucu yoksa içerik sabittir.").font(.caption).foregroundStyle(.secondary)
+            LabeledContent("İçerik şablonu") { TextField("Şablon",text:$field.codeSettings.template).textFieldStyle(.roundedBorder) }.inspectorSetting(model,"İçerik şablonu QR barkod",SettingGuidance.detail("İçerik şablonu"))
+            Text("{no}: önek + basamak + sonek. Yer tutucu yoksa içerik sabittir.").font(.caption).foregroundStyle(DesignSystem.muted)
             Text("Örnek: \((field.content(at: 0) ?? "Geçersiz").prefix(256))").font(.caption).textSelection(.enabled)
             measurement(field.kind == .qr ? "Boyut (mm, kare)" : "Genişlik (mm)",$field.codeSettings.width)
             if field.kind == .code128 { measurement("Çubuk yüksekliği (mm)",$field.codeSettings.height) }
@@ -22,7 +22,7 @@ struct SerialCodeControlsView: View {
             }
             Toggle("Altına okunabilir metin yaz",isOn: $field.codeSettings.humanReadable).toggleStyle(.checkbox).inspectorSetting(model,"Altına okunabilir metin yaz",SettingGuidance.detail("Altına okunabilir metin yaz"))
             Text("Konum, sessiz alanın sol alt köşesidir; boyut sessiz alanı içerir. QR’da dört kenar, Code 128’de sağ/sol korunur. Beyaz zemin üzerine vektör basılır.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.caption).foregroundStyle(DesignSystem.muted)
         }
     }
     private func measurement(_ title: String,_ value: Binding<Double>) -> some View {
