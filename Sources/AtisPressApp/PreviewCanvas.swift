@@ -55,6 +55,7 @@ struct PreviewCanvas: NSViewRepresentable {
 
     }
     private func update(_ canvas: SheetCanvasView) {
+        if let zoomModel { canvas.connectSerialEditing(zoomModel) }
         canvas.focusArea = focusArea
         canvas.repetition = repetition; canvas.selectedSerial = selectedSerial
         canvas.selectSerial = selectSerial; canvas.moveSerial = moveSerial; canvas.moveGangBlock = moveGangBlock; canvas.beginEdit = beginEdit; canvas.endEdit = endEdit
@@ -105,7 +106,9 @@ final class SheetCanvasView: NSView {
     private var gangDrag: (id: UUID,origin: Point,start: CGPoint,flipX: Bool,flipY: Bool)?
     private var originX: CGFloat = 32
     private var originY: CGFloat = 32
-    private var serialDrag: (slot: Slot,id: UUID,offset: CGPoint)?
+    private var serialDrag: (slot: Slot,id: UUID,offset: CGPoint,start:Point)?
+    private(set) var dragPosition:Point?
+    var serialPosition:((UUID)->Point?)?
     private var colorControls: PDFColorControlRenderer.Geometry?
     private var generatedOverlay: GeneratedBleedOverlay?
     private var vectorDocument: CGPDFDocument?
@@ -259,10 +262,19 @@ final class SheetCanvasView: NSView {
             for serial in sheet.serialPlacements(side: side,kind: sideKind,repetition: repetition) where serial.field.id == selectedSerial {
                 let slot = side.slots[serial.slotIndex]
                 context.saveGState()
-                context.clip(to: CGRect(x: slot.x,y: slot.y,width: slot.size.width,height: slot.size.height))
                 context.concatenate(PDFPreviewDrawing.slotTransform(slot))
                 context.concatenate(PDFSerialDrawing.transform(serial))
-                context.stroke(PDFSerialDrawing.bounds(serial).insetBy(dx: -0.8,dy: -0.8))
+                let box = PDFSerialDrawing.bounds(serial).insetBy(dx:-0.8,dy:-0.8)
+                context.stroke(box)
+                let handle = 5/pointsPerMM/scale
+                for p in [CGPoint(x:box.minX,y:box.minY),CGPoint(x:box.maxX,y:box.minY),CGPoint(x:box.minX,y:box.maxY),CGPoint(x:box.maxX,y:box.maxY)] {
+                    context.setFillColor(DesignSystem.paperNS.cgColor)
+                    let rect = CGRect(x:p.x-handle/2,y:p.y-handle/2,width:handle,height:handle)
+                    context.fill(rect); context.stroke(rect)
+                }
+                if let dragPosition {
+                    label("X \(TRFormat.dimension(dragPosition.x)) · Y \(TRFormat.dimension(dragPosition.y)) mm",at:CGPoint(x:box.midX,y:box.maxY+8/scale),size:3,color:DesignSystem.focusNS)
+                }
                 context.restoreGState()
             }
         }
@@ -271,6 +283,7 @@ final class SheetCanvasView: NSView {
         let guides = side.marks.map { mark -> Mark in
             var result = mark
             if result.kind == .gripper && result.label == "Maşa 0.0 mm" { result.label = "" }
+            else if let text = result.label { result.label = TRFormat.presentation(text) }
             return result
         }
         PDFPlanRenderer.drawMarks(guides,sheetSize: sheet.size,in: context,options: overlays,displayScale: scale)
@@ -304,20 +317,19 @@ final class SheetCanvasView: NSView {
         }
     }
     override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(enclosingScrollView ?? self)
+        window?.makeFirstResponder(self)
         let viewPoint = convert(event.locationInWindow,from: nil)
         let point = CGPoint(x: (viewPoint.x-originX)/pointsPerMM,y: (viewPoint.y-originY)/pointsPerMM)
         if let sheet {
             for serial in sheet.serialPlacements(side: side,kind: sideKind,repetition: repetition).reversed() {
                 let slot = side.slots[serial.slotIndex]
                 let local = point.applying(PDFPreviewDrawing.slotTransform(slot).inverted())
-                guard PDFPreviewDrawing.localTrim(slot).contains(local) else { continue }
                 if PDFSerialDrawing.bounds(serial).insetBy(dx: -1.5,dy: -1.5)
                     .contains(local.applying(PDFSerialDrawing.transform(serial).inverted())) {
                     beginEdit?()
                     selectedSerial = serial.field.id; selectSerial?(serial.field.id)
-                    serialDrag = (slot,serial.field.id,CGPoint(x: local.x-serial.position.x,y: local.y-serial.position.y))
-                    NSCursor.crosshair.push(); needsDisplay = true; return
+                    serialDrag = (slot,serial.field.id,CGPoint(x: local.x-serial.position.x,y: local.y-serial.position.y),serial.position)
+                    NSCursor.closedHand.push(); needsDisplay = true; return
                 }
             }
         }
@@ -346,10 +358,10 @@ final class SheetCanvasView: NSView {
             let p = convert(event.locationInWindow,from: nil)
             let point = CGPoint(x: (p.x-originX)/pointsPerMM,y: (p.y-originY)/pointsPerMM)
                 .applying(PDFPreviewDrawing.slotTransform(serialDrag.slot).inverted())
-            let trim = PDFPreviewDrawing.localTrim(serialDrag.slot)
-            let snapped = Point(max(0,min((trim.width-1).rounded(.down),(point.x-serialDrag.offset.x).rounded())),
-                                max(0,min((trim.height-1).rounded(.down),(point.y-serialDrag.offset.y).rounded())))
-            moveSerial?(serialDrag.id,snapped)
+            let position = SerialInteraction.moved(start:serialDrag.start,proposed:Point(point.x-serialDrag.offset.x,point.y-serialDrag.offset.y),modifiers:event.modifierFlags)
+            dragPosition = position
+            moveSerial?(serialDrag.id,position)
+            needsDisplay = true
             return
         }
         guard let previous = dragPoint, let scroll = enclosingScrollView else { return }
@@ -362,7 +374,18 @@ final class SheetCanvasView: NSView {
     }
     override func mouseUp(with event: NSEvent) {
         if serialDrag != nil || gangDrag != nil { endEdit?() }
-        if dragPoint != nil || serialDrag != nil || gangDrag != nil { NSCursor.pop() }; dragPoint = nil; serialDrag = nil; gangDrag = nil
+        if dragPoint != nil || serialDrag != nil || gangDrag != nil { NSCursor.pop() }; dragPoint = nil; serialDrag = nil; gangDrag = nil; dragPosition = nil; needsDisplay = true
+    }
+    override func keyDown(with event:NSEvent) {
+        guard let id = selectedSerial,let position = serialPosition?(id),let delta = SerialInteraction.nudge(event.keyCode,shift:event.modifierFlags.contains(.shift)) else { super.keyDown(with:event); return }
+        beginEdit?(); moveSerial?(id,Point(position.x+delta.x,position.y+delta.y)); endEdit?(); needsDisplay = true
+    }
+    func connectSerialEditing(_ model:Workspace) {
+        selectedSerial = model.selectedSerialID
+        selectSerial = { [weak model] in model?.selectSerial($0) }
+        moveSerial = { [weak model] in model?.moveSerialField($0,to:$1,snap:false) }
+        serialPosition = { [weak model] id in model?.editableSerialFields.first { $0.id == id }?.position }
+        beginEdit = { [weak model] in model?.beginUndoGroup() }; endEdit = { [weak model] in model?.endUndoGroup() }
     }
     override func resetCursorRects() { addCursorRect(bounds,cursor: .openHand) }
 }

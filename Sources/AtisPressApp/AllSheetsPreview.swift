@@ -222,14 +222,18 @@ final class AllSheetsDocument: NSView {
     @discardableResult func updateGeometry() -> Bool {
         guard let model else { return false }
         guard lastSheets != model.displaySheets || lastOptions != model.overlays || lastMarks != model.project.exportMarks || lastSource !== model.source || lastFocus != model.ui.focusedArea else { return false }
+        let geometryChanged = lastSheets.map { $0.size } != model.displaySheets.map { $0.size } || lastSheets.map { $0.repeatCount } != model.displaySheets.map { $0.repeatCount } || lastSheets.map { $0.hasContent(on:.back) } != model.displaySheets.map { $0.hasContent(on:.back) }
         lastFocus = model.ui.focusedArea
         lastSheets = model.displaySheets; lastOptions = model.overlays; lastMarks = model.project.exportMarks; lastSource = model.source
         geometry = SideScrollGeometry(heights: model.displaySheets.map { $0.size.height*PDFPreviewDrawing.pointsPerMM+64+headerHeight },repetitions:model.displaySheets.map { max(1,$0.repeatCount) },backs:model.displaySheets.map { $0.hasContent(on:.back) })
         let width = (model.displaySheets.map { $0.size.width*PDFPreviewDrawing.pointsPerMM+64 }.max() ?? 500)
         setFrameSize(NSSize(width:width,height:geometry.totalHeight))
         // Only the visible rows carry PDF documents, canvases and edge caches.
-        rows.values.forEach { $0.removeFromSuperview() }; rows.removeAll()
-        return true
+        // Keep the mouse-down receiver alive while serial-only plan updates arrive.
+        for (location,row) in rows where location.sheet >= geometry.heights.count {
+            row.removeFromSuperview(); rows.removeValue(forKey:location)
+        }
+        return geometryChanged
     }
     /// Permit the last sheet to align at the top even when zoomed to less
     /// than a viewport; otherwise AppKit clamps and selects its predecessor.
@@ -267,17 +271,30 @@ final class AllSheetsDocument: NSView {
             location = next
         } while true
         for index in Array(rows.keys) where !wanted.contains(index) { rows.removeValue(forKey:index)?.removeFromSuperview() }
+        for (location,row) in rows {
+            guard model.displaySheets.indices.contains(location.sheet),let canvas = row.subviews.compactMap({ $0 as? SheetCanvasView }).first else { continue }
+            let sheet = model.displaySheets[location.sheet]
+            row.frame = NSRect(x:0,y:geometry.origin(location),width:frame.width,height:geometry.heights[location.sheet])
+            canvas.connectSerialEditing(model)
+            canvas.focusArea = model.ui.focusedArea
+            if let label = row.subviews.compactMap({ $0 as? NSTextField }).first {
+                label.stringValue = headerText(location,sheet:sheet)
+                label.frame = NSRect(x:20,y:row.frame.height-headerHeight,width:frame.width-40,height:headerHeight-4)
+            }
+            canvas.configure(sheet:sheet,side:location.side == .front ? sheet.front : sheet.back,source:model.source,overlays:model.overlays,highlighted:[],sheetIndex:location.sheet,kind:location.side,generatedBleed:model.plan.generatedBleed,controlMarks:model.project.exportMarks)
+        }
         for location in wanted where rows[location] == nil {
             let index = location.sheet
             let sheet = model.displaySheets[index]
             let row = NSView(frame:NSRect(x:0,y:geometry.origin(location),width:frame.width,height:geometry.heights[index]))
-            let label = NSTextField(labelWithString:(["Tabaka \(geometry.firstNumbers[index]+location.repetition+1) · \(location.side == .front ? "Ön yüz" : "Arka yüz")" + (geometry.backs[index] ? "" : " · Arka yüz yok")]+sheet.serialRangeLabels+[sheet.front.slots.compactMap(\.rescale).first?.summary].compactMap { $0 }).joined(separator:" · "))
+            let label = NSTextField(labelWithString:headerText(location,sheet:sheet))
             label.font = .systemFont(ofSize:max(20,12/(enclosingScrollView?.magnification ?? 1)),weight:.medium)
             label.lineBreakMode = .byTruncatingTail
             label.frame = NSRect(x:20,y:row.frame.height-headerHeight,width:frame.width-40,height:headerHeight-4); row.addSubview(label)
             do {
                 let kind = location.side
                 let canvas = SheetCanvasView()
+                canvas.connectSerialEditing(model)
                 canvas.focusArea = model.ui.focusedArea
                 canvas.repetition = location.repetition
                 canvas.configure(sheet:sheet,side:kind == .front ? sheet.front : sheet.back,source:model.source,overlays:model.overlays,highlighted:[],sheetIndex:index,kind:kind,generatedBleed:model.plan.generatedBleed,controlMarks:model.project.exportMarks)
@@ -287,4 +304,8 @@ final class AllSheetsDocument: NSView {
             rows[location] = row; addSubview(row)
         }
     }
+    private func headerText(_ location:PreviewSheetLocation,sheet:Sheet) -> String {
+        (["Tabaka \(geometry.firstNumbers[location.sheet]+location.repetition+1) · \(location.side == .front ? "Ön yüz" : "Arka yüz")" + (geometry.backs[location.sheet] ? "" : " · Arka yüz yok")]+sheet.serialRangeLabels+[sheet.front.slots.compactMap(\.rescale).first?.summary].compactMap { $0 }).map(TRFormat.presentation).joined(separator:" · ")
+    }
+
 }

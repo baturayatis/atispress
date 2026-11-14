@@ -51,30 +51,24 @@ struct WorkflowCard<Content:View>: View {
     init(_ title:String,@ViewBuilder content:()->Content) { self.number = nil; self.title = title; self.content = content() }
     var body:some View {
         VStack(alignment:.leading,spacing:DesignSystem.Space.lg) {
+            Button { if model.ui.collapsedCards.contains(title) { model.ui.collapsedCards.remove(title) } else { model.ui.collapsedCards.insert(title) } } label: {
             HStack(spacing:DesignSystem.Space.sm) {
                 if let number { Text(String(number)).font(.headline).foregroundStyle(DesignSystem.selectedText).frame(width:28,height:28).background(DesignSystem.selected,in:RoundedRectangle(cornerRadius:DesignSystem.Radius.control)) }
                 Text(title).font(.headline).foregroundStyle(DesignSystem.text)
                 Spacer(minLength:0)
+                Image(systemName:model.ui.collapsedCards.contains(title) ? "chevron.right" : "chevron.down").font(.caption)
             }
+            }.buttonStyle(.plain).accessibilityLabel(title+" kartını aç veya kapat")
             let fields = WorkflowPresentation.cardFields(title).filter { model.isManual($0) || model.project.autoLayout?.presetFields?.contains($0) == true }
             if !fields.isEmpty {
-                Button("\(fields.count) ayar manuel · Otomatiğe döndür") { for field in fields { model.returnToAutomatic(field) } }
+                Button("\(fields.count) ayar manuel · Otomatiğe döndür") { model.returnToAutomatic(fields) }
                     .font(.caption).buttonStyle(.borderless).foregroundStyle(DesignSystem.teal)
             }
-            content
+            if model.ui.collapsedCards.contains(title) {
+                Text(model.cardSummary(title)).font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
+            } else { content }
         }.padding(DesignSystem.Space.lg).frame(maxWidth:.infinity,alignment:.leading)
             .background(DesignSystem.card,in:RoundedRectangle(cornerRadius:DesignSystem.Radius.card))
             .overlay(RoundedRectangle(cornerRadius:DesignSystem.Radius.card).stroke(DesignSystem.border.opacity(0.45),lineWidth:0.5))
-    }
-}
-struct AutomaticPill:View {
-    @ObservedObject var model:Workspace
-    let field:AutoLayoutField
-    var body:some View {
-        HStack(spacing:DesignSystem.Space.xs) {
-            Text(model.isManual(field) || model.project.autoLayout?.presetFields?.contains(field) == true ? "Manuel" : "Otomatik")
-                .font(.caption2).padding(.horizontal,6).padding(.vertical,2).background(.quaternary,in:Capsule())
-            if model.isManual(field) || model.project.autoLayout?.presetFields?.contains(field) == true { Button("Otomatiğe döndür") { model.returnToAutomatic(field) }.buttonStyle(.borderless).font(.caption2).foregroundStyle(DesignSystem.teal).accessibilityLabel(SettingGuidance.title(field)+" otomatiğe döndür") }
-        }
     }
 }

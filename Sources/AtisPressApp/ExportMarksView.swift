@@ -13,22 +13,22 @@ struct ExportMarksView: View {
             if model.plan.hasBlankBacks {
                 if model.plan.hasBackContent {
                     Toggle("Boş arka yüzleri çıktıya ekle",isOn: Binding(get: { model.project.includeBlankBacks ?? true },set: { model.project.includeBlankBacks = $0 })).settingHint("Boş arka yüzleri çıktıya ekle",SettingGuidance.detail("Boş arka yüzleri çıktıya ekle"))
-                    Text("Çift yönlü baskı hizalaması için açık bırakın.").font(.caption).foregroundStyle(DesignSystem.muted)
+                    Text("Çift yönlü baskı hizalaması için açık bırakın.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
                 } else {
-                    Text("Arka yüz boş: çıktıya eklenmedi.").font(.caption).foregroundStyle(DesignSystem.muted)
+                    Text("Arka yüz boş: çıktıya eklenmedi.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
                 }
                 Divider()
             }
             Text("Çıktı İşaretleri").font(.headline)
-            Toggle(model.autoLabel("Renk skalası",.exportColorBar),isOn: model.autoBinding($model.project.exportMarks.colorBar,.exportColorBar)).automaticReset(model,.exportColorBar)
-            Toggle(model.autoLabel("Diz işaretleri",.exportTargets),isOn: model.autoBinding($model.project.exportMarks.registrationTargets,.exportTargets)).automaticReset(model,.exportTargets)
+            Toggle("Renk skalası",isOn: model.autoBinding($model.project.exportMarks.colorBar,.exportColorBar)).automaticReset(model,.exportColorBar)
+            Toggle("Diz işaretleri",isOn: model.autoBinding($model.project.exportMarks.registrationTargets,.exportTargets)).automaticReset(model,.exportTargets)
             ColorControlSizeView(model: model)
-            Toggle(model.autoLabel("Kesim işaretleri",.exportCrop),isOn: model.autoBinding($model.project.exportMarks.crop,.exportCrop)).automaticReset(model,.exportCrop)
-            Toggle(model.autoLabel("Katlama işaretleri",.exportFold),isOn: model.autoBinding($model.project.exportMarks.fold,.exportFold)).automaticReset(model,.exportFold)
-            Toggle(model.autoLabel("Taşma çizgisi",.exportBleed),isOn: model.autoBinding($model.project.exportMarks.bleed,.exportBleed)).automaticReset(model,.exportBleed)
-            Toggle(model.autoLabel("Güvenli alan",.exportSafeArea),isOn: model.autoBinding($model.project.exportMarks.safeArea,.exportSafeArea)).automaticReset(model,.exportSafeArea)
-            Toggle(model.autoLabel("Sayfa numaraları / yuva etiketleri",.exportPageNumbers),isOn: model.autoBinding($model.project.exportMarks.pageNumbers,.exportPageNumbers)).automaticReset(model,.exportPageNumbers)
-            Toggle(model.autoLabel("Tabaka bilgi şeridi (iş adı, tabaka no, ön/arka)",.exportSheetInfo),isOn: model.autoBinding($model.project.exportMarks.sheetInfo,.exportSheetInfo)).automaticReset(model,.exportSheetInfo)
+            Toggle("Kesim işaretleri",isOn: model.autoBinding($model.project.exportMarks.crop,.exportCrop)).automaticReset(model,.exportCrop)
+            if model.project.isBooklet { Toggle("Katlama işaretleri",isOn: model.autoBinding($model.project.exportMarks.fold,.exportFold)).automaticReset(model,.exportFold) }
+            Toggle("Taşma çizgisi",isOn: model.autoBinding($model.project.exportMarks.bleed,.exportBleed)).automaticReset(model,.exportBleed)
+            Toggle("Güvenli alan",isOn: model.autoBinding($model.project.exportMarks.safeArea,.exportSafeArea)).automaticReset(model,.exportSafeArea)
+            Toggle("Sayfa numaraları / yuva etiketleri",isOn: model.autoBinding($model.project.exportMarks.pageNumbers,.exportPageNumbers)).automaticReset(model,.exportPageNumbers)
+            Toggle("Tabaka bilgi şeridi (iş adı, tabaka no, ön/arka)",isOn: model.autoBinding($model.project.exportMarks.sheetInfo,.exportSheetInfo)).automaticReset(model,.exportSheetInfo)
             if model.project.exportMarks.sheetInfo {
                 LabeledContent("İş adı") { TextField("İş adı",text: Binding(get: { model.infoJobName },set: { model.infoJobName = $0 })).textFieldStyle(.roundedBorder) }
                 VStack(alignment:.leading) {
@@ -49,22 +49,22 @@ struct ExportMarksView: View {
                     }
                 }
             }
-            Toggle(model.autoLabel("Kesim çizgisi tam uzunlukta (artwork üzerinde)",.exportFullCut),isOn: model.autoBinding($model.project.exportMarks.fullCut,.exportFullCut)).automaticReset(model,.exportFullCut)
+            Toggle("Ürün üzerinde tam kesim çizgisi",isOn: model.autoBinding($model.project.exportMarks.fullCut,.exportFullCut)).automaticReset(model,.exportFullCut)
             VStack(alignment:.leading,spacing:DesignSystem.Space.sm) {
                 Picker("Çizgi rengi",selection:model.autoBinding($model.project.exportMarks.color,.exportColor)) {
-                    Text("Siyah (CMYK 0,0,0,100)").tag(ExportMarks.Color.black)
-                    Text("Kayıt rengi (100,100,100,100)").tag(ExportMarks.Color.registration)
-                }.automaticReset(model,.exportColor)
+                    Text("Siyah").tag(ExportMarks.Color.black)
+                    Text("Tüm kalıplar").tag(ExportMarks.Color.registration)
+                }.pickerStyle(.segmented).automaticReset(model,.exportColor)
                 HStack {
                     Text("Çizgi kalınlığı")
-                    TextField("Kalınlık",value:model.autoBinding($model.project.exportMarks.lineWidth,.exportLineWidth),format:.number).frame(width:70).textFieldStyle(.roundedBorder)
-                    Text("pt")
+                    Spacer()
+                    DimensionInput("Çizgi kalınlığı",value:model.autoBinding($model.project.exportMarks.lineWidth,.exportLineWidth),unit:"pt",range:0.01...20)
                 }.automaticReset(model,.exportLineWidth)
             }
             let warnings = Set(model.plan.sheets.flatMap { sheet in
                 [sheet.front,sheet.back].flatMap { PDFExportMarkRenderer.geometry(side: $0,sheet: sheet,settings: model.project.exportMarks).warnings } + PDFColorControlRenderer.geometry(sheet: sheet,settings: model.project.exportMarks).warnings
             }).sorted()
-            ForEach(warnings,id: \.self) { Text($0).font(.caption).foregroundStyle(DesignSystem.warning) }
-        }.toggleStyle(.checkbox).padding(12).frame(maxWidth: .infinity,alignment: .leading)
+            ForEach(warnings,id: \.self) { Text(TRFormat.presentation($0)).font(.caption).foregroundStyle(DesignSystem.warning) }
+        }.toggleStyle(.switch).padding(12).frame(maxWidth: .infinity,alignment: .leading)
     }
 }

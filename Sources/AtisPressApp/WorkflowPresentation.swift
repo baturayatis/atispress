@@ -7,8 +7,8 @@ enum WorkflowAddon:String,CaseIterable,Identifiable {
 }
 enum WorkflowFocus:String { case margins, gripper, gutter, bleed, marks }
 enum WorkflowPresentation {
-    static let sheetChips = ["Otomatik","A4","A3","SRA3","33×48","35×50","50×70","70×100","Özel ölçü…"]
-    static let sheetPresets:[String:SheetPreset] = ["A4":.a4,"A3":.a3,"SRA3":.sra3,"33×48":.cm33x48,"35×50":.cm35x50,"50×70":.cm50x70,"70×100":.cm70x100]
+    static let sheetChips = ["Otomatik","A5","A4","A3","SRA3","33×48","35×50","50×70","70×100","Özel ölçü…"]
+    static let sheetPresets:[String:SheetPreset] = ["A5":.a5,"A4":.a4,"A3":.a3,"SRA3":.sra3,"33×48":.cm33x48,"35×50":.cm35x50,"50×70":.cm50x70,"70×100":.cm70x100]
     static func showsBindingCard(_ product:ProductKind) -> Bool { [.book,.catalog,.spiral,.wireO].contains(product) }
     static func focus(_ field:AutoLayoutField) -> WorkflowFocus? {
         switch field {

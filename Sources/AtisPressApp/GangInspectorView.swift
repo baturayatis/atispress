@@ -15,11 +15,11 @@ struct GangInspectorView: View {
                 })) {
                     Text("Otomatik giyotin").tag(GangSettings.Mode.automatic)
                     Text("Elle yerleştir").tag(GangSettings.Mode.manual)
-                }.inspectorSetting(model,"Düzen",SettingGuidance.detail("Düzen"))
-                Text("Her iş bir dikdörtgen ızgara bloğudur. Bitişik kesimde boşluk 0; aralıklı düzende boşluk en az 2 × taşma olmalı.").font(.caption).foregroundStyle(DesignSystem.muted)
+                }.pickerStyle(.segmented).inspectorSetting(model,"Düzen",SettingGuidance.detail("Düzen"))
+                Text("Her iş bir dikdörtgen ızgara bloğudur. Bitişik kesimde boşluk 0; aralıklı düzende boşluk en az 2 × taşma olmalı.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
                 if let job = model.selectedGangJob {
                     LabeledContent("İş adı") { TextField("Ad",text:binding(job,\.name)) }
-                    Text("\(job.front.trimSize.width,specifier:"%.1f") × \(job.front.trimSize.height,specifier:"%.1f") mm · PDF kesim ölçüsü").font(.caption)
+                    Text("\(TRFormat.dimension(job.front.trimSize.width)) × \(TRFormat.dimension(job.front.trimSize.height)) mm · PDF kesim ölçüsü").font(.caption)
                     let pages = model.gangSourcePages(job.sourceID)
                     Picker("Ön sayfa",selection:Binding(get: { job.front.number },set: { n in if let p = pages.first(where: { $0.number==n }) { model.editGangJob(job.id) { $0.front = p } } })) {
                         ForEach(Array(pages.enumerated()),id:\.element.number) { i,p in Text("\(i+1)").tag(p.number) }
@@ -29,7 +29,6 @@ struct GangInspectorView: View {
                         ForEach(Array(pages.enumerated()),id:\.element.number) { i,p in Text("\(i+1)").tag(p.number) }
                     }.inspectorSetting(model,"Arka sayfa",SettingGuidance.detail("Arka sayfa"))
                     Toggle("90° döndürmeye izin ver",isOn:binding(job,\.allowRotation)).inspectorSetting(model,"90° döndürmeye izin ver",SettingGuidance.detail("90° döndürmeye izin ver"))
-                    HStack { Text("Taşma (mm)"); TextField("Taşma",value:binding(job,\.bleed),format:.number) }
                     HStack { Text("Önizleme rengi"); Slider(value:binding(job,\.tint),in:0...1) }
                     HStack {
                         Button("İşi çoğalt") {
@@ -55,15 +54,17 @@ struct GangInspectorView: View {
             let value = Binding(get: { model.project.gang?.blocks.first { $0.id==block.id } ?? block },set: { b in
                 if let i = model.project.gang?.blocks.firstIndex(where: { $0.id==block.id }) { model.project.gang?.blocks[i] = b }
             })
-            HStack { Text("X (mm)"); TextField("X",value:value.origin.x,format:.number); Text("Y"); TextField("Y",value:value.origin.y,format:.number) }
-            HStack { Text("Sütun"); TextField("Sütun",value:value.columns,format:.number); Text("Satır"); TextField("Satır",value:value.rows,format:.number) }
+            HStack { Text("X").frame(maxWidth:.infinity,alignment:.leading); DimensionInput("X",value:value.origin.x) }
+            HStack { Text("Y").frame(maxWidth:.infinity,alignment:.leading); DimensionInput("Y",value:value.origin.y) }
+            HStack { Text("Sütun").frame(maxWidth:.infinity,alignment:.leading); IntegerInput(title:"Sütun",value:value.columns,unit:"") }
+            HStack { Text("Satır").frame(maxWidth:.infinity,alignment:.leading); IntegerInput(title:"Satır",value:value.rows,unit:"") }
             Toggle("Blok 90°",isOn:value.rotated).inspectorSetting(model,"Blok 90°",SettingGuidance.detail("Blok 90°"))
             HStack {
                 Button("Blok çoğalt") { var b = block; b.id = UUID(); b.origin.x += 10; b.origin.y += 10; model.project.gang?.blocks.append(b); model.selectedGangBlockID = b.id }
                 Button("Blok sil") { model.project.gang?.blocks.removeAll { $0.id==block.id }; model.selectedGangBlockID = model.project.gang?.blocks.first?.id }
             }
         }
-        Text("Blokları önizlemede sürükleyin (1 mm). Çakışma ve kesilemeyen düzen kırmızı uyarıdır; konumlar kendiliğinden değiştirilmez.").font(.caption).foregroundStyle(DesignSystem.muted)
+        Text("Blokları önizlemede sürükleyin (1 mm). Çakışma ve kesilemeyen düzen kırmızı uyarıdır; konumlar kendiliğinden değiştirilmez.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
     }
 }
 
@@ -72,7 +73,7 @@ struct GangSidebarView: View {
     var body: some View {
         VStack(alignment:.leading,spacing:8) {
             HStack { Text("Karışık İşler").font(.headline); Spacer(); Button("PDF ekle…",action:model.chooseGangPDFs) }.padding(10)
-            ForEach(model.gangAssets,id:\.saved.id) { asset in Text(asset.saved.reference.fileName).font(.caption).foregroundStyle(DesignSystem.muted).padding(.horizontal) }
+            ForEach(model.gangAssets,id:\.saved.id) { asset in Text(asset.saved.reference.fileName).font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1).padding(.horizontal) }
             if let layout = model.currentSheet?.gangLayout { Text(layout.summary).font(.callout).padding(.horizontal) }
             List(selection:$model.selectedGangJobID) {
                 ForEach(model.project.gang?.jobs ?? []) { job in
@@ -95,7 +96,7 @@ struct GangSidebarView: View {
                             Button("Tabaka \(r+1)") { model.repetition = r }.buttonStyle(.borderless)
                             ForEach(sheet.gangLayout?.jobs ?? [],id:\.job.id) { job in
                                 if let field = job.serialPlan.fields.first {
-                                    Text(job.job.name+": "+(job.serialPlan.range(field:field,repetition:r) ?? "Numarasız")).font(.caption).foregroundStyle(DesignSystem.muted)
+                                    Text(job.job.name+": "+(job.serialPlan.range(field:field,repetition:r) ?? "Numarasız")).font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
                                 }
                             }
                         }

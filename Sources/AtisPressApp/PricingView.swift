@@ -24,6 +24,7 @@ struct PriceNumber: View {
                 .onAppear { input = display(value) }
                 .onChange(of:input) { _,text in value = parsed(text) }
                 .onChange(of:value) { _,v in if parsed(input) != v { input = display(v) } }
+            Stepper(title,onIncrement:{ value = (value ?? 0)+1 },onDecrement:{ value = max(0,(value ?? 0)-1) }).labelsHidden().fixedSize()
         }
     }
 }
@@ -32,8 +33,8 @@ struct PriceEntryEditor: View {
     var body: some View {
         LabeledContent("Ad") { TextField("Fiyat adı",text:$entry.name) }
         if entry.kind == .paper {
-            LabeledContent("Gramaj (g/m²)") { TextField("girilmedi",value:$entry.grammage,format:.number) }
-            VStack { LabeledContent("En (mm)") { TextField("En",value:$entry.size.width,format:.number) }; LabeledContent("Boy (mm)") { TextField("Boy",value:$entry.size.height,format:.number) } }
+            LabeledContent("Gramaj (g/m²)") { OptionalDimensionInput(title:"Gramaj",value:$entry.grammage,unit:"g/m²") }
+            VStack { LabeledContent("En (mm)") { DimensionInput("En",value:$entry.size.width,range:1...3000) }; LabeledContent("Boy (mm)") { DimensionInput("Boy",value:$entry.size.height,range:1...3000) } }
             Toggle("1000 tabaka fiyatı",isOn:$entry.perThousand)
             Toggle("KDV dahil",isOn:$entry.includesVAT)
         }
@@ -42,7 +43,7 @@ struct PriceEntryEditor: View {
         if entry.kind == .offset {
             PriceNumber(title:"Kalıp başına (₺)",value:$entry.platePrice)
             PriceNumber(title:"Hazırlık / ayar (₺ / kalıp takımı)",value:$entry.setupPrice)
-            LabeledContent("Renk sayısı") { TextField("girilmedi",value:$entry.colors,format:.number) }
+            LabeledContent("Renk sayısı") { OptionalIntegerInput(title:"Renk sayısı",value:$entry.colors,unit:"") }
         }
         if entry.kind == .finishing { Picker("Birim",selection:$entry.unit) { ForEach(PriceUnit.allCases,id:\.self) { Text($0.rawValue).tag($0) } } }
     }
@@ -130,8 +131,8 @@ struct CostingView: View {
                     PriceNumber(title:"Bu işe özel KDV (%)",value:settings.vat)
                 }
                 Text("Boş bırakılan kâr/KDV kitaplıktan alınır. Kitaplık: kâr \(store.library.margin.map { "\($0)%" } ?? "girilmedi"), KDV \(store.library.vat.map { "\($0)%" } ?? "girilmedi")").font(.caption)
-                if model.project.isBooklet || model.project.isLeafBinding { LabeledContent("Yayın adedi (adet)") { TextField("girilmedi",value:settings.copies,format:.number) } }
-                LabeledContent("Ek fire (tabaka)") { TextField("0",value:settings.extraWasteSheets,format:.number) }
+                if model.project.isBooklet || model.project.isLeafBinding { LabeledContent("Yayın adedi (adet)") { OptionalIntegerInput(title:"Yayın adedi",value:settings.copies,unit:"adet") } }
+                LabeledContent("Ek fire (tabaka)") { IntegerInput(title:"Ek fire",value:settings.extraWasteSheets,unit:"tabaka") }
                 Text("Plan + fire: \(result.sheets) tabaka · Satış adedi: \(result.quantity)")
                 if model.planning { Text("Plan hesaplanıyor…").foregroundStyle(DesignSystem.warning) }
                 breakdown(result)
@@ -180,7 +181,7 @@ struct CostingView: View {
         GroupBox("Kalem / miktar / birim fiyat / tutar") {
             VStack(alignment:.leading,spacing:8) {
                 ForEach(Array(r.lines.enumerated()),id:\.offset) { _,line in
-                    HStack { Text(line.name); Spacer(); Text("\(NSDecimalNumber(decimal:line.quantity).stringValue) × \(money(line.unitPrice)) = \(money(line.amount))").monospacedDigit() }
+                    HStack { Text(line.name); Spacer(); Text("\(NSDecimalNumber(decimal:line.quantity).stringValue.replacingOccurrences(of:".",with:",")) × \(money(line.unitPrice)) = \(money(line.amount))").monospacedDigit() }
                 }
                 ForEach(r.missing,id:\.self) { Text($0).foregroundStyle(DesignSystem.error) }
                 Divider()

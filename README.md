@@ -2366,3 +2366,108 @@ Açık/koyu minimum pencere görüntüleri `.build/WorkflowQA/light.png` ve
 `dark.png` olarak üretilir. Gerçek fare/VoiceOver ile popover ve hover etkileşimi
 ayrıca elle denenmedi. Bu turda uygulama/DMG yeniden paketlenmedi; çalıştırma
 komutu güncel kaynak uygulamayı açar. Ağ kullanılmadı, push yapılmadı.
+
+## Seri taşıma, denetçi ve çıktı doğrulaması
+
+Seri/QR taşıma sorunu **Tüm yüzler** görünümünde yeniden üretildi. Önce yazılan
+`SerialDragTests.testVisibleAllSidesCanvasHitAndDragMovesSerialAtAutoFit`, ön ve
+arka yüzde konum değişmediği için iki hata verdi. Kök neden: `AllSheetsDocument`
+görünür `SheetCanvasView` nesnelerine seçme/taşıma ve undo callback'lerini
+bağlamıyordu. Plan değişikliklerinde bu nesneleri yeniden oluşturması da canlı
+sürüklemenin alıcısını yok ediyordu. Artık aynı bağlantılar iki görünümde de
+kurulur; seri düzenlemesi geometri değişimi sayılmaz ve tuval hayatta tutulur.
+Masaüstündeki eski sürümde **Tek yüz** sürüklemesi zaten çalışıyordu; bu ayrım
+korunarak iki görünümdeki yeni hareket davranışları tamamlandı.
+
+Numara veya kod tıklanınca çerçeve ve köşeler görünür. Konum, kesimin sol alt
+köşesinden mm olarak bütün kopyalara uygulanır. Sürükleme 1 mm'ye oturur;
+**⌥** serbest, **⇧** eksen kilididir. Oklar **0,5 mm**, **⇧+ok** **5 mm** taşır.
+Sürükleme boyunca X/Y alanları ve `X … · Y … mm` etiketi güncellenir. Tuval
+pan yapmaz; bir sürükleme tek undo işlemidir. Kesim dışına çıkan alan uyarılır.
+**Ortala** ve **Köşeye al** gerçek yazı/kod sınırını kullanır.
+
+Denetçi artık tek **Taşma payı** satırı, kart başına tek manuel sayaç/sıfırlama,
+katlanabilir ve hatırlanan kartlar, kısa yardım/araç ipuçları ve birimli sayı
+alanları kullanır. İlk üç kart başlangıçta açıktır. Alt genel otomatik sıfırlama
+onay ister. Eski üretim verileri ve proje şeması **18** korunur. **Çevirme**,
+kart 2'de yalnız çift yüzlü işler için görünür; kısa parçalı düğmenin altında
+seçili tam Türkçe/teknik ad bulunur. Ölçü sunumu ortak `TRFormat` ile `tr_TR`:
+listelerde en çok bir, ayrıntılarda iki ondalık, virgül ve gereksiz sıfır yoktur.
+[Ayar / bölüm / etiket / kontrol / yardım denetim tablosu](docs/UI_INSPECTOR_AUDIT.md)
+bütün editörleri kapsar; yerleştirilemeyen üretim ayarı yoktur.
+
+PDF hazırlama penceresinde tabaka/adet/ölçü/yüz/işaret/uyarı özeti bulunur.
+Çıktı sonrası **PDF hazır**, **Klasörde göster**, **Aç** ve doğrulama sonucu
+gösterilir. Yayımlanan dosyalar yeniden okunur: sayfa sayısı ve MediaBox ölçüsü,
+yönü kontrol edilir; planın her kesim yuvasındaki baskı, plandan bağımsız
+sayfalama ile yeniden çizilmiş beklenen görüntüyle karşılaştırılır. PDF yazıcı,
+planlayıcı ve kaynak çizim motoru değiştirilmedi. Çıktı notları korunur.
+
+Doğrulama görsel karşılaştırmadır: en fazla 2 piksel/mm, büyük tabakada en çok
+1500 piksel kenar; kenardaki 0,3 mm ve küçük renk/kenar yumuşatma farkları
+tolere edilir. Aynı/bomboş içeriğin görünmez yer değişimini veya bu toleransın
+altındaki farkları kanıtlayamaz; PDF nesne ağacında matematiksel konum ispatı,
+PDF/X, renk provası veya fiziksel baskı onayı değildir.
+
+**Yardım** menüsü hata açıklaması, tanı kopyası, sürüm/lisans bilgisi ve açık
+istekle güncelleme denetimi içerir. Tanı kopyası yalnız izin verilen üretim
+ayarları, uygulama/macOS sürümü ve son tanı kodlarıdır; dosya yolu, kaynak PDF,
+iş adı, seri öneki/soneki veya QR içeriği içermez. Açıklama kendiliğinden
+gönderilmez. Güncelleme sorgusu yalnız menü komutuyla GitHub'ın
+`baturayatis/atispress/releases/latest` API'sine gider; açılışta/arka planda
+sorgu yoktur. Bu turda gerçek ağ çağrısı yapılmadı; cevap ve sürüm karşılaştırması
+yerel örnek cevaplarla test edildi.
+
+Çalıştırma:
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+swift test --disable-sandbox --filter 'SerialDragTests|PresentationReviewTests|WorkflowCardTests'
+./scripts/build_app.sh
+```
+
+Testler: metin/QR seçme ve sürükleme, ön/arka, Tüm/Tek yüz, otomatik sığdırma ve
+%35/%100/%250 dahil zoom, snap/serbest/eksen kilidi, nudge, tek undo, tuvalin
+canlı kalması, serbest konumun kaydet/aç turu, kesim dışı uyarısı; normal ve
+bozulmuş PDF doğrulaması; formatter, tanıda gizlilik, sahte sürüm cevapları;
+257 ayarın erişilebilirliği ve mevcut plan/PDF snapshot eşitliği. Yüklü/boş
+açık-koyu minimum boyut görselleri `.build/WorkflowQA` içinde üretilir.
+
+Bilinen doğrulama sınırları: güncel QA uygulaması masaüstünde açılıp proje ve
+kontroller incelendi; bu ayrı QA uygulamasında bilgisayar aracının `drag`
+komutu `noWindowsAvailable` döndürdüğü için son fare sürüklemesi aynı tuvalin
+AppKit olay testleriyle doğrulandı. VoiceOver ve fiziksel trackpad ayrıca
+sınanmadı. Güncellemenin gerçek GitHub bağlantısı çevrimdışı ortamda sınanmadı.
+Universal uygulama ad-hoc imzalanır; sandbox LaunchServices kaydını engelleyebilir.
+Push yapılmaz.
+
+## Lisans — taslak
+
+© 2026 Atış Ajans. Tüm hakları saklıdır. Yayımlanan uygulama, lisans alanın
+kendi makinelerinde kişisel ve ticari kullanım için ücretsiz indirilebilir ve
+kullanılabilir. Kaynak yalnız okumak/öğrenmek içindir; bunun dışındaki kopyalama,
+değiştirme, yeniden dağıtma, alt lisanslama, satış veya barındırma yazılı izin
+ister. Gelecek sürümlerin koşulları/fiyatı değişebilir; indirilmiş sürüm kendi
+yayımlandığı koşullarda kalır. Garanti verilmez; baskıdan önce çıktıları kontrol
+etmek kullanıcıya aittir. [Tam lisans](LICENSE) **taslaktır ve uygulama satılmadan
+önce bir avukat tarafından incelenmelidir**. Uygulama paketinde de bulunur.
+
+### License — draft
+
+© 2026 Atış Ajans. All rights reserved. The released app may be downloaded and
+used free of charge on the licensee's own machines for personal and commercial
+use. Source visibility permits reading and learning only; copying beyond that
+download permission, modifying, redistributing, sublicensing, selling or hosting
+the app or source requires written permission. Future versions may have different
+terms or a price; downloaded versions retain their released terms. No warranty
+is provided; users must check outputs before printing. The [full license](LICENSE)
+is a **draft to be reviewed by a lawyer before the app is sold**.
+
+Son doğrulama: **325 XCTest, sıfır hata** (124 çekirdek, 60 PDF, 141 uygulama).
+Son tuval başlığı/odak güncellemesi ayrıca **20 hedefli testle** geçti.
+Universal `dist/AtışPress.app` güncel kaynaklarla oluşturuldu; arm64/x86_64,
+ad-hoc imza ve paket içindeki `LICENSE.txt` doğrulandı. Açık/koyu yüklü minimum
+pencere görselleri incelendi. Planlayıcı ve PDF motoru dosyalarında değişiklik
+yoktur; çalışma çevrimdışı tamamlandı, push yapılmadı.

@@ -157,6 +157,8 @@ final class Workspace: ObservableObject {
     private var bleedRevision = UUID()
     @Published private(set) var exporting = false
     @Published private(set) var exportSummary: String?
+    @Published private(set) var exportVerification:ExportVerification?
+    @Published private(set) var exportNotes:[String] = []
     @Published private(set) var exportedFiles: [URL] = []
     @Published var zoomAutomatic = true
     @Published var zoomScale:CGFloat = 1
@@ -278,10 +280,17 @@ final class Workspace: ObservableObject {
         let snapshot = plan, options = project.exportMarks
         let includeBlankBacks = project.includeBlankBacks ?? true
         let sheetInfo = project.sheetInfo ?? SheetInfoSettings(), production = project.autoLayout?.production ?? .digital
-        exporting = true; exportSummary = nil; exportedFiles = []
+        exporting = true; exportSummary = nil; exportedFiles = []; exportVerification = nil; exportNotes = []
         let worker = Task.detached(priority: .userInitiated) {
             defer { scopedParent?.stopAccessingSecurityScopedResource() }
-            do { return try PDFExporter.export(plan: snapshot,source: source,destination: destination,marks: options,jobName: source.url.lastPathComponent,sheetInfo: sheetInfo,production: production,includeBlankBacks: includeBlankBacks) }
+            do {
+                let result = try PDFExporter.export(plan:snapshot,source:source,destination:destination,marks:options,jobName:source.url.lastPathComponent,sheetInfo:sheetInfo,production:production,includeBlankBacks:includeBlankBacks)
+                let verification:ExportVerification
+                do { verification = try ExportVerification.check(files:result.files,plan:snapshot,source:source,marks:options,includeBlankBacks:includeBlankBacks) }
+                catch is CancellationError { throw CancellationError() }
+                catch { verification = ExportVerification(differences:["Çıktı doğrulanamadı; PDF yeniden okunamadı."]) }
+                return (result,verification)
+            }
             catch {
                 if let cleanupOnFailure { try? FileManager.default.removeItem(at: cleanupOnFailure) }
                 throw error
@@ -289,9 +298,11 @@ final class Workspace: ObservableObject {
         }
         exportTask = Task {
             do {
-                let result = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
+                let (result,verification) = try await withTaskCancellationHandler { try await worker.value } onCancel: { worker.cancel() }
+                exportVerification = verification; exportNotes = result.notes
                 exportedFiles = result.files
-                exportSummary = "Son çıktı hazır: \(result.sheetCount) tabaka · \(result.pageCount) sayfa · \(result.files.count) dosya" + (result.notes.isEmpty ? "" : " · "+result.notes.joined(separator: " "))
+                let sizes = Array(Set(snapshot.sheets.map { TRFormat.size($0.size.width,$0.size.height) })).sorted().joined(separator:" / ")
+                exportSummary = "PDF hazır · \(result.pageCount) sayfa · \(sizes)"
             } catch is CancellationError { exportSummary = "Dışa aktarma iptal edildi." }
             catch { self.error = error.localizedDescription }
             exporting = false
@@ -505,7 +516,7 @@ extension Workspace {
         project = Self.newProject()
         planTask?.cancel(); revision = UUID()
         plan = ImpositionPlan(); sheetIndex = 0; side = .front; repetition = 0; selectedSerialID = nil
-        planning = false; exportSummary = nil; exportedFiles = []; error = nil
+        planning = false; exportSummary = nil; exportVerification = nil; exportNotes = []; exportedFiles = []; error = nil
         restoring = false; savedState = state; isModified = false
         resetJournal()
         zoomFactor = 0; zoomAction += 1
@@ -642,7 +653,7 @@ extension Workspace {
         sheetPreset = snapshot.sheetPreset; project = snapshot.project; overlays = snapshot.overlays
         sheetIndex = snapshot.sheetIndex; side = snapshot.side
         repetition = snapshot.repetition ?? 0; selectedSerialID = nil
-        exportSummary = nil; exportedFiles = []; error = nil
+        exportSummary = nil; exportVerification = nil; exportNotes = []; exportedFiles = []; error = nil
         restoring = false
         // Refreshing a valid/stale bookmark alone is not a user edit; relinking is.
         savedState = recovery == nil ? snapshot : nil; isModified = relinked || recovery != nil
@@ -667,9 +678,9 @@ extension Workspace {
         field.id = UUID(); field.position.x += 3; field.position.y += 3
         editableSerialFields.append(field); selectedSerialID = field.id
     }
-    func moveSerialField(_ id: UUID,to position: Point) {
+    func moveSerialField(_ id: UUID,to position: Point,snap:Bool = true) {
         guard let index = editableSerialFields.firstIndex(where: { $0.id == id }) else { return }
-        editableSerialFields[index].position = Point(position.x.rounded(),position.y.rounded())
+        editableSerialFields[index].position = snap ? Point(position.x.rounded(),position.y.rounded()) : position
     }
 }
 
@@ -1157,25 +1168,28 @@ extension Workspace {
         }
         autoArrange(resetOverrides:true)
     }
-    func returnToAutomatic(_ field: AutoLayoutField) {
+    func returnToAutomatic(_ field: AutoLayoutField) { returnToAutomatic([field]) }
+    func returnToAutomatic(_ fields:[AutoLayoutField]) {
         guard !loading,!exporting,!autoArranging else { return }
         var next = project,state = project.autoLayout ?? .legacy
-        state.manualFields.remove(field); state.presetFields?.remove(field); state.automaticFields.insert(field); state.summary = nil
-        if field == .sheetSize { state.sheetSelection = .automatic }
-        if field == .gutter { next.stepAndRepeat.arrangement = .adjacent }
-        if field == .alignment { next.blockAlignment = .center }
-        if field == .columns { next.stepAndRepeat.columns = nil }
-        if field == .rows { next.stepAndRepeat.rows = nil }
-        if let selected = selectedGangJob,let i = next.gang?.jobs.firstIndex(where:{ $0.id==selected.id }) {
-            var job = selected
-            switch field {
-            case .generatedEnabled: job.generatedBleed.enabled = [job.front,job.back].compactMap { $0 }.contains { ($0.availableBleed ?? 0)<job.bleed }
-            case .generatedMethod: job.generatedBleed.method = .automatic
-            case .generatedTolerance: job.generatedBleed.tolerance = 0.02
-            case .generatedColor: job.generatedBleed.color = .cmyk(0,0,0,0)
-            default: break
+        for field in fields {
+            state.manualFields.remove(field); state.presetFields?.remove(field); state.automaticFields.insert(field); state.summary = nil
+            if field == .sheetSize { state.sheetSelection = .automatic }
+            if field == .gutter { next.stepAndRepeat.arrangement = .adjacent }
+            if field == .alignment { next.blockAlignment = .center }
+            if field == .columns { next.stepAndRepeat.columns = nil }
+            if field == .rows { next.stepAndRepeat.rows = nil }
+            if let selected = selectedGangJob,let i = next.gang?.jobs.firstIndex(where:{ $0.id==selected.id }) {
+                var job = next.gang!.jobs[i]
+                switch field {
+                case .generatedEnabled: job.generatedBleed.enabled = [job.front,job.back].compactMap { $0 }.contains { ($0.availableBleed ?? 0)<job.bleed }
+                case .generatedMethod: job.generatedBleed.method = .automatic
+                case .generatedTolerance: job.generatedBleed.tolerance = 0.02
+                case .generatedColor: job.generatedBleed.color = .cmyk(0,0,0,0)
+                default: break
+                }
+                next.gang?.jobs[i] = job
             }
-            next.gang?.jobs[i] = job
         }
         next.autoLayout = state
         applyingAutomatic = true; project = next; applyingAutomatic = false
@@ -1468,9 +1482,7 @@ extension Workspace {
 extension Workspace {
     var workflowProductSummary:String {
         guard let size = project.pages.first?.trimSize else { return "PDF seçerek başlayın" }
-        let format = NumberFormatter(); format.locale = Locale(identifier:"tr_TR"); format.maximumFractionDigits = 2
-        let width = format.string(from:NSNumber(value:size.width)) ?? "—", height = format.string(from:NSNumber(value:size.height)) ?? "—"
-        return "\(productKind.rawValue) · \(width) × \(height) mm · \(project.resolvedPageLayout == .simplex ? "tek yüz" : "çift yüz")"
+        return "\(productKind.rawValue) · \(TRFormat.size(size.width,size.height)) · \(project.resolvedPageLayout == .simplex ? "tek yüz" : "çift yüz")"
     }
     var selectedWorkflowChip:String {
         if project.autoLayout?.sheetSelection == .automatic { return "Otomatik" }
@@ -1509,7 +1521,7 @@ extension Workspace {
     }
     var workflowOrientationSummary:String {
         let size = currentSheet?.size ?? project.sheet.size
-        return "Seçili: \(size.width > size.height ? "Yatay" : "Dikey") · \(size.width.formatted(.number.precision(.fractionLength(0...1)))) × \(size.height.formatted(.number.precision(.fractionLength(0...1)))) mm"
+        return "Seçili: \(size.width > size.height ? "Yatay" : "Dikey") · \(TRFormat.size(size.width,size.height))"
     }
     var workflowWaste:WasteSettings {
         get { selectedGangJob?.waste ?? project.stepAndRepeat.waste ?? WasteSettings() }

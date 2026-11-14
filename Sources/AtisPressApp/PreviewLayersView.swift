@@ -11,7 +11,7 @@ struct PreviewLayersView:View {
             Toggle("Güvenli alan",isOn:$model.overlays.safeArea)
             Toggle("Sayfa numaraları",isOn:$model.overlays.pageNumbers)
             Toggle("Tabaka sınırı",isOn:$model.overlays.sheetBoundary)
-            Text("Yalnız önizlemeyi değiştirir.").font(.caption).foregroundStyle(DesignSystem.muted)
+            Text("Yalnız önizlemeyi değiştirir.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
         }.padding(16).frame(width:230)
     }
 }

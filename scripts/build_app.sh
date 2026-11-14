@@ -24,6 +24,7 @@ for arch in arm64 x86_64; do
 done
 xcrun lipo -info "$bundle/Contents/MacOS/AtisPressApp"
 cp packaging/Info.plist "$bundle/Contents/Info.plist"
+cp LICENSE "$bundle/Contents/Resources/LICENSE.txt"
 printf 'APPL????' > "$bundle/Contents/PkgInfo"
 
 if [[ -f packaging/AppIcon.icns ]]; then

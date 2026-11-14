@@ -18,12 +18,6 @@ private struct AutomaticResetModifier: ViewModifier {
     @State private var hovered = false
     func body(content: Content) -> some View {
         content.focused($active)
-        .overlay(alignment:.topTrailing) {
-            if hovered || active {
-                AutomaticPill(model:model,field:field)
-                    .background(.regularMaterial,in:Capsule()).offset(y:-16)
-            }
-        }
         .onHover { hovered = $0 }
         .simultaneousGesture(TapGesture().onEnded { model.ui.focusedArea = WorkflowPresentation.focus(field) })
         .onChange(of:active) { _,focused in if focused { model.ui.focusedArea = WorkflowPresentation.focus(field) } }

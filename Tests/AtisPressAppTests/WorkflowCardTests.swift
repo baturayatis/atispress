@@ -45,7 +45,7 @@ final class WorkflowCardTests:XCTestCase {
             XCTAssertFalse(code.contains("TabView(")); XCTAssertFalse(code.contains("tabItem"))
             XCTAssertFalse(code.contains("TextField(\"Ayar ara\"")); XCTAssertFalse(code.contains("ui.mode"))
         }
-        XCTAssertEqual(WorkflowPresentation.sheetChips,["Otomatik","A4","A3","SRA3","33×48","35×50","50×70","70×100","Özel ölçü…"])
+        XCTAssertEqual(WorkflowPresentation.sheetChips,["Otomatik","A5","A4","A3","SRA3","33×48","35×50","50×70","70×100","Özel ölçü…"])
         XCTAssertTrue(inspector.contains("Text(\"Adet\")")); XCTAssertTrue(inspector.contains("Text(\"adet\")")); XCTAssertTrue(inspector.contains("örn. 1000"))
         XCTAssertTrue(workspace.contains("PDF’i Hazırla")); XCTAssertTrue(app.contains("keyboardShortcut(\"e\")"))
     }

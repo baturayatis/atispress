@@ -49,12 +49,14 @@ final class UsabilitySettings: ObservableObject {
     @Published var search = ""
     @Published var searchFocusRequest = 0
     @Published var detailsExpanded = false { didSet { defaults.set(detailsExpanded,forKey:"atispress.workflow.details") } }
+    @Published var collapsedCards:Set<String> = [] { didSet { defaults.set(Array(collapsedCards),forKey:"atispress.workflow.collapsedCards") } }
     @Published var focusedArea:WorkflowFocus?
     @Published var expandedAddons:Set<WorkflowAddon> = [] { didSet { defaults.set(expandedAddons.map(\.rawValue),forKey:"atispress.workflow.addons") } }
     @Published var revealedSection: InspectorSection?
     @Published private var collapsed: Set<String> { didSet { defaults.set(Array(collapsed),forKey:"atispress.ui.collapsed") } }
     init(defaults:UserDefaults = .standard) {
         self.defaults = defaults
+        collapsedCards = Set(defaults.stringArray(forKey:"atispress.workflow.collapsedCards") ?? [])
         detailsExpanded = defaults.bool(forKey:"atispress.workflow.details")
         expandedAddons = Set((defaults.stringArray(forKey:"atispress.workflow.addons") ?? []).compactMap(WorkflowAddon.init(rawValue:)))
         mode = defaults.string(forKey:"atispress.ui.mode").flatMap(InspectorMode.init(rawValue:)) ?? .simple
@@ -156,8 +158,8 @@ private struct SettingRowModifier: ViewModifier {
     func body(content:Content) -> some View {
         VStack(alignment:.leading,spacing:DesignSystem.Space.xs) {
             content
-            Text(detail.components(separatedBy:". ").first ?? detail).font(.caption).foregroundStyle(DesignSystem.muted).fixedSize(horizontal:false,vertical:true)
-        }
+            // Detailed explanations are available on demand; obvious controls stay compact.
+        }.help(SettingGuidance.concise(title,detail:detail))
     }
 }
 extension View {
@@ -194,8 +196,8 @@ private struct SettingHintModifier: ViewModifier {
     func body(content:Content) -> some View {
         VStack(alignment:.leading,spacing:DesignSystem.Space.xs) {
             content
-            Text(detail.components(separatedBy:". ").first ?? detail).font(.caption).foregroundStyle(DesignSystem.muted).fixedSize(horizontal:false,vertical:true)
-        }
+            // Detailed explanations are available on demand; obvious controls stay compact.
+        }.help(SettingGuidance.concise(title,detail:detail))
     }
 }
 extension View {
@@ -234,4 +236,18 @@ private struct InspectorFilterModifier: ViewModifier {
 }
 extension View {
     func inspectorFilter(_ model:Workspace,_ keywords:String) -> some View { modifier(InspectorFilterModifier(model:model,keywords:keywords)) }
+}
+
+extension SettingGuidance {
+    static func concise(_ title:String,detail:String) -> String {
+        switch title {
+        case "Taşma", "Taşma payı": return "Kesimin dışında bırakılan baskı payı."
+        case "Kesim uzunluğu": return "Kesim işaretinin uzunluğu."
+        case "Kesim uzaklığı": return "İşaretin kesim çizgisine uzaklığı."
+        case "Güvenli alan": return "Yazı ve logolar için kesimin içindeki güvenli mesafe."
+        case "Maşa payı": return "Makinenin tuttuğu kenarda ayrılan boşluk."
+        case "Fire": return "Ek üretim payı."
+        default: return detail.components(separatedBy:". ").first ?? detail
+        }
+    }
 }

@@ -5,23 +5,17 @@ struct ColorControlSizeView: View {
     @ObservedObject var model: Workspace
     var body: some View {
         VStack(alignment: .leading,spacing: 6) {
-            HStack {
-                Text(model.autoLabel("Diz boyutu (mm)",.exportTargetSize))
-                TextField("Diz boyutu (mm)",value: model.autoBinding($model.project.exportMarks.targetSize,.exportTargetSize),format: .number)
-                    .textFieldStyle(.roundedBorder).frame(width: 60)
-            }.automaticReset(model,.exportTargetSize)
-            HStack {
-                Text(model.autoLabel("Yama boyutu (mm, kare)",.exportPatchSize))
-                TextField("Yama boyutu",value: model.autoBinding($model.project.exportMarks.patchSize,.exportPatchSize),format: .number)
-                    .textFieldStyle(.roundedBorder).frame(width: 60)
-            }.automaticReset(model,.exportPatchSize)
-            Picker(model.autoLabel("Skala konumu",.exportBarSide),selection: model.autoBinding($model.project.exportMarks.barSide,.exportBarSide)) {
+            if model.project.exportMarks.registrationTargets || model.overlays.registrationTargets {
+                HStack { Text("Diz boyutu").frame(maxWidth:.infinity,alignment:.leading); DimensionInput("Diz boyutu",value:model.autoBinding($model.project.exportMarks.targetSize,.exportTargetSize),range:0...100) }
+            }
+            if model.project.exportMarks.colorBar || model.overlays.colorBar {
+                HStack { Text("Renk yaması").frame(maxWidth:.infinity,alignment:.leading); DimensionInput("Renk yaması",value:model.autoBinding($model.project.exportMarks.patchSize,.exportPatchSize),range:0...100) }
+            Picker("Skala konumu",selection: model.autoBinding($model.project.exportMarks.barSide,.exportBarSide)) {
                 Text("Maşa tarafı").tag(ColorControlSettings.BarSide.gripper)
                 Text("Maşanın karşısı").tag(ColorControlSettings.BarSide.opposite)
-            }.automaticReset(model,.exportBarSide)
-            Text("12 CMYK yama · CMY gri: %50 / %40 / %40").font(.caption).foregroundStyle(DesignSystem.muted)
-            Text("Ölçüler önizleme ve çıktı için ortaktır; görünürlük anahtarları bağımsızdır. Dizler registration, yamalar CMYK basılır.")
-                .font(.caption).foregroundStyle(DesignSystem.muted)
+            }.pickerStyle(.segmented).automaticReset(model,.exportBarSide)
+            }
+            Text("Diz: kalıpları hizalar · Skala: baskı rengini kontrol eder.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
         }
     }
 }

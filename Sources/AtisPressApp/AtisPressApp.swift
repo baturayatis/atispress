@@ -130,14 +130,18 @@ struct AtisPressApp: App {
                     .keyboardShortcut("e",modifiers: [.command,.shift]).disabled(!workspace.canExportNow)
                 Button("Her Tabaka İçin PDF…") { workspace.chooseExport(perSheet: true) }.disabled(!workspace.canExportNow)
             }
+            CommandGroup(replacing:.help) {
+                Button("Hata bildir…") { openWindow(id:"report") }
+                Button("AtışPress Hakkında") { openWindow(id:"about") }
+                Button("Güncellemeleri denetle…") { UpdateChecker.shared.check(); openWindow(id:"updates") }
+            }
             CommandGroup(replacing: .appInfo) {
-                Button("AtışPress Hakkında") {
-                    NSApplication.shared.orderFrontStandardAboutPanel(options: [
-                        .applicationName: "AtışPress", .applicationVersion: "PDF dışa aktarma — Adım 4"
-                    ])
-                }
+                Button("AtışPress Hakkında") { openWindow(id:"about") }
             }
         }
+        Window("Hata bildir…",id:"report") { HelpPanel(model:workspace,mode:"Hata bildir…") }
+        Window("AtışPress Hakkında",id:"about") { HelpPanel(model:workspace,mode:"AtışPress Hakkında") }
+        Window("Güncellemeleri denetle…",id:"updates") { HelpPanel(model:workspace,mode:"Güncellemeleri denetle…") }
         Window("Fiyatlar",id:"prices") { PricingView(store:prices) }
         Window("İş maliyeti",id:"costing") { CostingView(model:workspace,store:prices) }
     }

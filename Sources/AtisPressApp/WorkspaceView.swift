@@ -22,7 +22,7 @@ struct WorkspaceView: View {
         .onDrop(of: [.fileURL],isTargeted: $dropTarget,perform: model.acceptDrop)
         .alert("İşlem tamamlanamadı",isPresented: Binding(get: { model.error != nil },set: { if !$0 { model.error = nil } })) {
             Button("Tamam") { model.error = nil }
-        } message: { Text(model.error ?? "") }
+        } message: { Text(TRFormat.presentation(model.error ?? "")) }
         .sheet(isPresented:$model.preparingExport) { ExportPreparationView(model:model) }
         .sheet(item:$model.rescalePrompt) { RescalePromptView(model:model,prompt:$0) }
         .toolbar {
@@ -65,7 +65,7 @@ struct WorkspaceView: View {
                     }
                 }.listStyle(.sidebar)
                 Button { pageHelp.toggle() } label: { Image(systemName:"questionmark.circle") }.buttonStyle(.borderless).accessibilityLabel("Sayfa seçimi yardımı").popover(isPresented:$pageHelp) { Text("Baskıya dahil et · ⌘ ile çoklu seç · sürükleyerek veya ↑↓ ile sırala").padding().frame(width:260) }
-                    .font(.caption).foregroundStyle(DesignSystem.muted).padding(8)
+                    .font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1).padding(8)
             }.frame(minHeight: 250)
             VStack(spacing: 0) {
                 HStack { Text("Tabakalar").font(.headline); Spacer(); Text("\(model.displaySheets.count)") }.padding(12)
@@ -76,20 +76,20 @@ struct WorkspaceView: View {
                         VStack(alignment: .leading,spacing: 4) {
                             if let layout = sheet.repeatLayout {
                                 Text("Tabaka \(index+1) · \(layout.copiesPerSheet) adet").fontWeight(.semibold)
-                                Text("\(sheet.hasContent(on:.back) ? "ön ve arka" : "tek yüz") · \(layout.columns)×\(layout.rows)").font(.caption).foregroundStyle(DesignSystem.muted)
+                                Text("\(sheet.hasContent(on:.back) ? "ön ve arka" : "tek yüz") · \(layout.columns)×\(layout.rows)").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
                             } else {
                                 Text("\(sheet.leafInfo == nil ? (sheet.bookInfo?.label ?? "Tabaka") : (sheet.leafInfo!.cover ? "Kapak" : "Yaprak tabakası")) \(index+1)").fontWeight(.medium)
-                                if let leaf = sheet.leafInfo { Text(leaf.summary).font(.caption).foregroundStyle(DesignSystem.muted) }
+                                if let leaf = sheet.leafInfo { Text(TRFormat.presentation(leaf.summary)).font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1) }
                                 else {
-                                    Text("\(sheet.size.width,specifier: "%.0f") × \(sheet.size.height,specifier: "%.0f") mm · \(sheet.bookInfo?.section == .cover ? "Kapak" : "Forma "+signatures)")
-                                        .font(.caption).foregroundStyle(DesignSystem.muted)
+                                    Text("\(TRFormat.dimension(sheet.size.width)) × \(TRFormat.dimension(sheet.size.height)) mm · \(sheet.bookInfo?.section == .cover ? "Kapak" : "Forma "+signatures)")
+                                        .font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
                                 }
                             }
                             if !sheet.blankPositions.isEmpty { Text("Boş konumlar: "+sheet.blankPositions.map(String.init).joined(separator:", ")).font(.caption).foregroundStyle(DesignSystem.warning) }
                             if let serials = sheet.serialPlan {
                                 ForEach(serials.fields) { field in
                                     Text("Seri: \(serials.range(field: field,repetition: index == model.sheetIndex ? model.repetition : 0) ?? "—")")
-                                        .font(.caption).foregroundStyle(DesignSystem.muted)
+                                        .font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
                                 }
                             }
                         }.tag(index).padding(.vertical,DesignSystem.Space.xs)
@@ -124,11 +124,11 @@ struct WorkspaceView: View {
         let settings = model.plan.generatedBleed
         guard settings.enabled else { return nil }
         switch settings.method {
-        case .automatic: return String(format: "Taşma: Otomatik · tolerans %.1f%%",settings.tolerance*100)
+        case .automatic: return "Taşma: Otomatik · tolerans \(TRFormat.dimension(settings.tolerance*100))%"
         case .mirror: return "Taşma: Yansıt"
         case .solidColor:
             let space = settings.color.components.count == 4 ? "CMYK" : "RGB"
-            return "Taşma: Renk · "+space+" "+settings.color.components.map { String(format: "%.0f",$0*100) }.joined(separator: "/")
+            return "Taşma: Renk · "+space+" "+settings.color.components.map { TRFormat.dimension($0*100) }.joined(separator: "/")
         }
     }
     private var center: some View {
@@ -166,7 +166,7 @@ struct WorkspaceView: View {
                 PreviewCanvas(sheet: sheet,side: side,sheetIndex: model.sheetIndex,sideKind: model.side,source: model.source,overlays: model.overlays,generatedBleed: model.plan.generatedBleed,
                               highlighted: model.highlightedSlots,zoomAction: model.zoomAction,zoomFactor:model.zoomFactor,zoomModel:model,focusArea:model.ui.focusedArea,moveSheet:model.movePreviewSheet,
                               repetition: model.repetition,selectedSerial: model.selectedSerialID,
-                              selectSerial: model.selectSerial,moveSerial: { model.moveSerialField($0,to: $1) },controlMarks: model.project.exportMarks,moveGangBlock: { model.moveGangBlock($0,to:$1) },beginEdit:model.beginUndoGroup,endEdit:model.endUndoGroup)
+                              selectSerial: model.selectSerial,moveSerial: { model.moveSerialField($0,to: $1,snap:false) },controlMarks: model.project.exportMarks,moveGangBlock: { model.moveGangBlock($0,to:$1) },beginEdit:model.beginUndoGroup,endEdit:model.endUndoGroup)
             } else if model.source == nil {
                 HomeEmptyStateView(model: model)
             } else {
@@ -178,8 +178,15 @@ struct WorkspaceView: View {
                 HStack {
                     Text(summary).font(.caption)
                     Spacer()
-                    if !model.exportedFiles.isEmpty { Button("Finder’da Göster",action: model.revealExport).font(.caption) }
+                    if !model.exportedFiles.isEmpty {
+                        Button("Klasörde göster",action:model.revealExport).font(.caption)
+                        Button("Aç") { if let url = model.exportedFiles.first { NSWorkspace.shared.open(url) } }.font(.caption)
+                    }
                 }.padding(8)
+            }
+            ForEach(model.exportNotes,id:\.self) { Text(TRFormat.presentation($0)).font(.caption).foregroundStyle(DesignSystem.muted).padding(.horizontal,8) }
+            if let verification = model.exportVerification {
+                Text(verification.label).font(.caption).foregroundStyle(verification.passed ? DesignSystem.success : DesignSystem.error).padding(.horizontal,8)
             }
             Divider()
             HStack(spacing:DesignSystem.Space.md) {
@@ -189,7 +196,7 @@ struct WorkspaceView: View {
                         .background(DesignSystem.successSurface,in:RoundedRectangle(cornerRadius:DesignSystem.Radius.control))
                 } else {
                     Menu {
-                        ForEach(Array(model.workflowIssues.enumerated()),id:\.offset) { _,issue in Button(issue.message) { model.revealWorkflowIssue(issue) } }
+                        ForEach(Array(model.workflowIssues.enumerated()),id:\.offset) { _,issue in Button(TRFormat.presentation(issue.message)) { model.revealWorkflowIssue(issue) } }
                     } label: {
                         let errors = model.workflowIssues.filter { $0.severity == .error }.count
                         let warnings = model.workflowIssues.filter { $0.severity == .warning }.count
@@ -197,10 +204,10 @@ struct WorkspaceView: View {
                     }.menuStyle(.borderlessButton).fixedSize().padding(DesignSystem.Space.sm)
                         .foregroundStyle(DesignSystem.warning).background(DesignSystem.warningSurface,in:RoundedRectangle(cornerRadius:DesignSystem.Radius.control))
                     if let first = model.workflowIssues.first {
-                        Button(first.message) { model.revealWorkflowIssue(first) }.buttonStyle(.plain).font(.caption).lineLimit(2).accessibilityLabel("Ayarı göster: "+first.message)
+                        Button(TRFormat.presentation(first.message)) { model.revealWorkflowIssue(first) }.buttonStyle(.plain).font(.caption).lineLimit(2).accessibilityLabel("Ayarı göster: "+TRFormat.presentation(first.message))
                     }
                 }
-                if let summary = model.currentSheet?.productionSummary { Text(summary).font(.caption).foregroundStyle(DesignSystem.muted) }
+                if let summary = model.currentSheet?.productionSummary { Text(summary).font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1) }
                 Spacer(minLength:0)
             }.font(.callout).padding(DesignSystem.Space.md)
 
@@ -216,18 +223,18 @@ private struct PageRow: View {
     @State private var thumbnail: NSImage?
     var body: some View {
         HStack(spacing: 9) {
-            Toggle("Sayfa \(number) · \(role) · baskıya dahil",isOn:$included).labelsHidden().toggleStyle(.checkbox)
+            Toggle("Sayfa \(number) · \(role) · baskıya dahil",isOn:$included).labelsHidden().toggleStyle(.switch)
             ZStack {
                 RoundedRectangle(cornerRadius: 3).fill(DesignSystem.paper)
                 if let thumbnail { Image(nsImage: thumbnail).resizable().scaledToFit() }
                 else { Image(systemName: "doc").foregroundStyle(DesignSystem.muted) }
             }.frame(width: 44,height: 62).clipped()
             VStack(alignment: .leading,spacing: 4) {
-                HStack { Text("Sayfa \(number)").fontWeight(.medium); Text(role).font(.caption).foregroundStyle(DesignSystem.muted) }
+                HStack { Text("Sayfa \(number)").fontWeight(.medium); Text(role).font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1) }
                 let info = source.pages[number-1]
-                Text("\(info.trimSize.width,specifier: "%.1f") × \(info.trimSize.height,specifier: "%.1f") mm").font(.caption2)
+                Text("\(TRFormat.dimension(info.trimSize.width)) × \(TRFormat.dimension(info.trimSize.height)) mm").font(.caption2)
                 if info.availableBleed == 0 { Image(systemName:"drop.slash").font(.caption2).foregroundStyle(DesignSystem.muted).help("Taşma yok") }
-                else { Text(info.availableBleed.map { String(format: "Taşma %.1f mm",$0) } ?? "Taşma bilinmiyor")
+                else { Text(info.availableBleed.map { "Taşma payı \(TRFormat.dimension($0)) mm" } ?? "Taşma bilinmiyor")
                     .font(.caption2).foregroundStyle(DesignSystem.muted) }
             }
         }.opacity(included ? 1 : 0.45)

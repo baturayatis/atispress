@@ -15,14 +15,14 @@ struct RescaleEditor: View {
             }.settingHint("Hedef ebat",SettingGuidance.detail("Hedef ebat"))
             if target.wrappedValue == -1 {
                 VStack(alignment:.leading) {
-                    LabeledContent("En (mm)") { TextField("En",value:$settings.target.width,format:.number) }
-                    LabeledContent("Boy (mm)") { TextField("Boy",value:$settings.target.height,format:.number) }
+                    LabeledContent("En (mm)") { DimensionInput("En",value:$settings.target.width,range:1...3000) }
+                    LabeledContent("Boy (mm)") { DimensionInput("Boy",value:$settings.target.height,range:1...3000) }
                 }.textFieldStyle(.roundedBorder)
             }
-            Picker("Mod",selection:$settings.mode) { ForEach(RescaleMode.allCases,id:\.self) { Text($0.title).tag($0) } }.settingHint("Mod","Sığdır küçük oranla içeriği korur; Doldur büyük oranla hedefi doldurup kırpar; Esnet iki ekseni ayrı ölçekler. Örnek: 100×60 → 90×50 için Doldur %90’dır.")
+            Picker("Mod",selection:$settings.mode) { ForEach(RescaleMode.allCases,id:\.self) { Text($0.title).tag($0) } }.pickerStyle(.segmented).settingHint("Mod","Sığdır küçük oranla içeriği korur; Doldur büyük oranla hedefi doldurup kırpar; Esnet iki ekseni ayrı ölçekler. Örnek: 100×60 → 90×50 için Doldur %90’dır.")
             if settings.isValid {
                 let scale = ArtworkRescale(source:sourceSize,settings:settings)
-                if showSummary { Text(scale.summary).font(.caption) }
+                if showSummary { Text(TRFormat.presentation(scale.summary)).font(.caption) }
                 if scale.aspectWarning { Text("En/boy oranı %2’den fazla değişiyor.").font(.caption).foregroundStyle(DesignSystem.warning) }
             } else { Text("Geçerli bir hedef ebat girin.").foregroundStyle(DesignSystem.error) }
         }
@@ -42,7 +42,7 @@ struct ScalingRow: Identifiable {
         let numbers = indices.map { String($0+1) }.joined(separator:", ")
         let label = indices.count > 1 && indices.last! - indices[0] == indices.count-1 ? "\(indices[0]+1)-\(indices.last!+1)" : numbers
         let target = settings?.target ?? defaultTarget
-        func dimension(_ s:Size) -> String { String(format:"%g×%g",s.width,s.height) }
+        func dimension(_ s:Size) -> String { "\(TRFormat.dimension(s.width))×\(TRFormat.dimension(s.height))" }
         return "İş \(label): \(dimension(size))" + (abs(size.width-target.width)<0.1 && abs(size.height-target.height)<0.1 ? " · ebat uygun" : " → \(dimension(target))")
     }
 }
@@ -102,7 +102,7 @@ struct RescaleInspectorView: View {
             VStack(alignment:.leading,spacing:8) {
                 Toggle("Hedef ebada ölçeklendir",isOn:Binding(get:{ model.project.scaling?.enabled ?? false },set:{ enabled in model.updateScaling { $0.enabled = enabled } })).settingHint("Hedef ebada ölçeklendir",SettingGuidance.detail("Hedef ebada ölçeklendir"))
                 RescaleEditor(settings:Binding(get:{ model.project.scaling?.defaults ?? RescaleSettings() },set:{ settings in model.updateScaling { $0.defaults = settings } }),sourceSize:model.scalingRows.first?.size ?? Size(90,50),showSummary:false)
-                Text(model.scalingSummary).font(.caption).foregroundStyle(DesignSystem.muted)
+                Text(model.scalingSummary).font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
                 DisclosureGroup("İşlere göre ayarla (\(model.scalingRows.count))",isExpanded:$expanded) {
                     let groups = model.groupedScalingRows
                     ForEach(Array((showAll ? groups : Array(groups.prefix(3))))) { group in
@@ -159,7 +159,7 @@ struct RescalePromptView: View {
     init(model:Workspace,prompt:RescalePrompt) { self.model = model; self.prompt = prompt; _settings = State(initialValue:prompt.settings) }
     var body: some View {
         VStack(alignment:.leading,spacing:16) {
-            Text("Ürün ebadı \(prompt.size.width,specifier:"%.1f") × \(prompt.size.height,specifier:"%.1f"). Hedef ebada ölçeklensin mi?").font(.headline)
+            Text("Ürün ebadı \(TRFormat.dimension(prompt.size.width)) × \(TRFormat.dimension(prompt.size.height)). Hedef ebada ölçeklensin mi?").font(.headline)
             RescaleEditor(settings:$settings,sourceSize:prompt.size)
             HStack {
                 Button("Özgün ebadı koru") { model.finishScalePrompt(prompt,settings:nil) }

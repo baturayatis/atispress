@@ -9,25 +9,28 @@ struct FireControlsView: View {
     var body: some View {
         VStack(alignment: .leading,spacing: 6) {
             HStack {
-                Text("Fire")
+                Text("Fire").help("Ek üretim payı")
                 Picker("Fire türü",selection: waste.mode) {
                     Text("Yüzde (%)").tag(WasteSettings.Mode.percent)
                     Text("Sabit adet").tag(WasteSettings.Mode.fixed)
                 }.labelsHidden().inspectorSetting(model,"Fire türü",SettingGuidance.detail("Fire türü"))
+            }
+            HStack {
+                Text("Ek üretim payı").frame(maxWidth:.infinity,alignment:.leading)
                 if waste.wrappedValue.mode == .percent {
-                    TextField("Fire (%)",value: waste.percent,format: .number).frame(width: 65).textFieldStyle(.roundedBorder)
+                    DimensionInput("Fire",value:waste.percent,unit:"%",range:0...100)
                 } else {
-                    TextField("Fire adedi",value: waste.fixed,format: .number).frame(width: 65).textFieldStyle(.roundedBorder)
+                    IntegerInput(title:"Fire",value:waste.fixed)
                 }
             }
             Picker("Fire kopyalar",selection: waste.numberCopies) {
                 Text("Numarasız").tag(false); Text("Numaralı").tag(true)
-            }.inspectorSetting(model,"Fire kopyalar",SettingGuidance.detail("Fire kopyalar"))
+            }.pickerStyle(.segmented).inspectorSetting(model,"Fire kopyalar",SettingGuidance.detail("Fire kopyalar"))
             if waste.wrappedValue.numberCopies {
-                Text("Seri aralığı fireyi içerir. Bitiş no, müşteri adedini belirler.").font(.caption).foregroundStyle(DesignSystem.muted)
+                Text("Seri aralığı fireyi içerir. Bitiş no, müşteri adedini belirler.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
             }
             if let sheet = model.currentSheet,let summary = sheet.productionSummary { Text(summary).font(.caption).textSelection(.enabled) }
-            else { Text("Fire, Adet üzerine eklenir; yüzde yukarı yuvarlanır.").font(.caption).foregroundStyle(DesignSystem.muted) }
+            else { Text("Fire, Adet üzerine eklenir; yüzde yukarı yuvarlanır.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1) }
         }
     }
 }

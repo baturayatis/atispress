@@ -27,7 +27,7 @@ struct SheetInfoInspectorView:View {
                         Text(PDFSheetInfo.noRoomWarning).font(.caption).foregroundStyle(DesignSystem.warning)
                     }
                 }
-            
+
             }
         }
     }

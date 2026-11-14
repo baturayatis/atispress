@@ -6,6 +6,7 @@ struct ExportPreparationView: View {
     var body: some View {
         VStack(alignment:.leading,spacing:16) {
             Text("PDF’i Hazırla").font(.title2.bold())
+            Text(model.exportPreparationSummary).font(.callout).padding(12).frame(maxWidth:.infinity,alignment:.leading).background(DesignSystem.workspace,in:RoundedRectangle(cornerRadius:8))
             Text("Hazır seçimler yalnız çıktı işaretlerini değiştirir. Açılışta mevcut tercihleriniz korunur.").foregroundStyle(DesignSystem.muted)
             HStack {
                 ForEach(ExportPreset.allCases,id:\.self) { preset in
@@ -26,5 +27,14 @@ struct ExportPreparationView: View {
     private func proceed(perSheet:Bool) {
         model.preparingExport = false
         DispatchQueue.main.async { model.chooseExport(perSheet:perSheet) }
+    }
+}
+
+extension Workspace {
+    var exportPreparationSummary:String {
+        let sizes = Array(Set(plan.sheets.map { TRFormat.size($0.size.width,$0.size.height) })).sorted().joined(separator:" / ")
+        let m = project.exportMarks
+        let marks = [(m.crop,"kesim"),(m.fold,"katlama"),(m.bleed,"taşma"),(m.safeArea,"güvenli alan"),(m.pageNumbers,"sayfa no"),(m.sheetInfo,"bilgi şeridi"),(m.fullCut,"tam kesim"),(m.colorBar,"renk skalası"),(m.registrationTargets,"diz")].filter(\.0).map(\.1).joined(separator:", ")
+        return "\(plan.totalPressSheets) tabaka · \(sizes) · \(plan.hasBackContent ? "ön ve arka" : "yalnız ön") · İşaretler: \(marks.isEmpty ? "yok" : marks) · \(workflowIssues.filter { $0.severity == .warning }.count) uyarı"
     }
 }

@@ -25,8 +25,8 @@ struct PresetInspectorView: View {
                     Button("Paket dışa aktar…",action:model.choosePresetExport)
                 }.font(.caption)
                 if let name = model.project.autoLayout?.presetName {
-                    Text("Hazır ayar kaynağı: "+name+". PDF, sayfa seçimi, adet/fire ve seri alanları korunur.").font(.caption).foregroundStyle(DesignSystem.muted)
-                } else { Text("PDF, sayfa seçimi, adet/fire ve seri alanları hazır ayara kaydedilmez.").font(.caption).foregroundStyle(DesignSystem.muted) }
+                    Text("Hazır ayar kaynağı: "+name+". PDF, sayfa seçimi, adet/fire ve seri alanları korunur.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                } else { Text("PDF, sayfa seçimi, adet/fire ve seri alanları hazır ayara kaydedilmez.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1) }
             }.padding(5)
         }.disabled(model.loading || model.exporting || model.autoArranging)
     }

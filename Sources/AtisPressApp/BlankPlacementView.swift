@@ -10,10 +10,10 @@ struct BlankPlacementInspector: View {
                     Text("Sona").tag(BlankPlacement.Mode.end)
                     Text("Başa").tag(BlankPlacement.Mode.start)
                     Text("Elle seç").tag(BlankPlacement.Mode.manual)
-                }.inspectorSetting(model,"Boş sayfalar nereye",SettingGuidance.detail("Boş sayfalar nereye"))
+                }.pickerStyle(.segmented).inspectorSetting(model,"Boş sayfalar nereye",SettingGuidance.detail("Boş sayfalar nereye"))
                 Text(model.plan.paginationSummary).font(.caption).textSelection(.enabled)
                 if model.blankSettings.mode == .manual {
-                    Text("Soldaki iç okuma sırasında boş konumları işaretleyin. Konum, kapaklar ayrıldıktan sonraki kitap sırasıdır; PDF sayfa numarası değildir.").font(.caption).foregroundStyle(DesignSystem.muted)
+                    Text("Soldaki iç okuma sırasında boş konumları işaretleyin. Konum, kapaklar ayrıldıktan sonraki kitap sırasıdır; PDF sayfa numarası değildir.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
                     Button("Seçimi temizle") { model.blankSettings.positions = [] }
                 }
                 if model.project.blankPagePolicy == .reject && model.plan.addedBlankPages>0 {
@@ -35,7 +35,7 @@ struct BlankPageOrderView: View {
                         let position = i+1,selected = model.blankSettings.positions.contains(position)
                         Toggle(isOn:Binding(get:{ model.blankSettings.positions.contains(position) },set:{ model.setBlankPosition(position,selected:$0) })) {
                             Text("\(position). "+(page.map { "PDF "+model.coverPageLabel($0) } ?? (selected ? "Boş" : "Boş (geçici)"))).font(.caption)
-                        }.toggleStyle(.checkbox)
+                        }.toggleStyle(.switch)
                             .disabled(!selected && model.blankSettings.positions.count>=model.plan.addedBlankPages)
                     }
                 }.padding(4)
