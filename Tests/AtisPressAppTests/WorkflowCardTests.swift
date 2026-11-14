@@ -49,6 +49,27 @@ final class WorkflowCardTests:XCTestCase {
         XCTAssertTrue(inspector.contains("Text(\"Adet\")")); XCTAssertTrue(inspector.contains("Text(\"adet\")")); XCTAssertTrue(inspector.contains("örn. 1000"))
         XCTAssertTrue(workspace.contains("PDF’i Hazırla")); XCTAssertTrue(app.contains("keyboardShortcut(\"e\")"))
     }
+    func testRecommendationHiddenWhenValidSelectionIsEqualOrBetter() {
+        XCTAssertFalse(WorkflowPresentation.shouldRecommend(selectedValid:true,selectedCopies:25,recommendedCopies:21))
+        XCTAssertFalse(WorkflowPresentation.shouldRecommend(selectedValid:true,selectedCopies:21,recommendedCopies:21))
+        XCTAssertTrue(WorkflowPresentation.shouldRecommend(selectedValid:true,selectedCopies:20,recommendedCopies:21))
+        XCTAssertTrue(WorkflowPresentation.shouldRecommend(selectedValid:false,selectedCopies:25,recommendedCopies:21))
+    }
+    func testSharedCutInfoDoesNotCountAsWarningAndRealProblemsRemain() {
+        let info = ValidationIssue(.warning,.sharedCutBleed,"Ortak kesim")
+        let warning = ValidationIssue(.warning,.missingBleed,"Eksik taşma")
+        let error = ValidationIssue(.error,.exceedsSheet,"Sığmıyor")
+        XCTAssertEqual(WorkflowPresentation.actionableIssues([info,warning,error]),[warning,error])
+        XCTAssertEqual(WorkflowPresentation.actionableIssues([info]),[])
+    }
+    func testLayersPopoverContainsEveryOverlayAndManualFieldsAreGroupedOnce() throws {
+        let code = try source("PreviewLayersView")
+        for name in WorkflowPresentation.overlayNames { XCTAssertTrue(code.contains("Toggle(\""+name+"\"")) }
+        XCTAssertTrue(try source("WorkspaceView").contains("PreviewLayersView(model:model)"))
+        let titles = ["Ne basıyoruz?","Hangi kâğıda basılacak?","Kesim ve taşma","Eklemek istersen","Ayrıntılar"]
+        let fields = titles.flatMap(WorkflowPresentation.cardFields)
+        XCTAssertEqual(Set(fields),Set(AutoLayoutField.allCases)); XCTAssertEqual(fields.count,Set(fields).count)
+    }
     func testBindingCardOnlyForBookCatalogAndLeafProducts() {
         for product in ProductKind.allCases { XCTAssertEqual(WorkflowPresentation.showsBindingCard(product),[ProductKind.book,.catalog,.spiral,.wireO].contains(product)) }
         var project = Workspace.newProject(); project.pages = [SourcePage(number:1,trimSize:Size(86.7,54))]
@@ -131,6 +152,8 @@ final class WorkflowCardTests:XCTestCase {
         }
         let pixels = try render(before,"before")
         model.ui.expandedAddons = Set(WorkflowAddon.allCases); model.ui.detailsExpanded = true; model.ui.focusedArea = .bleed
+        model.overlays.crop.toggle(); model.overlays.fold.toggle(); model.overlays.bleed.toggle()
+        model.overlays.safeArea.toggle(); model.overlays.pageNumbers.toggle(); model.overlays.sheetBoundary.toggle()
         model.refreshWorkflowRecommendation()
         try await Task.sleep(for:.milliseconds(240))
         XCTAssertEqual(model.project,beforeProject)

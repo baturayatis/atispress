@@ -15,11 +15,16 @@ private struct AutomaticResetModifier: ViewModifier {
     @ObservedObject var model: Workspace
     let field: AutoLayoutField
     @FocusState private var active:Bool
+    @State private var hovered = false
     func body(content: Content) -> some View {
-        VStack(alignment:.leading,spacing:DesignSystem.Space.xs) {
-            content.focused($active)
-            AutomaticPill(model:model,field:field)
+        content.focused($active)
+        .overlay(alignment:.topTrailing) {
+            if hovered || active {
+                AutomaticPill(model:model,field:field)
+                    .background(.regularMaterial,in:Capsule()).offset(y:-16)
+            }
         }
+        .onHover { hovered = $0 }
         .simultaneousGesture(TapGesture().onEnded { model.ui.focusedArea = WorkflowPresentation.focus(field) })
         .onChange(of:active) { _,focused in if focused { model.ui.focusedArea = WorkflowPresentation.focus(field) } }
     }

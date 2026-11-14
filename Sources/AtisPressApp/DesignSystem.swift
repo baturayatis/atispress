@@ -45,6 +45,7 @@ enum DesignSystem {
 struct WorkflowCard<Content:View>: View {
     let number:Int?
     let title:String
+    @EnvironmentObject private var model:Workspace
     @ViewBuilder var content:Content
     init(_ number:Int? = nil,_ title:String,@ViewBuilder content:()->Content) { self.number = number; self.title = title; self.content = content() }
     init(_ title:String,@ViewBuilder content:()->Content) { self.number = nil; self.title = title; self.content = content() }
@@ -54,6 +55,11 @@ struct WorkflowCard<Content:View>: View {
                 if let number { Text(String(number)).font(.headline).foregroundStyle(DesignSystem.selectedText).frame(width:28,height:28).background(DesignSystem.selected,in:RoundedRectangle(cornerRadius:DesignSystem.Radius.control)) }
                 Text(title).font(.headline).foregroundStyle(DesignSystem.text)
                 Spacer(minLength:0)
+            }
+            let fields = WorkflowPresentation.cardFields(title).filter { model.isManual($0) || model.project.autoLayout?.presetFields?.contains($0) == true }
+            if !fields.isEmpty {
+                Button("\(fields.count) ayar manuel · Otomatiğe döndür") { for field in fields { model.returnToAutomatic(field) } }
+                    .font(.caption).buttonStyle(.borderless).foregroundStyle(DesignSystem.teal)
             }
             content
         }.padding(DesignSystem.Space.lg).frame(maxWidth:.infinity,alignment:.leading)

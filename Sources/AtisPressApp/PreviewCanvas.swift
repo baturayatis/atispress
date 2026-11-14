@@ -266,7 +266,15 @@ final class SheetCanvasView: NSView {
                 context.restoreGState()
             }
         }
-        PDFPlanRenderer.drawMarks(side.marks,sheetSize: sheet.size,in: context,options: overlays,displayScale: scale)
+        context.saveGState()
+        context.setAlpha(0.48)
+        let guides = side.marks.map { mark -> Mark in
+            var result = mark
+            if result.kind == .gripper && result.label == "Maşa 0.0 mm" { result.label = "" }
+            return result
+        }
+        PDFPlanRenderer.drawMarks(guides,sheetSize: sheet.size,in: context,options: overlays,displayScale: scale)
+        context.restoreGState()
         if overlays.punch { PDFPlanRenderer.drawPunchMarks(side.punchMarks,in:context) }
         if let colorControls { PDFColorControlRenderer.draw(colorControls,in: context) }
         context.restoreGState()

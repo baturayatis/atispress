@@ -32,3 +32,42 @@ enum WorkflowPresentation {
 }
 
 struct WorkflowSheetRecommendation:Equatable,Sendable { var name:String; var copies:Int }
+
+extension WorkflowPresentation {
+    static let overlayNames = ["Kesim", "Katlama", "Taşma", "Güvenli alan", "Sayfa numaraları", "Tabaka sınırı"]
+    static func cardFields(_ title:String) -> [AutoLayoutField] {
+        let paper:[AutoLayoutField] = [.sheetSize,.orientation]
+        let cut:[AutoLayoutField] = [.bleed,.generatedEnabled,.exportCrop]
+        let color:[AutoLayoutField] = [.exportColorBar,.exportTargets,.exportTargetSize,.exportPatchSize,.exportBarSide]
+        switch title {
+        case "Hangi kâğıda basılacak?": return paper
+        case "Kesim ve taşma": return cut
+        case "Eklemek istersen": return color
+        case "Ayrıntılar": return AutoLayoutField.allCases.filter { !paper.contains($0) && !cut.contains($0) && !color.contains($0) }
+        default: return []
+        }
+    }
+    static func shouldRecommend(selectedValid:Bool,selectedCopies:Int,recommendedCopies:Int) -> Bool {
+        !selectedValid || selectedCopies < recommendedCopies
+    }
+    static func actionableIssues(_ issues:[ValidationIssue]) -> [ValidationIssue] {
+        issues.filter { $0.code != .sharedCutBleed || $0.severity == .error }
+    }
+}
+
+extension Workspace {
+    var workflowIssues:[ValidationIssue] { WorkflowPresentation.actionableIssues(plan.displayIssues) }
+    var visibleWorkflowRecommendation:WorkflowSheetRecommendation? {
+        guard let recommendation = workflowRecommendation, recommendation.name != SmartAutoLayout.presetName(for:project.sheet.size) else { return nil }
+        let size = project.sheet.size
+        // Digital stock includes the common 33×48 press sheet in either orientation.
+        let validStock = project.autoLayout?.production != .digital || (min(size.width,size.height) <= 330 && max(size.width,size.height) <= 483)
+        let copies = plan.sheets.first.map { $0.repeatLayout?.copiesPerSheet ?? $0.front.slots.count } ?? 0
+        return WorkflowPresentation.shouldRecommend(selectedValid:plan.canExport && validStock,selectedCopies:copies,recommendedCopies:recommendation.copies) ? recommendation : nil
+    }
+    func workflowRecommendationText(_ recommendation:WorkflowSheetRecommendation) -> String {
+        let production = project.autoLayout?.production == .offset ? "ofset" : "dijital"
+        let copies = plan.sheets.first.map { $0.repeatLayout?.copiesPerSheet ?? $0.front.slots.count } ?? 0
+        return "\(recommendation.name) \(production) makinede çalışır · \(recommendation.copies) adet. Seçili \(SmartAutoLayout.presetName(for:project.sheet.size)) · \(copies) adet."
+    }
+}

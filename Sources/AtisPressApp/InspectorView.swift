@@ -55,7 +55,7 @@ struct InspectorView: View {
                     else { withAnimation(.easeInOut(duration:0.16)) { scroll.scrollTo(target,anchor:.top) } }
                     model.ui.revealedSection = nil
                 }
-        }.tint(DesignSystem.teal).disabled(model.loading || model.autoArranging)
+        }.environmentObject(model).tint(DesignSystem.teal).disabled(model.loading || model.autoArranging)
             .onChange(of:focusedField) { _,field in model.ui.focusedArea = field.flatMap(WorkflowPresentation.focus) }
             .task { model.refreshWorkflowRecommendation() }
             .onChange(of:model.project) { _,_ in model.refreshWorkflowRecommendation() }
@@ -94,18 +94,17 @@ struct InspectorView: View {
                     }.buttonStyle(.plain).accessibilityLabel("Tabaka \(chip)").accessibilityAddTraits(model.selectedWorkflowChip == chip ? .isSelected : [])
                 }
             }
-            OrientationPicker("Yön",selection:Binding(get:{ (model.project.autoLayout ?? .legacy).isFixed(.orientation) ? model.project.sheet.orientation : .auto },set:model.selectWorkflowOrientation))
-            AutomaticPill(model:model,field:.orientation)
+            OrientationPicker("Yön",selection:Binding(get:{ (model.project.autoLayout ?? .legacy).isFixed(.orientation) ? model.project.sheet.orientation : .auto },set:model.selectWorkflowOrientation)).automaticReset(model,.orientation)
+
             Text("Yatay: tabaka geniş durur. Dikey: tabaka uzun durur.").font(.caption).foregroundStyle(DesignSystem.muted)
             Text(model.workflowOrientationSummary).font(.caption).foregroundStyle(DesignSystem.muted)
             if model.sheetPreset == "Özel" {
                 measurement("Genişlik",$model.project.sheet.size.width,autoField:.sheetSize,range:20...3000)
                 measurement("Yükseklik",$model.project.sheet.size.height,autoField:.sheetSize,range:20...3000)
             }
-            AutomaticPill(model:model,field:.sheetSize)
-            if let recommendation = model.workflowRecommendation {
+            if let recommendation = model.visibleWorkflowRecommendation {
                 VStack(alignment:.leading,spacing:DesignSystem.Space.sm) {
-                    Label("Önerilen: \(recommendation.name) · tabakada \(recommendation.copies) adet",systemImage:"checkmark.circle.fill")
+                    Label(model.workflowRecommendationText(recommendation),systemImage:"info.circle")
                         .font(.caption.weight(.medium))
                     Button { model.returnToAutomaticSheet() } label: { Text("Öneriyi uygula").foregroundStyle(DesignSystem.success) }.buttonStyle(.borderless).font(.caption.weight(.semibold))
                 }.padding(DesignSystem.Space.md).frame(maxWidth:.infinity,alignment:.leading)
@@ -128,7 +127,7 @@ struct InspectorView: View {
                     if model.repeatArrangement == .custom { Text("Özel").tag(RepeatArrangement.custom) }
                 }.pickerStyle(.segmented)
             }
-            Text(model.project.isBooklet ? "Kitap katlarında ara boşluk 0 mm kalır." : "Bitişik: ortak kesim. Aralıklı: ara boşluk taşmanın iki katıdır.").font(.caption).foregroundStyle(DesignSystem.muted)
+            Text(model.project.isBooklet ? "Kitap katlarında ara boşluk 0 mm kalır." : "Bitişik dizilimde taşma yoktur, kesim çizgisinde kırpılır. Aralıklı: ara boşluk taşmanın iki katıdır.").font(.caption).foregroundStyle(DesignSystem.muted)
         }
     }
     private var bindingSettings:some View {
@@ -420,7 +419,7 @@ struct InspectorView: View {
                     Text("Bu iş: \(sheet.repeatCount) tabaka · Üretim: \(sheet.producedQuantityDescription) adet")
                     Text("Tüm işler: \(model.plan.totalPressSheets) tabaka")
                 }
-                Text(model.project.sheet.gutter == 0 ? "Ortak kesim: iç taşmalar sınırda kırpılır." : "Ara boşluk, komşu taşma kutuları arasında ölçülür.")
+                Text(model.project.sheet.gutter == 0 ? "Bitişik dizilimde taşma yoktur, kesim çizgisinde kırpılır" : "Ara boşluk, komşu taşma kutuları arasında ölçülür.")
                     .font(.caption).foregroundStyle(DesignSystem.muted)
                 if model.project.settings.turnMethod != .sheetwise {
                     Text("Aynı kalıp iki yüzde kullanılır. Çevirme eksenindeki ürün sayısı çift olmalıdır.")

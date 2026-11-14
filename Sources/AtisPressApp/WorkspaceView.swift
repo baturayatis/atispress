@@ -7,6 +7,8 @@ struct WorkspaceView: View {
     @ObservedObject var model: Workspace
     @ObservedObject var prices:PricingStore
     @State private var dropTarget = false
+    @State private var pageHelp = false
+    @State private var layers = false
     @Environment(\.openWindow) private var openWindow
     var body: some View {
         HSplitView {
@@ -29,7 +31,7 @@ struct WorkspaceView: View {
             Button("Otomatik düzenle") { model.requestAutomaticLayout() }.disabled(model.source == nil || model.loading || model.autoArranging || model.exporting)
             Button { model.preparingExport = true } label: {
                 HStack(spacing:DesignSystem.Space.sm) { Image(systemName:"square.and.arrow.up"); Text("PDF’i Hazırla").fontWeight(.semibold) }.padding(.horizontal,DesignSystem.Space.md).padding(.vertical,DesignSystem.Space.xs)
-            }.buttonStyle(.borderedProminent).tint(DesignSystem.action).controlSize(.large).disabled(!model.canExportNow).accessibilityLabel("PDF’i Hazırla")
+            }.buttonStyle(.borderedProminent).tint(DesignSystem.action).controlSize(.large).disabled(!model.canExportNow).accessibilityLabel("PDF’i Hazırla").help("Çıktı seçeneklerini kontrol edip baskı PDF’sini hazırlayın · ⌘E")
             if model.exporting { ProgressView().controlSize(.small); Button("İptal",action:model.cancelExport) }
         }.tint(DesignSystem.teal)
     }
@@ -62,7 +64,7 @@ struct WorkspaceView: View {
                         }.onMove(perform: model.move)
                     }
                 }.listStyle(.sidebar)
-                Text("✓ Baskıya dahil et · ⌘ ile çoklu seç · sürükleyerek veya ↑↓ ile sırala")
+                Button { pageHelp.toggle() } label: { Image(systemName:"questionmark.circle") }.buttonStyle(.borderless).accessibilityLabel("Sayfa seçimi yardımı").popover(isPresented:$pageHelp) { Text("Baskıya dahil et · ⌘ ile çoklu seç · sürükleyerek veya ↑↓ ile sırala").padding().frame(width:260) }
                     .font(.caption).foregroundStyle(DesignSystem.muted).padding(8)
             }.frame(minHeight: 250)
             VStack(spacing: 0) {
@@ -73,11 +75,8 @@ struct WorkspaceView: View {
                         let signatures = Set(sheet.front.slots.map(\.signature)).sorted().map { String($0+1) }.joined(separator: ", ")
                         VStack(alignment: .leading,spacing: 4) {
                             if let layout = sheet.repeatLayout {
-                                Text("Tabaka \(index+1)").fontWeight(.semibold)
-                                Text("\(layout.copiesPerSheet) adet · \(sheet.hasContent(on:.back) ? "ön ve arka" : "tek yüz")").font(.caption)
-                                Text("Ön \(layout.frontPageNumber) / Arka \(layout.backPageNumber.map(String.init) ?? "Yok") · \(layout.columns)×\(layout.rows)")
-                                    .font(.caption).foregroundStyle(DesignSystem.muted)
-                                if let summary = sheet.productionSummary { Text(summary).font(.caption).foregroundStyle(DesignSystem.muted) }
+                                Text("Tabaka \(index+1) · \(layout.copiesPerSheet) adet").fontWeight(.semibold)
+                                Text("\(sheet.hasContent(on:.back) ? "ön ve arka" : "tek yüz") · \(layout.columns)×\(layout.rows)").font(.caption).foregroundStyle(DesignSystem.muted)
                             } else {
                                 Text("\(sheet.leafInfo == nil ? (sheet.bookInfo?.label ?? "Tabaka") : (sheet.leafInfo!.cover ? "Kapak" : "Yaprak tabakası")) \(index+1)").fontWeight(.medium)
                                 if let leaf = sheet.leafInfo { Text(leaf.summary).font(.caption).foregroundStyle(DesignSystem.muted) }
@@ -136,6 +135,7 @@ struct WorkspaceView: View {
         VStack(spacing: 0) {
             VStack(spacing:8) {
                 HStack {
+                    Button("Katmanlar") { layers.toggle() }.popover(isPresented:$layers) { PreviewLayersView(model:model) }
                     Text("Görünüm:").font(.caption)
                     PreviewScopePicker(model:model).labelsHidden()
                     Spacer(minLength:4)
@@ -183,23 +183,24 @@ struct WorkspaceView: View {
             }
             Divider()
             HStack(spacing:DesignSystem.Space.md) {
-                if model.plan.displayIssues.isEmpty {
+                if model.workflowIssues.isEmpty {
                     Label(model.workflowReadyText,systemImage:"checkmark.circle.fill")
                         .foregroundStyle(DesignSystem.success).padding(DesignSystem.Space.sm)
                         .background(DesignSystem.successSurface,in:RoundedRectangle(cornerRadius:DesignSystem.Radius.control))
                 } else {
                     Menu {
-                        ForEach(Array(model.plan.displayIssues.enumerated()),id:\.offset) { _,issue in Button(issue.message) { model.revealWorkflowIssue(issue) } }
+                        ForEach(Array(model.workflowIssues.enumerated()),id:\.offset) { _,issue in Button(issue.message) { model.revealWorkflowIssue(issue) } }
                     } label: {
-                        let errors = model.plan.issues.filter { $0.severity == .error }.count
-                        let warnings = model.plan.issues.filter { $0.severity == .warning }.count
+                        let errors = model.workflowIssues.filter { $0.severity == .error }.count
+                        let warnings = model.workflowIssues.filter { $0.severity == .warning }.count
                         Label("\(errors > 0 ? "\(errors) hata · " : "")\(warnings) uyarı · \(model.plan.totalPressSheets) tabaka",systemImage:errors > 0 ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
                     }.menuStyle(.borderlessButton).fixedSize().padding(DesignSystem.Space.sm)
                         .foregroundStyle(DesignSystem.warning).background(DesignSystem.warningSurface,in:RoundedRectangle(cornerRadius:DesignSystem.Radius.control))
-                    if let first = model.plan.displayIssues.first {
+                    if let first = model.workflowIssues.first {
                         Button(first.message) { model.revealWorkflowIssue(first) }.buttonStyle(.plain).font(.caption).lineLimit(2).accessibilityLabel("Ayarı göster: "+first.message)
                     }
                 }
+                if let summary = model.currentSheet?.productionSummary { Text(summary).font(.caption).foregroundStyle(DesignSystem.muted) }
                 Spacer(minLength:0)
             }.font(.callout).padding(DesignSystem.Space.md)
 
@@ -225,8 +226,9 @@ private struct PageRow: View {
                 HStack { Text("Sayfa \(number)").fontWeight(.medium); Text(role).font(.caption).foregroundStyle(DesignSystem.muted) }
                 let info = source.pages[number-1]
                 Text("\(info.trimSize.width,specifier: "%.1f") × \(info.trimSize.height,specifier: "%.1f") mm").font(.caption2)
-                Text(info.availableBleed.map { String(format: "Taşma %.1f mm",$0) } ?? "Taşma bilinmiyor")
-                    .font(.caption2).foregroundStyle(DesignSystem.muted)
+                if info.availableBleed == 0 { Image(systemName:"drop.slash").font(.caption2).foregroundStyle(DesignSystem.muted).help("Taşma yok") }
+                else { Text(info.availableBleed.map { String(format: "Taşma %.1f mm",$0) } ?? "Taşma bilinmiyor")
+                    .font(.caption2).foregroundStyle(DesignSystem.muted) }
             }
         }.opacity(included ? 1 : 0.45)
         .task(id: "\(source.id)-\(number)") {

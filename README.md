@@ -2330,3 +2330,39 @@ Açık/koyu otomatik sığdırma görüntüleri `.build/WorkflowQA/auto-fit-ligh
 ve `auto-fit-dark.png` içinde üretilir. Başlıklar düşük ölçekte en az 12 pt
 okunabilirlik ve 32 pt ekran boşluğu korur. 300 tabakalık gezinme testi,
 düşük zoomda AppKit piksel yuvarlaması dahil önceki testlerle birlikte geçer.
+
+## Arayüz sadeleştirmesi
+
+Tabaka önerisi, geçerli seçimin kapasitesi öneriye eşit veya daha yüksekse
+saklanır. Farklı tabaka önerisinde iki kapasite ve üretim yöntemi birlikte
+verilir. Dijital uygunluk sunumu, iki yönde de 33×48,3 cm sınırını kullanır;
+makineye özel kâğıt besleme sınırı veritabanı yoktur.
+
+Manuel ayarlar kart başına tek sıfırlama satırında toplanır; alan rozeti yalnız
+hover veya odakta görünür. Bitişik kesim açıklaması nötr bilgidir ve ana ekranın
+uyarı sayısına katılmaz. Çekirdek plandaki tanı kaydı uyumluluk için korunur.
+Tabaka satırı adet, yüz ve ızgara özetidir; üretim hesabı durum çubuğundadır.
+Sayfa seçimi yardımı `?`, altı temel önizleme anahtarı **Katmanlar** panelindedir.
+Kılavuzların yumuşatılması ve sıfır maşa etiketinin gizlenmesi yalnız AppKit
+önizlemesinde uygulanır; planlayıcı ve PDF motorunun kaynakları değiştirilmedi.
+
+Çalıştırma ve doğrulama:
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+swift test --disable-sandbox --filter 'WorkflowCardTests|SidePreviewTests'
+```
+
+Doğrulama: **314 XCTest, sıfır hata** (124 çekirdek, 60 PDF, 130 uygulama).
+Son rozet/maşa sunumu değişikliklerinden sonra 21 hedefli test ayrıca geçti.
+Plan ve render edilmiş PDF snapshot eşitliği altı katman anahtarının değişmesini
+de kapsar. Eşit/daha iyi seçimde önerinin gizlenmesi, bilginin uyarı sayısından
+çıkarılması, bütün katmanların panelde bulunması ve 257 ayarın erişilebilirliği
+kontrol edilir. Önceki proje kaydet/aç testleri korunur.
+
+Açık/koyu minimum pencere görüntüleri `.build/WorkflowQA/light.png` ve
+`dark.png` olarak üretilir. Gerçek fare/VoiceOver ile popover ve hover etkileşimi
+ayrıca elle denenmedi. Bu turda uygulama/DMG yeniden paketlenmedi; çalıştırma
+komutu güncel kaynak uygulamayı açar. Ağ kullanılmadı, push yapılmadı.

@@ -8,13 +8,13 @@ struct HomeEmptyStateView: View {
             VStack(spacing: 16) {
                 Image(systemName: "doc.richtext").font(.system(size: 48)).foregroundStyle(DesignSystem.muted)
                 Text("PDF ile başlayın").font(.title2.bold())
-                Text("1. PDF seç → 2. Ayarları kontrol et → 3. Dışa aktar")
+                Text("1. PDF seç → 2. Ayarları kontrol et → 3. PDF’i Hazırla")
                     .font(.headline).multilineTextAlignment(.center)
                 Text("PDF dosyasını buraya sürükle veya ⌘O ile yükle")
                     .foregroundStyle(DesignSystem.muted).multilineTextAlignment(.center)
                 HStack(spacing: 12) {
                     Button(action: model.choosePDF) { Label("PDF Seç…",systemImage: "doc.badge.plus") }
-                        .buttonStyle(.borderedProminent).controlSize(.large)
+                        .buttonStyle(.borderedProminent).controlSize(.large).help("Baskıya hazırlamak için kaynak PDF dosyasını seçin · ⌘O")
                     Button("Proje Aç…",action: model.chooseProject)
                         .buttonStyle(.bordered).controlSize(.large)
                 }.disabled(busy)

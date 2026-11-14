@@ -66,7 +66,7 @@ import PDFEngine
         func code(_ file:String) throws -> String { try String(contentsOf:root.appendingPathComponent("Sources/AtisPressApp/\(file).swift"),encoding:.utf8) }
         let inspector = try code("InspectorView"),toolbar = try code("WorkspaceView"),menu = try code("AtisPressApp")
         let card = inspector.components(separatedBy:"private var workflowPaper")[1].components(separatedBy:"private var workflowCut")[0]
-        XCTAssertTrue(card.contains("Picker(\"Yön\"")); XCTAssertTrue(card.contains("AutomaticPill(model:model,field:.orientation)"))
+        XCTAssertTrue(card.contains("Picker(\"Yön\"")); XCTAssertTrue(card.contains(".automaticReset(model,.orientation)"))
         XCTAssertEqual(inspector.components(separatedBy:"Picker(\"Yön\"").count-1,1)
         XCTAssertFalse(inspector.contains("autoLabel(\"Yön\""))
         XCTAssertTrue(toolbar.contains("PreviewScopePicker(model:model)"))
