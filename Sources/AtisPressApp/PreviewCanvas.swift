@@ -13,6 +13,7 @@ struct PreviewCanvas: NSViewRepresentable {
     let highlighted: Set<Int>
     let zoomAction: Int
     let zoomFactor: CGFloat
+    var zoomModel:Workspace? = nil
     var focusArea:WorkflowFocus? = nil
     var moveSheet:((Int)->Void)? = nil
     var repetition: Int = 0
@@ -30,11 +31,12 @@ struct PreviewCanvas: NSViewRepresentable {
         scroll.contentView = CenteredClipView()
         scroll.hasHorizontalScroller = true; scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true; scroll.allowsMagnification = true
-        scroll.minMagnification = 0.04; scroll.maxMagnification = 12
+        scroll.minMagnification = 0.001; scroll.maxMagnification = 12
         scroll.backgroundColor = DesignSystem.workspaceNS
         let canvas = SheetCanvasView()
         scroll.documentView = canvas
         update(canvas)
+        if let model = zoomModel { scroll.synchronizeZoom(model) }
         scroll.requestFit()
         return scroll
     }
@@ -43,11 +45,14 @@ struct PreviewCanvas: NSViewRepresentable {
         guard let canvas = scroll.documentView as? SheetCanvasView else { return }
         let sizeChanged = canvas.sheet?.size != sheet.size || canvas.sheet?.diagnosticBounds != sheet.diagnosticBounds
         update(canvas)
-        if canvas.zoomAction != zoomAction {
+        if let model = zoomModel { (scroll as? PreviewScrollView)?.synchronizeZoom(model) }
+        else if canvas.zoomAction != zoomAction {
             canvas.zoomAction = zoomAction
-            if zoomFactor == 0 { canvas.fit() }
-            else { scroll.setMagnification(min(12,max(0.04,scroll.magnification*zoomFactor)),centeredAt: scroll.documentVisibleRect.center) }
-        } else if sizeChanged { (scroll as? PreviewScrollView)?.requestFit() }
+            if zoomFactor == 0 { (scroll as? PreviewScrollView)?.autoFitEnabled = true; (scroll as? PreviewScrollView)?.requestFit() }
+            else { (scroll as? PreviewScrollView)?.manualZoom(by:zoomFactor) }
+        }
+        if sizeChanged { (scroll as? PreviewScrollView)?.requestFit() }
+
     }
     private func update(_ canvas: SheetCanvasView) {
         canvas.focusArea = focusArea
@@ -57,31 +62,11 @@ struct PreviewCanvas: NSViewRepresentable {
     }
 }
 
-final class PreviewScrollView: NSScrollView {
+final class PreviewScrollView:AutoFitScrollView {
     var moveSheet:((Int)->Void)?
     override var acceptsFirstResponder:Bool { true }
     override func keyDown(with event:NSEvent) {
         switch event.keyCode { case 123: moveSheet?(-1); case 124: moveSheet?(1); default: super.keyDown(with:event) }
-    }
-    override func scrollWheel(with event:NSEvent) {
-        if event.modifierFlags.contains(.command) {
-            setMagnification(min(maxMagnification,max(minMagnification,magnification*exp(-event.scrollingDeltaY*0.01))),centeredAt:documentVisibleRect.origin)
-        } else { super.scrollWheel(with:event) }
-    }
-
-    private var fitRequested = true
-    func requestFit() { fitRequested = true; needsLayout = true }
-    override func layout() {
-        super.layout()
-        if fitRequested, contentSize.width > 100, contentSize.height > 100,
-           let canvas = documentView as? SheetCanvasView {
-            fitRequested = false
-            canvas.fit()
-        }
-    }
-    override func magnify(with event: NSEvent) {
-        super.magnify(with: event)
-        documentView?.needsDisplay = true
     }
 }
 private final class CenteredClipView: NSClipView {
@@ -190,12 +175,8 @@ final class SheetCanvasView: NSView {
         needsDisplay = true
     }
     func fit() {
-        guard let scroll = enclosingScrollView else { return }
-        let available = scroll.contentSize
-        guard available.width > 100, available.height > 100 else { return }
-        let factor = min(available.width/frame.width,available.height/frame.height)*0.96
-        scroll.setMagnification(min(12,max(0.04,factor)),centeredAt: bounds.center)
-        needsDisplay = true
+        guard let scroll = enclosingScrollView as? AutoFitScrollView else { return }
+        scroll.autoFitEnabled = true; scroll.requestFit(); scroll.layoutSubtreeIfNeeded()
     }
     override func viewDidEndLiveResize() { super.viewDidEndLiveResize(); needsDisplay = true }
     override func magnify(with event: NSEvent) { super.magnify(with: event); needsDisplay = true }

@@ -2285,3 +2285,48 @@ matbaa çevirme provası otomatik test kapsamında değildir.
 Son doğrulama: **303 XCTest, sıfır hata** (124 çekirdek, 60 PDF, 119 uygulama).
 Universal arm64/x86_64 uygulama ve ad-hoc imza doğrulanır. Sandbox içinde
 LaunchServices kaydı yapılamaz; bu durum derlenen uygulama paketini etkilemez.
+
+## Otomatik sığdırma
+
+Önizlemenin varsayılanı **Otomatik sığdır** durumudur. PDF yükleme ve proje
+açılışı bunu yeniden etkinleştirir. Otomatik durumdayken görünüm değişimi,
+pencere/sütun boyutlandırma ve tabaka geometrisi değişimleri yeniden sığdırır.
+**Tüm yüzler** önizleme alanının genişliğine sığar; yüzler dikey kayar.
+**Tek yüz** hem genişlik hem yükseklik içinde kalır. Sığdırılmış durumda yatay
+kaydırma çubuğu yoktur; tabaka çevresinde boşluk ve yüz başlığı korunur.
+Yeniden boyutlandırma, akışta aynı yüzün kaydırma konumunu korur.
+
+Yakınlaştırma düğmeleri, trackpad kıstırma ve **⌘+tekerlek** otomatik durumu
+duraklatır. Manuel ölçek, pencere/tabaka ve görünüm değişse de korunur.
+**Sığdır / ⌘0** otomatik durumu yeniden açar. Araç çubuğu **Otomatik sığdır**
+veya gerçek manuel ölçeği (ör. **%135**) gösterir.
+
+Küçük tabaka sınırı açıkça A4 alanından (210×297 mm) küçük kâğıtlar olarak
+uygulanır: otomatik büyütme en fazla **%100**. A4 ve daha büyük tabakalar en fazla
+**%300** büyüyebilir. Farklı ebatlı yüzler aynı akışta ise küçük tabakanın sınırı
+bütün akış için korunur. Kullanıcı manuel olarak daha fazla büyütebilir.
+Hesap, PDF'nin 72 pt/inç koordinatlarını kullanır; üretim ölçüleri değiştirilmez.
+
+Bu durum yalnız açık pencereye aittir; `.atispress` üretim ayarları veya PDF
+çıktısı değişmez, yeni şema alanı gerekmez (**şema 18**). Yeni proje/PDF her zaman
+otomatik başlar. Geometri veya otomatik düzenleme sonrası manuel yakınlaştırma
+zorla sıfırlanmaz.
+
+```sh
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+swift test --disable-sandbox --filter PreviewAutoFitTests
+./scripts/build_app.sh
+```
+
+`PreviewAutoFitTests`: farklı tabaka/alan ölçülerinde genişlik ve tam yüz
+ölçekleri, %100/%300 sınırları, yeniden boyutlandırma, yön/tabaka değişimleri,
+manuel zoomun korunması, Sığdır ile devam, gerçek SwiftUI/AppKit yüz konumu,
+⌘+tekerlek, yatay taşmama ve plan/PDF piksel eşitliği. Önceki kaydet/aç ve çıktı
+testleri korunur. Fiziksel trackpad hareketi donanımla ayrıca denenmemiştir.
+
+Son doğrulama: **311 XCTest, sıfır hata** (124 çekirdek, 60 PDF, 127 uygulama).
+Açık/koyu otomatik sığdırma görüntüleri `.build/WorkflowQA/auto-fit-light.png`
+ve `auto-fit-dark.png` içinde üretilir. Başlıklar düşük ölçekte en az 12 pt
+okunabilirlik ve 32 pt ekran boşluğu korur. 300 tabakalık gezinme testi,
+düşük zoomda AppKit piksel yuvarlaması dahil önceki testlerle birlikte geçer.

@@ -39,3 +39,8 @@ Kaldırılan kalıcı arama/mod ortamı ve pencere açma eylemi üretim ayarı d
 konumunu, Ön/Arka ve tabaka seçimi eşleşmesini, uyarıdan ilgili yüze gitmeyi,
 1.200 yüzün yalnız görünür bloklarla çizilmesini ve 100.000 tekrarın kompakt
 geometrisini denetler. Önceki envanter ve testler değiştirilmemiştir.
+
+Önizleme araç çubuğundaki `zoomAutomatic` / `zoomScale` durum etiketi,
+**Otomatik sığdır** veya **%N** gösterir. Düğmeler ve Görünüm menüsü aynı
+`zoomAction` / `zoomFactor` eylemlerini kullanır; Sığdır / ⌘0 otomatik durumu
+yeniden açar. Bu pencere durumu üretim ayarı veya proje şeması değildir.

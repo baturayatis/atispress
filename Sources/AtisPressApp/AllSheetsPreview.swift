@@ -85,9 +85,10 @@ struct AllSheetsPreview: NSViewRepresentable {
     @ObservedObject var model: Workspace
     func makeNSView(context: Context) -> AllSheetsScrollView {
         let scroll = AllSheetsScrollView()
+        scroll.contentView = PreviewWidthClipView()
         scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true
         scroll.backgroundColor = DesignSystem.workspaceNS
-        scroll.allowsMagnification = true; scroll.minMagnification = 0.04; scroll.maxMagnification = 12
+        scroll.allowsMagnification = true; scroll.minMagnification = 0.001; scroll.maxMagnification = 12
         let document = AllSheetsDocument(); scroll.documentView = document
         scroll.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(scroll,selector: #selector(AllSheetsScrollView.didScroll),name: NSView.boundsDidChangeNotification,object: scroll.contentView)
@@ -108,24 +109,15 @@ struct AllSheetsPreview: NSViewRepresentable {
             guard let model else { return }
             scroll?.queueSelection(location,model:model)
         }
-        if scroll.zoomAction != model.zoomAction {
-            let firstPresentation = scroll.zoomAction < 0
-            scroll.zoomAction = model.zoomAction
-            // zoomAction is an event counter, not a stored absolute magnification.
-            // Replaying the last zoom before AppKit has a viewport loses the selected face.
-            if firstPresentation { scroll.fitRequested = true; scroll.needsLayout = true }
-            else if model.zoomFactor == 0 { scroll.fitRequested = true; scroll.needsLayout = true }
-            else { scroll.setMagnification(min(12,max(0.04,scroll.magnification*model.zoomFactor)),centeredAt:scroll.documentVisibleRect.origin) }
-        }
+        scroll.synchronizeZoom(model)
+        if geometryChanged { scroll.requestFit() }
         document.updateViewportExtent()
         if scroll.pendingLocation == nil { scroll.revealSelection(requested,force:geometryChanged) }
         document.refreshVisible()
     }
 }
 
-final class AllSheetsScrollView: NSScrollView {
-    var fitRequested = true
-    var zoomAction = -1
+final class AllSheetsScrollView: AutoFitScrollView {
     var reportedSelection = -1
     var reportedRepetition = 0
     var lastModelLocation:PreviewSheetLocation?
@@ -141,7 +133,7 @@ final class AllSheetsScrollView: NSScrollView {
         guard let document = documentView as? AllSheetsDocument else { return }
         document.refreshVisible()
         guard !suppressReporting else { return }
-        let location = document.geometry.location(at:documentVisibleRect.minY+1)
+        let location = document.geometry.location(at:documentVisibleRect.minY+max(1,1/magnification))
         if location.sheet != reportedSelection || location.repetition != reportedRepetition || location.side != reportedSide {
             reportedSelection = location.sheet; reportedRepetition = location.repetition; reportedSide = location.side; locationChanged?(location); selectionChanged?(location.sheet,location.repetition)
         }
@@ -172,7 +164,12 @@ final class AllSheetsScrollView: NSScrollView {
     }
     func scrollToSheet(_ index:Int,repetition:Int = 0,side:SideKind = .front) {
         guard let document = documentView as? AllSheetsDocument,document.geometry.heights.indices.contains(index) else { return }
-        document.scroll(NSPoint(x:0,y:document.geometry.origin(PreviewSheetLocation(sheet:index,repetition:repetition,side:side)))); didScroll()
+        // Settle adaptive header spacing before calculating a navigation destination.
+        layoutSubtreeIfNeeded()
+        document.updateViewportExtent()
+        revealSelection(PreviewSheetLocation(sheet:index,repetition:repetition,side:side),force:true)
+        // Programmatic navigation also reports through the regular selection callback.
+        reportedSelection = -1; didScroll()
     }
     override func keyDown(with event: NSEvent) {
         let delta: Int
@@ -181,33 +178,41 @@ final class AllSheetsScrollView: NSScrollView {
         let location = document.geometry.next(PreviewSheetLocation(sheet:max(0,reportedSelection),repetition:reportedRepetition,side:reportedSide),delta:delta)
         scrollToSheet(location.sheet,repetition:location.repetition,side:location.side)
     }
-    override func scrollWheel(with event:NSEvent) {
-        if event.modifierFlags.contains(.command) {
-            setMagnification(min(maxMagnification,max(minMagnification,magnification*exp(-event.scrollingDeltaY*0.01))),centeredAt:documentVisibleRect.origin)
-            (documentView as? AllSheetsDocument)?.updateViewportExtent()
-        } else { super.scrollWheel(with:event) }
+    override var fitMode:PreviewFit.Mode { .width }
+    override var fitDocumentSize:CGSize {
+        guard let document = documentView as? AllSheetsDocument else { return .zero }
+        return CGSize(width:document.frame.width,height:1)
+    }
+    override var fitPaperSize:Size {
+        guard let sheets = (documentView as? AllSheetsDocument)?.model?.displaySheets else { return Size(0,0) }
+        return sheets.min { $0.size.width*$0.size.height < $1.size.width*$1.size.height }?.size ?? Size(0,0)
+    }
+    override func preserveFitPosition() -> (() -> Void) {
+        guard let document = documentView as? AllSheetsDocument,!document.geometry.heights.isEmpty else { return {} }
+        let previous = suppressReporting; suppressReporting = true
+        let location = reportedSelection >= 0 ? PreviewSheetLocation(sheet:reportedSelection,repetition:reportedRepetition,side:reportedSide) : document.geometry.location(at:documentVisibleRect.minY+max(1,1/magnification))
+        let offset = max(0,documentVisibleRect.minY-document.geometry.origin(location))
+        return { [weak self,weak document] in
+            guard let self,let document else { return }
+            document.updateViewportExtent()
+            document.scroll(NSPoint(x:0,y:document.geometry.origin(location)+offset))
+            self.suppressReporting = previous
+        }
     }
     override func mouseDown(with event:NSEvent) { window?.makeFirstResponder(self); super.mouseDown(with:event) }
     override func layout() {
         super.layout()
-        if fitRequested,contentSize.width>100,let document = documentView,document.frame.width>0 {
-            fitRequested = false
-            let target = PreviewSheetLocation(sheet:max(0,reportedSelection),repetition:reportedRepetition,side:reportedSide)
-            let previous = suppressReporting; suppressReporting = true
-            setMagnification(min(12,max(0.04,contentSize.width/document.frame.width*0.98)),centeredAt:documentVisibleRect.origin)
-            (document as? AllSheetsDocument)?.updateViewportExtent()
-            revealSelection(target,force:true)
-            suppressReporting = previous
-        }
         (documentView as? AllSheetsDocument)?.updateViewportExtent()
         (documentView as? AllSheetsDocument)?.refreshVisible()
     }
+
 }
 
 final class AllSheetsDocument: NSView {
     weak var model: Workspace?
     var geometry = SideScrollGeometry(heights:[],repetitions:[],backs:[])
     private var rows: [PreviewSheetLocation:NSView] = [:]
+    private(set) var headerHeight:CGFloat = 46
     private var lastSheets: [Sheet] = []
     private var lastFocus:WorkflowFocus?
     private var lastOptions: PDFRenderOptions?
@@ -219,7 +224,7 @@ final class AllSheetsDocument: NSView {
         guard lastSheets != model.displaySheets || lastOptions != model.overlays || lastMarks != model.project.exportMarks || lastSource !== model.source || lastFocus != model.ui.focusedArea else { return false }
         lastFocus = model.ui.focusedArea
         lastSheets = model.displaySheets; lastOptions = model.overlays; lastMarks = model.project.exportMarks; lastSource = model.source
-        geometry = SideScrollGeometry(heights: model.displaySheets.map { $0.size.height*PDFPreviewDrawing.pointsPerMM+110 },repetitions:model.displaySheets.map { max(1,$0.repeatCount) },backs:model.displaySheets.map { $0.hasContent(on:.back) })
+        geometry = SideScrollGeometry(heights: model.displaySheets.map { $0.size.height*PDFPreviewDrawing.pointsPerMM+64+headerHeight },repetitions:model.displaySheets.map { max(1,$0.repeatCount) },backs:model.displaySheets.map { $0.hasContent(on:.back) })
         let width = (model.displaySheets.map { $0.size.width*PDFPreviewDrawing.pointsPerMM+64 }.max() ?? 500)
         setFrameSize(NSSize(width:width,height:geometry.totalHeight))
         // Only the visible rows carry PDF documents, canvases and edge caches.
@@ -229,10 +234,26 @@ final class AllSheetsDocument: NSView {
     /// Permit the last sheet to align at the top even when zoomed to less
     /// than a viewport; otherwise AppKit clamps and selects its predecessor.
     func updateViewportExtent() {
+        updateHeaderSpacing()
         guard let scroll = enclosingScrollView,let last = geometry.heights.indices.last else { return }
         let location = PreviewSheetLocation(sheet:last,repetition:geometry.repetitions[last]-1,side:geometry.backs[last] ? .back : .front)
         let height = max(geometry.totalHeight,geometry.origin(location)+scroll.contentSize.height/scroll.magnification)
         if abs(frame.height-height)>0.5 { setFrameSize(NSSize(width:frame.width,height:height)) }
+    }
+    private func updateHeaderSpacing() {
+        guard let scroll = enclosingScrollView as? AllSheetsScrollView,let model,!geometry.heights.isEmpty else { return }
+        let height = max(46,32/scroll.magnification)
+        guard abs(headerHeight-height)>0.01 else { return }
+        let location = geometry.location(at:scroll.documentVisibleRect.minY+max(1,1/scroll.magnification))
+        let offset = max(0,scroll.documentVisibleRect.minY-geometry.origin(location))
+        let previous = scroll.suppressReporting; scroll.suppressReporting = true
+        headerHeight = height
+        geometry = SideScrollGeometry(heights:model.displaySheets.map { $0.size.height*PDFPreviewDrawing.pointsPerMM+64+height },
+                                      repetitions:model.displaySheets.map { max(1,$0.repeatCount) },backs:model.displaySheets.map { $0.hasContent(on:.back) })
+        rows.values.forEach { $0.removeFromSuperview() }; rows.removeAll()
+        setFrameSize(NSSize(width:frame.width,height:geometry.totalHeight))
+        scroll.documentView?.scroll(NSPoint(x:0,y:geometry.origin(location)+offset))
+        scroll.suppressReporting = previous
     }
     func refreshVisible() {
         guard let model,!geometry.heights.isEmpty else { return }
@@ -251,9 +272,9 @@ final class AllSheetsDocument: NSView {
             let sheet = model.displaySheets[index]
             let row = NSView(frame:NSRect(x:0,y:geometry.origin(location),width:frame.width,height:geometry.heights[index]))
             let label = NSTextField(labelWithString:(["Tabaka \(geometry.firstNumbers[index]+location.repetition+1) · \(location.side == .front ? "Ön yüz" : "Arka yüz")" + (geometry.backs[index] ? "" : " · Arka yüz yok")]+sheet.serialRangeLabels+[sheet.front.slots.compactMap(\.rescale).first?.summary].compactMap { $0 }).joined(separator:" · "))
-            label.font = .systemFont(ofSize:20,weight:.medium)
+            label.font = .systemFont(ofSize:max(20,12/(enclosingScrollView?.magnification ?? 1)),weight:.medium)
             label.lineBreakMode = .byTruncatingTail
-            label.frame = NSRect(x:20,y:row.frame.height-46,width:frame.width-40,height:44); row.addSubview(label)
+            label.frame = NSRect(x:20,y:row.frame.height-headerHeight,width:frame.width-40,height:headerHeight-4); row.addSubview(label)
             do {
                 let kind = location.side
                 let canvas = SheetCanvasView()

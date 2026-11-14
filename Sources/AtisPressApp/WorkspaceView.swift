@@ -151,6 +151,7 @@ struct WorkspaceView: View {
                         Button { model.movePreviewSheet(1) } label: { Image(systemName:"chevron.right") }.accessibilityLabel("Sonraki tabaka")
                     }
                     Spacer()
+                    Text(model.zoomStateLabel).font(.caption2).foregroundStyle(DesignSystem.muted).accessibilityLabel(model.zoomStateLabel)
                     Button { model.zoomFactor = 1/1.25; model.zoomAction += 1 } label: { Image(systemName:"minus.magnifyingglass") }.help("Uzaklaştır").accessibilityLabel("Uzaklaştır")
                     Button("Sığdır") { model.zoomFactor = 0; model.zoomAction += 1 }
                     Button { model.zoomFactor = 1.25; model.zoomAction += 1 } label: { Image(systemName:"plus.magnifyingglass") }.help("Yakınlaştır").accessibilityLabel("Yakınlaştır")
@@ -163,7 +164,7 @@ struct WorkspaceView: View {
                     .frame(maxWidth: .infinity,maxHeight: .infinity)
             } else if let sheet = model.currentSheet, let side = model.currentSide {
                 PreviewCanvas(sheet: sheet,side: side,sheetIndex: model.sheetIndex,sideKind: model.side,source: model.source,overlays: model.overlays,generatedBleed: model.plan.generatedBleed,
-                              highlighted: model.highlightedSlots,zoomAction: model.zoomAction,zoomFactor:model.zoomFactor,focusArea:model.ui.focusedArea,moveSheet:model.movePreviewSheet,
+                              highlighted: model.highlightedSlots,zoomAction: model.zoomAction,zoomFactor:model.zoomFactor,zoomModel:model,focusArea:model.ui.focusedArea,moveSheet:model.movePreviewSheet,
                               repetition: model.repetition,selectedSerial: model.selectedSerialID,
                               selectSerial: model.selectSerial,moveSerial: { model.moveSerialField($0,to: $1) },controlMarks: model.project.exportMarks,moveGangBlock: { model.moveGangBlock($0,to:$1) },beginEdit:model.beginUndoGroup,endEdit:model.endUndoGroup)
             } else if model.source == nil {

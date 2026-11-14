@@ -158,7 +158,10 @@ final class Workspace: ObservableObject {
     @Published private(set) var exporting = false
     @Published private(set) var exportSummary: String?
     @Published private(set) var exportedFiles: [URL] = []
-    @Published var zoomAction = 0
+    @Published var zoomAutomatic = true
+    @Published var zoomScale:CGFloat = 1
+    var zoomStateLabel:String { zoomAutomatic ? "Otomatik sığdır" : "%\(Int((zoomScale*100).rounded()))" }
+    @Published var zoomAction = 0 { didSet { zoomAutomatic = zoomFactor == 0 } }
     @Published var zoomFactor: CGFloat = 1
     private var filePanel: NSOpenPanel?
     private var exportPanel: NSSavePanel?
@@ -388,6 +391,7 @@ final class Workspace: ObservableObject {
                 order = source.pages.map(\.number); included = Set(order); selectedPages = []
                 sheetIndex = 0; repetition = 0
                 applyAutomatic(prepared)
+                zoomFactor = 0; zoomAction += 1
                 loading = false
                 resetJournal(); queueAutosave()
                 recordRecentFile(source.url)
@@ -751,7 +755,6 @@ extension Workspace {
         applyingAutomatic = false
         normalizeSerialDigits()
         warmGeneratedBleed(); refreshModified()
-        zoomFactor = 0; zoomAction += 1
     }
 }
 
