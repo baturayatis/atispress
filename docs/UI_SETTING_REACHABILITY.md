@@ -21,3 +21,21 @@ Yeniden tasarımdan önceki editörlerin kaynakta kullanılan ayar/bağlantı an
 Toplam: 257 editör/anahtar kaydı. Aynı anahtar birden fazla editörde görünebilir. `WorkflowCardTests` kaynak bağlarını ve editör erişim grafiğini bu sabit envantere karşı denetler. Koşullu kapak, cilt, seri türü ve iş seçenekleri ilgili ürün/iş seçildikten sonra açılır.
 
 Kaldırılan kalıcı arama/mod ortamı ve pencere açma eylemi üretim ayarı değildir; `inspectorSearchEnabled`, `inspectorSection`, `openWindow` bu üretim ayarı envanterine dahil edilmez.
+
+## Yön ve önizleme gezinmesi
+
+Üretim ayarlarının 257 kaydı korunur. `sheet.orientation` artık doğrudan
+**Kart 2 → Yön** içindedir; ayrıntılarda ikinci bir Yön kontrolü yoktur.
+
+| Anahtar / eylem | Önizleme araç çubuğu | Görünüm menüsü / klavye |
+| --- | --- | --- |
+| `project.allSheetsPreview` | Görünüm: Tüm yüzler / Tek yüz | Görünüm seçimi |
+| `side` | Ön / Arka | Ön yüz / Arka yüz |
+| `zoomAction`, `zoomFactor` | Uzaklaştır / Sığdır / Yakınlaştır | Aynı eylemler; ⌘− / ⌘0 / ⌘+ |
+| `sheetIndex`, `repetition` | Tek yüzde ◀ / ▶ ve Tabaka N / M; soldaki tabaka listesi | Önceki / Sonraki tabaka; tek yüzde ← / → |
+| Yüz konumu | Tüm yüzlerde dikey kaydırma | Önizleme odaktayken ↑ / ↓ ve PageUp / PageDown |
+
+`SidePreviewTests` araç çubuğu ve menü erişimini, gerçek AppKit kaydırma
+konumunu, Ön/Arka ve tabaka seçimi eşleşmesini, uyarıdan ilgili yüze gitmeyi,
+1.200 yüzün yalnız görünür bloklarla çizilmesini ve 100.000 tekrarın kompakt
+geometrisini denetler. Önceki envanter ve testler değiştirilmemiştir.

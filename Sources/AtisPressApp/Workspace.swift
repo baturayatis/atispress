@@ -1477,8 +1477,36 @@ extension Workspace {
     func selectWorkflowSheet(_ chip:String) {
         if chip == "Otomatik" { returnToAutomaticSheet(); return }
         markManual(.sheetSize)
-        if let preset = WorkflowPresentation.sheetPresets[chip] { sheetPreset = chip; project.sheet.size = preset.size }
-        else { sheetPreset = "Özel" }
+        if let preset = WorkflowPresentation.sheetPresets[chip] {
+            sheetPreset = chip
+            var next = project
+            next.sheet.size = preset.size
+            if workflowOrientation == .auto { next.sheet.orientation = .auto }
+            applyingAutomatic = true; project = next; applyingAutomatic = false
+            schedulePlan()
+        }
+        else {
+            sheetPreset = "Özel"
+            if workflowOrientation == .auto { selectWorkflowOrientation(.auto) }
+        }
+    }
+    /// Resolved automatic geometry is not a manual orientation choice.
+    var workflowOrientation:Orientation {
+        (project.autoLayout ?? .legacy).isFixed(.orientation) ? project.sheet.orientation : .auto
+    }
+    func selectWorkflowOrientation(_ orientation:Orientation) {
+        var next = project
+        var state = next.autoLayout ?? .legacy
+        state.presetFields?.remove(.orientation)
+        if orientation == .auto { state.manualFields.remove(.orientation); state.automaticFields.insert(.orientation) }
+        else { state.manualFields.insert(.orientation); state.automaticFields.remove(.orientation) }
+        next.autoLayout = state; next.sheet.orientation = orientation
+        applyingAutomatic = true; project = next; applyingAutomatic = false
+        schedulePlan()
+    }
+    var workflowOrientationSummary:String {
+        let size = currentSheet?.size ?? project.sheet.size
+        return "Seçili: \(size.width > size.height ? "Yatay" : "Dikey") · \(size.width.formatted(.number.precision(.fractionLength(0...1)))) × \(size.height.formatted(.number.precision(.fractionLength(0...1)))) mm"
     }
     var workflowWaste:WasteSettings {
         get { selectedGangJob?.waste ?? project.stepAndRepeat.waste ?? WasteSettings() }
@@ -1537,5 +1565,36 @@ extension Workspace {
             else { project.settings.bleed = newValue }
             overlays.bleed = true
         }
+    }
+}
+
+extension Workspace {
+    var previewGeometry:SideScrollGeometry {
+        SideScrollGeometry(heights:displaySheets.map { $0.size.height*PDFPreviewDrawing.pointsPerMM+110 },
+                           repetitions:displaySheets.map { max(1,$0.repeatCount) },backs:displaySheets.map { $0.hasContent(on:.back) })
+    }
+    var showsAllSides:Bool {
+        get { project.allSheetsPreview ?? (previewGeometry.blockCount>1) }
+        set { project.allSheetsPreview = newValue }
+    }
+    func selectPreviewLocation(_ location:PreviewSheetLocation) {
+        if sheetIndex != location.sheet { sheetIndex = location.sheet }
+        if repetition != location.repetition { repetition = location.repetition }
+        if side != location.side { side = location.side }
+    }
+    func selectPreviewSheet(_ index:Int) {
+        selectPreviewLocation(PreviewSheetLocation(sheet:index,repetition:0))
+    }
+    func movePreviewSheet(_ delta:Int) {
+        let geometry = SheetScrollGeometry(heights:displaySheets.map { _ in 1 },repetitions:displaySheets.map { max(1,$0.repeatCount) })
+        guard !geometry.heights.isEmpty else { return }
+        var next = geometry.next(PreviewSheetLocation(sheet:sheetIndex,repetition:repetition),delta:delta)
+        next.side = side
+        selectPreviewLocation(next)
+    }
+    var previewSheetPosition:String {
+        let geometry = previewGeometry
+        guard geometry.heights.indices.contains(sheetIndex) else { return "Tabaka 0 / 0" }
+        return "Tabaka \(geometry.firstNumbers[sheetIndex]+repetition+1) / \(geometry.repetitions.reduce(0,+))"
     }
 }

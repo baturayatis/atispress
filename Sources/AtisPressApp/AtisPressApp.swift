@@ -80,6 +80,19 @@ struct AtisPressApp: App {
                 Button("Geri Al") { workspace.undoEdit() }.keyboardShortcut("z").disabled((!workspace.canUndo && !(NSApp?.keyWindow?.firstResponder is NSTextView)) || workspace.loading || workspace.autoArranging || workspace.exporting)
                 Button("Yinele") { workspace.redoEdit() }.keyboardShortcut("z",modifiers:[.command,.shift]).disabled(!workspace.canRedo || workspace.loading || workspace.autoArranging || workspace.exporting)
             }
+            CommandGroup(after:.toolbar) {
+                Picker("Görünüm",selection:Binding(get:{ workspace.showsAllSides },set:{ workspace.showsAllSides = $0 })) {
+                    Text("Tüm yüzler").tag(true); Text("Tek yüz").tag(false)
+                }
+                Button("Ön yüz") { workspace.side = .front }
+                Button("Arka yüz") { workspace.side = .back }
+                Button("Önceki tabaka") { workspace.movePreviewSheet(-1) }
+                Button("Sonraki tabaka") { workspace.movePreviewSheet(1) }
+                Divider()
+                Button("Sığdır") { workspace.zoomFactor = 0; workspace.zoomAction += 1 }.keyboardShortcut("0")
+                Button("Yakınlaştır") { workspace.zoomFactor = 1.25; workspace.zoomAction += 1 }.keyboardShortcut("+")
+                Button("Uzaklaştır") { workspace.zoomFactor = 1/1.25; workspace.zoomAction += 1 }.keyboardShortcut("-")
+            }
             CommandMenu("Fiyatlar") {
                 Button("Fiyatlar…") { openWindow(id:"prices") }
                 Button("İş maliyeti…") { openWindow(id:"costing") }

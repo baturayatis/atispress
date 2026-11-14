@@ -14,6 +14,7 @@ struct PreviewCanvas: NSViewRepresentable {
     let zoomAction: Int
     let zoomFactor: CGFloat
     var focusArea:WorkflowFocus? = nil
+    var moveSheet:((Int)->Void)? = nil
     var repetition: Int = 0
     var selectedSerial: UUID? = nil
     var selectSerial: ((UUID) -> Void)? = nil
@@ -25,6 +26,7 @@ struct PreviewCanvas: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = PreviewScrollView()
+        scroll.moveSheet = moveSheet
         scroll.contentView = CenteredClipView()
         scroll.hasHorizontalScroller = true; scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true; scroll.allowsMagnification = true
@@ -37,6 +39,7 @@ struct PreviewCanvas: NSViewRepresentable {
         return scroll
     }
     func updateNSView(_ scroll: NSScrollView,context: Context) {
+        (scroll as? PreviewScrollView)?.moveSheet = moveSheet
         guard let canvas = scroll.documentView as? SheetCanvasView else { return }
         let sizeChanged = canvas.sheet?.size != sheet.size || canvas.sheet?.diagnosticBounds != sheet.diagnosticBounds
         update(canvas)
@@ -55,6 +58,17 @@ struct PreviewCanvas: NSViewRepresentable {
 }
 
 final class PreviewScrollView: NSScrollView {
+    var moveSheet:((Int)->Void)?
+    override var acceptsFirstResponder:Bool { true }
+    override func keyDown(with event:NSEvent) {
+        switch event.keyCode { case 123: moveSheet?(-1); case 124: moveSheet?(1); default: super.keyDown(with:event) }
+    }
+    override func scrollWheel(with event:NSEvent) {
+        if event.modifierFlags.contains(.command) {
+            setMagnification(min(maxMagnification,max(minMagnification,magnification*exp(-event.scrollingDeltaY*0.01))),centeredAt:documentVisibleRect.origin)
+        } else { super.scrollWheel(with:event) }
+    }
+
     private var fitRequested = true
     func requestFit() { fitRequested = true; needsLayout = true }
     override func layout() {
@@ -301,7 +315,7 @@ final class SheetCanvasView: NSView {
         }
     }
     override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
+        window?.makeFirstResponder(enclosingScrollView ?? self)
         let viewPoint = convert(event.locationInWindow,from: nil)
         let point = CGPoint(x: (viewPoint.x-originX)/pointsPerMM,y: (viewPoint.y-originY)/pointsPerMM)
         if let sheet {

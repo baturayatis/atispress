@@ -2230,3 +2230,58 @@ PDF yüklü ana görünüm ve aynı sütunda maliyet açılımı masaüstünde k
 Universal release paketi `dist/AtışPress.app` oluşturuldu; iki mimari ve ad-hoc
 imza doğrulandı. Sandbox LaunchServices kaydını engelledi; bu mevcut paketleme
 sınırı kaynak uygulamayı veya testleri etkilemez. Push yapılmadı.
+## Yön ve tüm yüzlerin kaydırılabilir önizlemesi
+
+**Hangi kâğıda basılacak? → Yön**, tabaka düğmelerinin hemen altındadır:
+Otomatik / Yatay / Dikey, sayfa simgeleri, otomatik/manuel rozeti, sıfırlama ve
+seçilen tabakanın gerçek ölçüsüyle gösterilir. Yön değişimi mevcut planlayıcıyı
+çalıştırır; ayrıntılarda ikinci bir Yön kontrolü yoktur.
+
+85,7×54 mm kart, Dijital, 33×48 ve kesim işaretleri açık örneği için düzeltmeden
+**önce başarısız test** yazıldı: 25 kopya, Dikey 330×480 mm, ürün dönüşü 90°.
+Kök neden, otomatik düzenlemenin çözdüğü `sheet.orientation = portrait`
+değerinin, yön hâlâ otomatik sahiplikteyken tabaka düğmesi tarafından yeni
+ölçüye taşınmasıydı. Planlayıcı bu değeri sabit yön olarak okuyordu.
+Tabaka seçimi artık otomatik sahiplikte `.auto` niyetini korur. İki yönde de
+5×5 = 25 kopya olduğunda mevcut 0° eşitlik kuralı Yatay 480×330 mm seçer.
+Elle seçilmiş yön korunur. Yeni projeler Otomatik başlar; önerinin kullandığı
+`SmartAutoLayout` ile doğrudan planlayıcının aynı durumda aynı 0° sonucu
+verdiği de test edilir. Planlayıcı ve PDF çizim motoru değiştirilmemiştir.
+
+Önizlemede **Görünüm: Tüm yüzler / Tek yüz** bulunur. Açık bir proje tercihi
+yoksa birden çok baskı yüzü (tek çift yüzlü tabaka dahil) Tüm yüzler ile açılır.
+Akış fiziksel tabaka sırasındadır: Tabaka 1 Ön, Tabaka 1 Arka, Tabaka 2 Ön,
+Tabaka 2 Arka… İçeriği olmayan arka yüz atlanır ve “Arka yüz yok” notu çıkar;
+cilt planının baskı için zorunlu tuttuğu boş arka yüzler korunur. Arka yüzün
+hizalaması/çevirme dönüşü mevcut baskı planından aynen çizilir.
+
+Ön/Arka seçimi ilgili bloğa, soldaki tabaka seçimi o tabakanın ön yüzüne gider.
+Kaydırma seçili yüzü ve tabakayı günceller. Önizleme odaktayken ↑/↓ veya
+PageUp/PageDown yüzler arasında ilerler; Tek yüzde ◀/▶ veya ←/→ tabakalar
+arasında ilerler. Tek yüz görünümünde “Tabaka N / M” fiziksel tekrarları da
+sayar. Trackpad kıstırma, ⌘+tekerlek ve yakınlaştırma düğmeleri bütün akışı
+ölçekler. Görünüm menüsünde aynı kontroller ve ⌘0 / ⌘+ / ⌘− vardır.
+
+`project.allSheetsPreview` mevcut `.atispress` alanı kullanılır; eksik değer
+yüz sayısına göre otomatik seçimdir, kayıtlı açık/kapalı değerler korunur.
+Yeni veri alanı gerekmediğinden şema **18** kalır; eski projeler açılır.
+
+```sh
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+swift test --disable-sandbox --filter 'OrientationIntentTests|SidePreviewTests'
+./scripts/build_app.sh
+open dist/AtışPress.app
+```
+
+Kontroller: önceki testler ve ayar erişim envanteri, gerçek AppKit yüz/tabaka
+senkronizasyonu, yön değişiminden sonra önizleme, otomatik/manuel ayarların
+kodlama turu, 1.200 yüzün görünür bloklarla çizimi, 100.000 tekrar geometrisi,
+kaydedilmiş projenin plan/PDF piksel eşitliği ve yeniden kaydet/aç.
+Açık/koyu minimum boyut görüntüleri `.build/WorkflowQA/sides-light.png` ve
+`sides-dark.png` dosyalarına yazılır. Fiziksel trackpad hareketi ve gerçek
+matbaa çevirme provası otomatik test kapsamında değildir.
+
+Son doğrulama: **303 XCTest, sıfır hata** (124 çekirdek, 60 PDF, 119 uygulama).
+Universal arm64/x86_64 uygulama ve ad-hoc imza doğrulanır. Sandbox içinde
+LaunchServices kaydı yapılamaz; bu durum derlenen uygulama paketini etkilemez.

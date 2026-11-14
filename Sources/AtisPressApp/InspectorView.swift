@@ -94,6 +94,10 @@ struct InspectorView: View {
                     }.buttonStyle(.plain).accessibilityLabel("Tabaka \(chip)").accessibilityAddTraits(model.selectedWorkflowChip == chip ? .isSelected : [])
                 }
             }
+            OrientationPicker("Yön",selection:Binding(get:{ (model.project.autoLayout ?? .legacy).isFixed(.orientation) ? model.project.sheet.orientation : .auto },set:model.selectWorkflowOrientation))
+            AutomaticPill(model:model,field:.orientation)
+            Text("Yatay: tabaka geniş durur. Dikey: tabaka uzun durur.").font(.caption).foregroundStyle(DesignSystem.muted)
+            Text(model.workflowOrientationSummary).font(.caption).foregroundStyle(DesignSystem.muted)
             if model.sheetPreset == "Özel" {
                 measurement("Genişlik",$model.project.sheet.size.width,autoField:.sheetSize,range:20...3000)
                 measurement("Yükseklik",$model.project.sheet.size.height,autoField:.sheetSize,range:20...3000)
@@ -181,9 +185,6 @@ struct InspectorView: View {
                         }
                     }
                 }
-            }
-            Picker("Önizleme kapsamı",selection:Binding(get:{ model.project.allSheetsPreview ?? false },set:{ model.project.allSheetsPreview = $0 })) {
-                Text("Tek tabaka").tag(false); Text("Tüm tabakalar").tag(true)
             }
             ExportMarksView(model:model,inline:true)
             overlayControls
@@ -274,11 +275,6 @@ struct InspectorView: View {
                             measurement("Genişlik",$model.project.sheet.size.width,autoField: .sheetSize,range: 20...3000)
                             measurement("Yükseklik",$model.project.sheet.size.height,autoField: .sheetSize,range: 20...3000)
                         }
-                        Picker(model.autoLabel("Yön",.orientation),selection: model.autoBinding($model.project.sheet.orientation,.orientation)) {
-                            Text("Otomatik").tag(Orientation.auto)
-                            Text("Dikey").tag(Orientation.portrait)
-                            Text("Yatay").tag(Orientation.landscape)
-                        }.automaticReset(model,.orientation)
                     }.padding(5)
                 }
     }
@@ -457,5 +453,15 @@ struct InspectorView: View {
             if let autoField { AutomaticPill(model:model,field:autoField) }
         }.simultaneousGesture(TapGesture().onEnded { model.ui.focusedArea = autoField.flatMap(WorkflowPresentation.focus) })
             .inspectorSetting(model,title,autoField.map(SettingGuidance.detail) ?? "Ölçülmüş değeri girin. Birim: alan etiketindeki mm veya yüzde. Örnek: değişiklik mevcut önizlemeye yansır.")
+    }
+}
+
+/// Shared workflow control, presented in the preview toolbar rather than details.
+struct PreviewScopePicker:View {
+    @ObservedObject var model:Workspace
+    var body:some View {
+        Picker("Görünüm",selection:Binding(get:{ model.project.allSheetsPreview ?? model.showsAllSides },set:{ model.showsAllSides = $0 })) {
+            Text("Tüm yüzler").tag(true); Text("Tek yüz").tag(false)
+        }.pickerStyle(.segmented).frame(maxWidth:240)
     }
 }
