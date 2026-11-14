@@ -19,6 +19,11 @@ agent environment), use `swift build --disable-sandbox` and
 
 ## Kurulum
 
+Güncel uygulama sürümü **0.2.0 (build 2)**. Sürüm kaynağı
+`packaging/Info.plist`; Hakkında, tanı bilgisi ve güncelleme karşılaştırması
+aynı paket sürümünü kullanır. `swift run` için de 0.2.0 / 2 yedeği bulunur.
+Proje dosyası şeması bağımsızdır ve **18** olarak kalır.
+
 **macOS 14 veya üzeri** gerekir. Intel ve Apple Silicon Mac’ler aynı universal
 uygulamayı kullanır.
 
@@ -68,7 +73,7 @@ mimari, yapılandırma ve ürün seçeneklerini değiştirmeyin.
 
 `make_dmg.sh`, uygulamayı ve `/Applications` hedefli sembolik bağlantıyı **AtışPress**
 adlı HFS+ birimine koyar. `UDZO` sıkıştırmalı dosya adı ASCII’dir:
-`dist/AtisPress-0.1.0.dmg`. Sürüm, uygulamanın `Info.plist` dosyasındaki
+`dist/AtisPress-0.2.0.dmg`. Sürüm, uygulamanın `Info.plist` dosyasındaki
 `CFBundleShortVersionString` değeridir; kaynağı `packaging/Info.plist` içindedir.
 Buradaki pazarlama sürümü ve build numarası `.atispress` proje şemasından bağımsızdır.
 Betik `hdiutil create` ile HFS+/UDZO görüntüsünü oluşturur, `hdiutil verify`
@@ -80,12 +85,12 @@ Elle kontrol:
 
 ```sh
 lipo -info "dist/AtışPress.app/Contents/MacOS/AtisPressApp"
-hdiutil verify dist/AtisPress-0.1.0.dmg
-hdiutil attach -readonly -nobrowse dist/AtisPress-0.1.0.dmg
+hdiutil verify dist/AtisPress-0.2.0.dmg
+hdiutil attach -readonly -nobrowse dist/AtisPress-0.2.0.dmg
 ls -ld "/Volumes/AtışPress/AtışPress.app" "/Volumes/AtışPress/Applications"
 readlink "/Volumes/AtışPress/Applications"
 hdiutil detach "/Volumes/AtışPress"
-shasum -a 256 dist/AtisPress-0.1.0.dmg
+shasum -a 256 dist/AtisPress-0.2.0.dmg
 ```
 
 Disk aygıtlarına erişimi olmayan sandbox’larda `hdiutil` oluşturma/bağlama
@@ -115,7 +120,7 @@ korunur. `.atispress` UTI’si **com.atispress.project** olarak kalır. İkon i�
 derleyin. Betikler Gatekeeper ayarlarını veya karantina özniteliklerini değiştirmez.
 LaunchServices kaydı sandbox’ta engellenebilir; bu durum paket üretimini engellemez.
 
-### Paketleme doğrulaması
+### Paketleme doğrulaması (0.1.0 geçmişi)
 
 Mevcut **272 XCTest** değişmeden geçti. Universal release uygulamasında ve
 DMG içindeki uygulamada `lipo` ile `arm64` / `x86_64`, ayrıca strict ad-hoc imza
@@ -2471,3 +2476,26 @@ Universal `dist/AtışPress.app` güncel kaynaklarla oluşturuldu; arm64/x86_64,
 ad-hoc imza ve paket içindeki `LICENSE.txt` doğrulandı. Açık/koyu yüklü minimum
 pencere görselleri incelendi. Planlayıcı ve PDF motoru dosyalarında değişiklik
 yoktur; çalışma çevrimdışı tamamlandı, push yapılmadı.
+
+## 0.2.0 sürüm derlemesi
+
+`CFBundleShortVersionString = 0.2.0`, `CFBundleVersion = 2`.
+`build_app.sh` bu değerleri kaynak plist'ten kopyalar ve gösterir;
+`make_dmg.sh --skip-build` eski sürüm/build içeren uygulamayı paketlemeyi reddeder.
+Hakkında penceresi **AtışPress · 0.2.0 (2)** gösterir. Güncelleme karşılaştırmasında
+0.2.0 ve daha eski etiketler güncel, 0.2.1 ve sonrası yeni sürümdür.
+
+```sh
+swift test --disable-sandbox
+./scripts/build_app.sh
+./scripts/make_dmg.sh --skip-build
+```
+
+0.2.0 doğrulaması: **326 XCTest, sıfır hata** (124 çekirdek, 60 PDF, 142 uygulama).
+Sürüm testi hem plist'i hem paket dışı sürüm/build yedeğini ve 0.2.0/0.2.1
+karşılaştırmasını denetler. Universal `dist/AtışPress.app` yeniden oluşturuldu;
+**0.2.0 / build 2**, arm64/x86_64, strict ad-hoc imza ve güncel lisans doğrulandı.
+Betiklerin Bash sözdizimi kontrolü geçti. DMG betiği 0.2.0 / 2 değerlerini
+okudu, ancak bu sandbox'ta `hdiutil create` **Aygıt ayarlanmamış** hatası verdi;
+`AtisPress-0.2.0.dmg` üretilemedi. DMG için betiği normal macOS Terminal'de
+çalıştırın. Ağ/noter hizmeti kullanılmadı, push yapılmadı.

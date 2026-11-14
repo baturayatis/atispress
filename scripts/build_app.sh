@@ -23,7 +23,12 @@ for arch in arm64 x86_64; do
     xcrun lipo "$bundle/Contents/MacOS/AtisPressApp" -verify_arch "$arch"
 done
 xcrun lipo -info "$bundle/Contents/MacOS/AtisPressApp"
+# Release metadata has one packaging source; About and updates read the bundle.
 cp packaging/Info.plist "$bundle/Contents/Info.plist"
+version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' packaging/Info.plist)
+build_number=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' packaging/Info.plist)
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$build_number" =~ ^[0-9]+$ ]] || { echo "Geçersiz sürüm veya build numarası." >&2; exit 1; }
+printf 'Sürüm: %s · Build: %s\n' "$version" "$build_number"
 cp LICENSE "$bundle/Contents/Resources/LICENSE.txt"
 printf 'APPL????' > "$bundle/Contents/PkgInfo"
 

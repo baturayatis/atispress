@@ -20,6 +20,11 @@ if [[ "$skip_build" == 0 ]]; then ./scripts/build_app.sh; fi
 app_path="$repo_dir/dist/AtışPress.app"
 [[ -d "$app_path" ]] || { echo "Önce scripts/build_app.sh çalıştırın." >&2; exit 1; }
 version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_path/Contents/Info.plist")
+build_number=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_path/Contents/Info.plist")
+source_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' packaging/Info.plist)
+source_build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' packaging/Info.plist)
+[[ "$version" == "$source_version" && "$build_number" == "$source_build" ]] || { echo "Uygulama sürümü kaynakla eşleşmiyor; önce scripts/build_app.sh çalıştırın." >&2; exit 1; }
+printf 'Paketlenen sürüm: %s · Build: %s\n' "$version" "$build_number"
 # Keep the downloadable filename ASCII and disallow path components.
 [[ "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]] || { echo "Geçersiz uygulama sürümü: $version" >&2; exit 1; }
 dmg_path="$repo_dir/dist/AtisPress-$version.dmg"

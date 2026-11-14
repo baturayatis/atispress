@@ -154,3 +154,22 @@ extension PresentationReviewTests {
         for field in fields { XCTAssertFalse(m.isManual(field)) }
     }
 }
+
+extension PresentationReviewTests {
+    func testRelease020MetadataAndUpdateComparisonStayAligned() throws {
+        let root = URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf:root.appendingPathComponent("packaging/Info.plist"))
+        let plist = try XCTUnwrap(PropertyListSerialization.propertyList(from:data,format:nil) as? [String:Any])
+        XCTAssertEqual(plist["CFBundleShortVersionString"] as? String,"0.2.0")
+        XCTAssertEqual(plist["CFBundleVersion"] as? String,"2")
+        XCTAssertEqual(AppHelp.version,"0.2.0"); XCTAssertEqual(AppHelp.buildNumber,"2")
+        XCTAssertFalse(try AppHelp.updateAvailable(data:Data(#"{"tag_name":"v0.2.0"}"#.utf8)))
+        XCTAssertFalse(try AppHelp.updateAvailable(data:Data(#"{"tag_name":"v0.1.0"}"#.utf8)))
+        XCTAssertTrue(try AppHelp.updateAvailable(data:Data(#"{"tag_name":"v0.2.1"}"#.utf8)))
+        for name in ["build_app.sh","make_dmg.sh"] {
+            let script = try String(contentsOf:root.appendingPathComponent("scripts/"+name),encoding:.utf8)
+            XCTAssertTrue(script.contains("packaging/Info.plist"))
+            XCTAssertTrue(script.contains("CFBundleShortVersionString")); XCTAssertTrue(script.contains("CFBundleVersion"))
+        }
+    }
+}

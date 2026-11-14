@@ -32,10 +32,13 @@ struct ReleaseVersion:Comparable {
 }
 enum AppHelp {
     static let releases = URL(string:"https://github.com/baturayatis/atispress/releases")!
-    static var version:String { Bundle.main.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "0.1.0" }
+    // Test runners and swift run have their own main bundle; never report its tool version.
+    private static var appBundle:Bundle? { Bundle.main.bundleIdentifier == "com.atisajans.atispress" ? .main : nil }
+    static var version:String { appBundle?.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "0.2.0" }
+    static var buildNumber:String { appBundle?.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "2" }
     static let licenseName = "Atış Ajans Kullanım Lisansı (taslak)"
     struct Release:Decodable { let tag_name:String }
-    static func updateAvailable(data:Data,current:String) throws -> Bool {
+    static func updateAvailable(data:Data,current:String = version) throws -> Bool {
         let release = try JSONDecoder().decode(Release.self,from:data)
         guard let latest = ReleaseVersion(release.tag_name),let installed = ReleaseVersion(current) else { throw CocoaError(.coderReadCorrupt) }
         return latest>installed
@@ -73,7 +76,7 @@ struct HelpPanel:View {
                 Text("Açıklamanızı ve tanı bilgisini GitHub hata kaydına kendiniz ekleyebilirsiniz.").font(.caption)
                 Link("Hata kayıtlarını aç",destination:URL(string:"https://github.com/baturayatis/atispress/issues")!)
             } else if mode == "AtışPress Hakkında" {
-                Text("AtışPress · \(AppHelp.version)")
+                Text("AtışPress · \(AppHelp.version) (\(AppHelp.buildNumber))")
                 Text(AppHelp.licenseName)
                 Text("© 2026 Atış Ajans · Tüm hakları saklıdır.")
                 Text("Lisans taslağı, uygulama satılmadan önce bir avukat tarafından incelenmelidir.").font(.caption)
