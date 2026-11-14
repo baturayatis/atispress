@@ -13,8 +13,8 @@ struct BookInspectorView: View {
                     Button("Kitap ayarlarını aç",action:model.enableBookSettings)
                 } else {
                     coverControls
-                    PaperCaliperEditor(title:"İç kâğıt",paper:book.interiorPaper)
-                    PaperCaliperEditor(title:"Kapak kâğıdı",paper:book.coverPaper)
+                    PaperCaliperEditor(model:model,title:"İç kâğıt",paper:book.interiorPaper)
+                    PaperCaliperEditor(model:model,title:"Kapak kâğıdı",paper:book.coverPaper)
                     if model.project.binding == .perfectBound { spineControls }
                     if model.project.binding == .saddleStitch || model.bookSettings.creepEnabled { creepControls }
                     if let info { Text(info.summary).font(.caption).textSelection(.enabled) }
@@ -35,7 +35,7 @@ struct BookInspectorView: View {
                 Text("İç sayfalara dahil").tag(CoverMode.included)
                 Text("Hariç — ayrı bas").tag(CoverMode.excluded)
                 Text("Ayrı PDF").tag(CoverMode.separate)
-            }
+            }.inspectorSetting(model,"Kapak modu",SettingGuidance.detail("Kapak modu"))
             if model.project.coverMode == .included {
                 Text("İlk iki / son iki sayfa otomatik kapaktır. Seçilen kapak yüzleri iç bloktan ayrılır ve bağımsız basılır.").font(.caption).foregroundStyle(.secondary)
             }
@@ -47,7 +47,7 @@ struct BookInspectorView: View {
                 Picker("PDF biçimi",selection:book.coverArtwork) {
                     Text("Tek tek kapak yüzleri").tag(BookSettings.CoverArtwork.panels)
                     Text("Hazır açılım (dış / iç)").tag(BookSettings.CoverArtwork.spread)
-                }
+                }.inspectorSetting(model,"PDF biçimi",SettingGuidance.detail("PDF biçimi"))
             }
             if model.project.coverMode == .separate && model.bookSettings.coverArtwork == .spread {
                 pagePicker("Dış açılım",\.front)
@@ -97,18 +97,19 @@ struct BookInspectorView: View {
     }
     private var creepControls: some View {
         VStack(alignment:.leading,spacing:7) {
-            Toggle("Creep açık",isOn:book.creepEnabled)
+            Toggle("Creep açık",isOn:book.creepEnabled).inspectorSetting(model,"Creep açık",SettingGuidance.detail("Creep açık"))
             if model.bookSettings.creepEnabled && (model.bookSettings.interiorPaper.millimetres == nil || model.bookSettings.coverPaper.millimetres == nil) { Text("En çok kaydırma: hesaplanamadı").font(.caption).foregroundStyle(.orange) }
             else { Text("En çok kaydırma: \(info?.maximumCreep ?? 0,specifier:"%.3f") mm").font(.caption) }
             Text("Basit doğrusal yaklaşım: iç yaprak i için kapak kalınlığı + i × iç kâğıt kalınlığı. Kapak kaydırılmaz; iç artwork kat yerine doğru kayar. Fiziksel katlama / kesim testiyle doğrulayın.").font(.caption).foregroundStyle(.secondary)
         }
     }
     private func measure(_ title: String,_ binding: Binding<Double>) -> some View {
-        HStack { Text(title); Spacer(); TextField(title,value:binding,format:.number).frame(width:80) }
+        HStack { Text(title); Spacer(); TextField(title,value:binding,format:.number).frame(width:80) }.inspectorSetting(model,title,SettingGuidance.detail(title))
     }
 }
 
 private struct PaperCaliperEditor: View {
+    @ObservedObject var model:Workspace
     let title: String
     @Binding var paper: PaperCaliper
     var body: some View {
@@ -117,7 +118,7 @@ private struct PaperCaliperEditor: View {
             Picker("Kalınlık girişi",selection:$paper.input) {
                 Text("Mikron (µm)").tag(PaperCaliper.Input.microns)
                 Text("Gramaj × cilt katsayısı").tag(PaperCaliper.Input.grammage)
-            }
+            }.inspectorSetting(model,"Kalınlık girişi",SettingGuidance.detail("Kalınlık girişi"))
             if paper.input == .microns { optional("Kalınlık (µm)",$paper.microns) }
             else {
                 optional("Gramaj (g/m²)",$paper.grammage)
@@ -128,6 +129,6 @@ private struct PaperCaliperEditor: View {
         }
     }
     private func optional(_ title: String,_ binding: Binding<Double?>) -> some View {
-        HStack { Text(title); Spacer(); TextField("Girilmedi",value:binding,format:.number).frame(width:85) }
+        HStack { Text(title); Spacer(); TextField("Girilmedi",value:binding,format:.number).frame(width:85) }.inspectorSetting(model,title,SettingGuidance.detail(title))
     }
 }

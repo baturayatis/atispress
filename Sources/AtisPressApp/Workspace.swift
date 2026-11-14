@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import PDFEngine
 import ImpositionCore
 import UniformTypeIdentifiers
@@ -7,6 +8,9 @@ typealias PreviewOverlays = PDFRenderOptions
 
 @MainActor
 final class Workspace: ObservableObject {
+    let ui: UsabilitySettings
+    private var uiSubscription: AnyCancellable?
+    @Published var preparingExport = false
     @Published var rescalePrompt: RescalePrompt?
     var pendingScalePrompts: [RescalePrompt] = []
     static let automaticSheetTitle = "Otomatik (ürüne göre)"
@@ -130,13 +134,15 @@ final class Workspace: ObservableObject {
     private let filePicker: FilePicker?
     @Published private(set) var recentFiles: [RecentFile] = []
     init(bookmarkCreator: @escaping (URL) throws -> Data = ProjectSource.securityBookmark,
-         recentStore: RecentFilesStore? = nil,filePicker: FilePicker? = nil) {
+         recentStore: RecentFilesStore? = nil,filePicker: FilePicker? = nil,uiDefaults:UserDefaults = .standard) {
+        self.ui = UsabilitySettings(defaults:uiDefaults)
         self.bookmarkCreator = bookmarkCreator
         self.recentStore = recentStore ?? RecentFilesStore()
         self.filePicker = filePicker
         recentFiles = self.recentStore.files()
         savedState = state
         journal.reset(editSnapshot)
+        uiSubscription = ui.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }
     }
     @Published var loading = false
     @Published var planning = false
@@ -436,8 +442,11 @@ final class Workspace: ObservableObject {
         }
     }
     func reveal(_ issue: ValidationIssue) {
-        guard let ref = issue.slot else { return }
-        sheetIndex = ref.sheet; side = ref.side
+        if let ref = issue.slot ?? issue.affectedSlots.first {
+            sheetIndex = max(0,min(ref.sheet,max(0,displaySheets.count-1))); side = ref.side; repetition = 0
+        } else {
+            ui.reveal(inspectorSection(for:issue))
+        }
     }
     func acceptDrop(_ providers: [NSItemProvider]) -> Bool {
         let files = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
@@ -1363,5 +1372,87 @@ extension Workspace {
         let panel = NSOpenPanel(); panel.title = "Hazır ayar paketi seçin"; panel.allowedContentTypes = [.atispresetpack]; panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK,let url = panel.url else { return }
         do { try importPresets(from:url) } catch { self.error = error.localizedDescription }
+    }
+}
+
+
+extension Workspace {
+    var productKind: ProductKind {
+        if let chosen = ui.productOverride(for:projectIdentifier),chosen.binding == project.binding { return chosen }
+        return ProductKind.detect(project)
+    }
+    var basicQuantity:Int? {
+        get {
+            if let job = selectedGangJob { return job.quantity }
+            return project.isBooklet || project.isLeafBinding ? project.costing?.copies : project.stepAndRepeat.quantity
+        }
+        set {
+            if let job = selectedGangJob { editGangJob(job.id) { $0.quantity = newValue ?? 0 } }
+            else if project.isBooklet || project.isLeafBinding { var cost = project.costing ?? JobCostSettings(); cost.copies = newValue; project.costing = cost }
+            else { project.stepAndRepeat.quantity = newValue }
+        }
+    }
+    func setProductKind(_ kind:ProductKind) { ui.setProduct(kind,for:projectIdentifier); setMode(kind.binding) }
+    func inspectorSection(for issue:ValidationIssue) -> InspectorSection {
+        switch issue.code {
+        case .missingBleed,.sharedCutBleed,.insufficientGutter: return .marks
+        case .serialNumbering: return .serial
+        case .bookSettings,.bindingAllowance,.unsupportedCover,.pageCountPadding: return .binding
+        case .exceedsSheet: return .sheet
+        default: return .product
+        }
+    }
+    func resetInspectorSection(_ section:InspectorSection) {
+        guard !loading,!exporting,!autoArranging else { return }
+        if section == .serial {
+            var fields = editableSerialFields
+            for i in fields.indices { fields[i].digitsAreManual = false }
+            editableSerialFields = fields; normalizeSerialDigits(); return
+        }
+        if section == .binding {
+            var next = project
+            if next.book != nil { next.book?.selection = CoverSelection() }
+            next.blankPlacement = nil
+            next.settings.signatureSize = .automatic
+            project = next; return
+        }
+        if section == .price {
+            guard var cost = project.costing else { return }
+            cost.paper?.override = nil; cost.printing?.override = nil
+            for i in cost.finishing.indices { cost.finishing[i].override = nil }
+            cost.margin = nil; cost.vat = nil; project.costing = cost; return
+        }
+        if section == .product { ui.setProduct(nil,for:projectIdentifier) }
+        let fields = section.fields
+        guard !fields.isEmpty else { return }
+        var next = project, state = project.autoLayout ?? .legacy
+        state.manualFields.subtract(fields); state.presetFields?.subtract(fields); state.automaticFields.formUnion(fields); state.summary = nil
+        if fields.contains(.sheetSize) { state.sheetSelection = .automatic }
+        if fields.contains(.columns) { next.stepAndRepeat.columns = nil }
+        if fields.contains(.rows) { next.stepAndRepeat.rows = nil }
+        if fields.contains(.gutter) { next.stepAndRepeat.arrangement = .adjacent }
+        next.autoLayout = state
+        applyingAutomatic = true; project = next; applyingAutomatic = false
+        autoArrange(resetOverrides:false,askRescale:false)
+    }
+    func sectionBadge(_ section:InspectorSection) -> String {
+        if section == .serial { return editableSerialFields.contains { $0.digitsAreManual } ? "Manuel" : "Otomatik" }
+        if section == .binding { return project.book != nil || project.leafBinding != nil || project.settings.signatureSize != .automatic ? "Manuel" : "Otomatik" }
+        if section == .price {
+            guard let cost = project.costing else { return "Otomatik" }
+            return cost.paper?.override != nil || cost.printing?.override != nil || cost.finishing.contains { $0.override != nil } || cost.margin != nil || cost.vat != nil ? "Manuel" : "Otomatik"
+        }
+        return section.fields.contains(where: { isManual($0) || project.autoLayout?.presetFields?.contains($0) == true }) ? "Manuel" : "Otomatik"
+    }
+    var statusSummary:String {
+        let copies = currentSheet?.repeatLayout?.copiesPerSheet ?? currentSheet?.front.slots.filter { $0.sourcePageNumber != nil }.count ?? 0
+        if project.isBooklet || project.isLeafBinding {
+            let label = project.isLeafBinding ? "yaprak/tabaka" : "sayfa/yüz"
+            let count = currentSheet?.leafInfo.map { $0.copiesPerSheet*$0.setsPerSheet } ?? copies
+            return "\(plan.totalPressSheets) tabaka · \(count) \(label) · Yayın adedi \(basicQuantity.map(String.init) ?? "girilmedi")"
+        }
+        if project.binding == .gang { return "\(plan.totalPressSheets) tabaka · \(copies) adet/tabaka · İş adedi \(basicQuantity.map(String.init) ?? "—")" }
+        let quantity = currentSheet?.producedQuantityDescription ?? "—"
+        return "\(plan.totalPressSheets) tabaka · \(copies) adet/tabaka · Üretim \(quantity) adet"
     }
 }

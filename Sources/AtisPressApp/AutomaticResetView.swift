@@ -14,10 +14,15 @@ struct AutomaticResetButton: View {
 private struct AutomaticResetModifier: ViewModifier {
     @ObservedObject var model: Workspace
     let field: AutoLayoutField
+    @Environment(\.inspectorSection) private var section
+    @Environment(\.inspectorSearchEnabled) private var searchEnabled
     func body(content: Content) -> some View {
-        HStack(alignment:.center,spacing:5) {
-            content
-            AutomaticResetButton(model:model,field:field)
+        if !searchEnabled || model.ui.matches(SettingGuidance.title(field),section:section) {
+            HStack(alignment:.center,spacing:5) {
+                content
+                SettingHelp(title:SettingGuidance.title(field),detail:SettingGuidance.detail(field))
+                AutomaticResetButton(model:model,field:field)
+            }
         }
     }
 }

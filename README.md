@@ -2132,3 +2132,92 @@ kaydet/aç kontrolleri kapsamda. Release paket ve imza doğrulandı; gerçek
 uygulamada altı işin birleşik satırı ve genel anahtar kontrol edildi.
 Sandbox LaunchServices kaydına izin vermedi; Finder çift tıklama entegrasyonu
 bu turda doğrulanmadı.
+
+
+## Kullanılabilirlik — Basit / Gelişmiş
+
+Araç çubuğundaki **Basit / Gelişmiş** seçimi uygulama tercihinde hatırlanır.
+Basit görünüm; ürün tipi, Dijital/Ofset, adet, ölçeklendirme, otomatik tabaka,
+taşma üretimi ve seri numarayı gösterir. Gelişmiş görünüm mevcut bütün ayarlara
+ulaşır. Görünüm değiştirmek, bölüm kapatmak veya aramak projeyi değiştirmez;
+automatik değerler ve daha önce elle girilmiş değerler korunur. Yalnız bir
+kontrolü değiştirmek veya **Otomatiğe döndür** seçmek üretim ayarını değiştirir.
+
+Ürün önerisi kaynak PDF’nin ölçüsü ve mevcut ciltleme üzerinden yapılır:
+standart kartvizitler Kartvizit, diğer düz işler Form; mevcut tel dikiş Broşür,
+katlı kitap ciltleri Kitap, yaprak ciltleri Spiral olarak gösterilir. PDF’nin
+semantik içeriği veya fiziksel cildi okunmaz. Açılışta yöntem değiştirilmez;
+ürün seçimini kullanıcı değiştirdiğinde mevcut yerleşim yöntemine geçilir.
+Kartvizit/Form aynı tekrarlı yöntemi kullanır; seçim proje kimliğine göre
+uygulama tercihinde hatırlanır. Kitap/yaprak için **Yayın adedi**, mevcut maliyet
+adedidir; PDF önceki tek yayın planını korur. Gang’da adet seçili işe aittir.
+
+Denetçi **Ürün**, **Tabaka**, **Kenarlar ve Maşa**, **Taşma ve İşaretler**,
+**Seri Numara**, **Kitap/Cilt**, **Fiyat** bölümlerine ayrılır. Açıklık durumları
+hatırlanır. **Ayar ara** Türkçe büyük/küçük harf ve aksan farklarına duyarsızdır;
+birden fazla sözcük birlikte aranır. Bölüm adı aranırsa bölümün tamamı görünür.
+Arama sırasında ilgili kapalı bölümler geçici açılır; saklanan açıklık değişmez.
+Alanların yanındaki **?**, ne yaptığını, mevcut seçimleri/ölçülmüş değer ihtiyacını
+ve bir örneği açıklar; makine veya fiyat değeri uydurulmaz.
+
+**Otomatiğe döndür** yalnız bölüm kapsamını hedefler. Yerleşim alanlarının
+Manuel/Hazır ayar sahipliği kaldırılır ve mevcut otomatik düzenleyici kullanılır.
+Seri bölümünde otomatik basamak hesabına dönülür; başlangıç ve içerik korunur.
+Kitap/Cilt bölümünde forma, kapak seçimi ve boş konumları otomatiğe döner;
+ölçülmüş kâğıt ve cilt payları korunur. Fiyat bölümünde işe özel fiyat kopyaları
+ve kâr/KDV istisnaları kaldırılıp bağlantılı kitaplık değerlerine dönülür;
+kitaplık, seçili fiyat kimlikleri, adet ve teklif içeriği korunur.
+
+Önizleme altındaki durum çubuğu tabaka sayısını, tabaka kapasitesini, üretim
+adedini ve uyarı/hata sayısını gösterir. Kitapta panel/yüz, yaprakta yaprak/tabaka
+etiketi kullanılır. Uyarı menüsü ve mevcut doğrulama listesi aynı gezinmeyi yapar:
+yuva referansı varsa tabaka/yüz seçilir; yoksa ilgili ayar bölümü açılır.
+
+**PDF’i Hazırla / Dışa Aktar** penceresi mevcut ayarları değiştirmeden açılır.
+Hazır seçime tıklamak yalnız mevcut `ExportMarks` bayraklarını değiştirir;
+çizgi rengi, kalınlığı, skala/diz ölçüleri, kaynak, adet ve kâğıt korunur.
+PDF/X veya renk dönüşümü eklenmez.
+
+| Hazır seçim | Açık işaretler |
+| --- | --- |
+| Matbaaya gönder | Kesim, katlama, bilgi şeridi, renk skalası, dizler |
+| Dijital baskı | Kesim |
+| Kontrol çıktısı | Kesim, katlama, taşma, güvenli alan, sayfa numaraları, bilgi şeridi |
+
+Üçünde de tam kesim çizgisi kapalıdır; tabloda olmayan görünürlük bayrakları
+kapalıdır. **İşaret ayrıntıları** bütün önceki seçenekleri açar; ardından mevcut
+tek PDF veya her tabakaya ayrı PDF kaydetme paneline geçilir.
+
+Kısayollar: **⌘1** Basit, **⌘2** Gelişmiş, **⌘F** Ayar ara, **⌘E** PDF hazırlama.
+Önceki **⇧⌘E** doğrudan tek PDF dışa aktarma ve bütün diğer kısayollar korunur.
+Boş çalışma alanında **PDF seç → Ayarları kontrol et → Dışa aktar** rehberi,
+PDF Seç / Proje Aç düğmeleri ve son dosyalar bulunur.
+
+Tercihler `UserDefaults` içinde `atispress.ui.*` anahtarlarında saklanır; arama
+metni ve geçici dışa aktarma penceresi saklanmaz. Proje şeması **18** kalır;
+eski proje açma, undo/redo, kurtarma ve PDF çizim yolu değişmez.
+
+Çalıştırma ve doğrulama:
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+swift test --disable-sandbox --filter UsabilityTests
+```
+
+Yeni testler görünüm/bölüm tercihlerinin kalıcılığını, Türkçe aramayı, gizli
+automatik/manuel değerlerin korunmasını, uyarı gezinmesini, kapsamlı bölüm
+sıfırlamasını, ürün tercihini ve üç çıktı bayrağı eşlemesini kapsar. Sabit bir
+2×2 tekrarlı planın kaynak sırası/kapasitesi ve render edilmiş PDF’si görünüm,
+arama ve kaydet/aç boyunca aynı kalır. Masaüstünde boş durum, modun yeniden
+açılışta hatırlanması, kısayollar, maşa araması, uyarıdan bölüme kaydırma ve
+PDF hazırlamadan mevcut kaydetme paneline geçiş doğrulandı.
+
+Son doğrulama: **280 XCTest, sıfır hata** (123 çekirdek, 60 PDF, 97 uygulama).
+Mevcut test dosyaları, `ImpositionCore` ve `PDFEngine` değiştirilmedi. Son küçük
+rozet/yardım düzenlemelerinden sonra 8 kullanılabilirlik testi ayrıca geçti.
+Universal release uygulaması oluşturuldu; `arm64` / `x86_64` ve ad-hoc imza
+kontrol edildi. Ürün önerisi semantik PDF analizi değildir; fiziksel spiral/cilt
+niyetini kullanıcı doğrular. Her makine/cilt kombinasyonu için fiziksel üretim
+provası bu UI turunun kapsamında değildir.

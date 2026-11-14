@@ -8,6 +8,8 @@ struct HomeEmptyStateView: View {
             VStack(spacing: 16) {
                 Image(systemName: "doc.richtext").font(.system(size: 48)).foregroundStyle(.secondary)
                 Text("PDF ile başlayın").font(.title2.bold())
+                Text("1. PDF seç → 2. Ayarları kontrol et → 3. Dışa aktar")
+                    .font(.headline).multilineTextAlignment(.center)
                 Text("PDF dosyasını buraya sürükle veya ⌘O ile yükle")
                     .foregroundStyle(.secondary).multilineTextAlignment(.center)
                 HStack(spacing: 12) {

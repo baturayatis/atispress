@@ -12,7 +12,7 @@ struct RescaleEditor: View {
             Picker("Hedef ebat",selection:target) {
                 ForEach(RescaleSettings.targets.indices,id:\.self) { index in Text(RescaleSettings.targets[index].0).tag(index) }
                 Text("Özel (mm)").tag(-1)
-            }
+            }.settingHint("Hedef ebat",SettingGuidance.detail("Hedef ebat"))
             if target.wrappedValue == -1 {
                 HStack {
                     TextField("En (mm)",value:$settings.target.width,format:.number)
@@ -20,7 +20,7 @@ struct RescaleEditor: View {
                     TextField("Boy (mm)",value:$settings.target.height,format:.number)
                 }.textFieldStyle(.roundedBorder)
             }
-            Picker("Mod",selection:$settings.mode) { ForEach(RescaleMode.allCases,id:\.self) { Text($0.title).tag($0) } }
+            Picker("Mod",selection:$settings.mode) { ForEach(RescaleMode.allCases,id:\.self) { Text($0.title).tag($0) } }.settingHint("Mod","Sığdır küçük oranla içeriği korur; Doldur büyük oranla hedefi doldurup kırpar; Esnet iki ekseni ayrı ölçekler. Örnek: 100×60 → 90×50 için Doldur %90’dır.")
             if settings.isValid {
                 let scale = ArtworkRescale(source:sourceSize,settings:settings)
                 if showSummary { Text(scale.summary).font(.caption) }
@@ -101,7 +101,7 @@ struct RescaleInspectorView: View {
     var body: some View {
         GroupBox("Ölçeklendir") {
             VStack(alignment:.leading,spacing:8) {
-                Toggle("Hedef ebada ölçeklendir",isOn:Binding(get:{ model.project.scaling?.enabled ?? false },set:{ enabled in model.updateScaling { $0.enabled = enabled } }))
+                Toggle("Hedef ebada ölçeklendir",isOn:Binding(get:{ model.project.scaling?.enabled ?? false },set:{ enabled in model.updateScaling { $0.enabled = enabled } })).settingHint("Hedef ebada ölçeklendir",SettingGuidance.detail("Hedef ebada ölçeklendir"))
                 RescaleEditor(settings:Binding(get:{ model.project.scaling?.defaults ?? RescaleSettings() },set:{ settings in model.updateScaling { $0.defaults = settings } }),sourceSize:model.scalingRows.first?.size ?? Size(90,50),showSummary:false)
                 Text(model.scalingSummary).font(.caption).foregroundStyle(.secondary)
                 DisclosureGroup("İşlere göre ayarla (\(model.scalingRows.count))",isExpanded:$expanded) {
@@ -113,7 +113,7 @@ struct RescaleInspectorView: View {
                                 Text("Genel ayar").tag(0)
                                 Text("Ölçekleme yok").tag(1)
                                 Text("Özel hedef / mod").tag(2)
-                            }
+                            }.settingHint("Ölçekleme",SettingGuidance.detail("Ölçekleme"))
                             if overrideKind(group) == 2 {
                                 RescaleEditor(settings:Binding(get:{ group.settings ?? RescaleSettings() },set:{ settings in apply(group,settings:settings) }),sourceSize:group.size)
                             }

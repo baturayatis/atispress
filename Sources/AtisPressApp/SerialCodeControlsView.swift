@@ -2,10 +2,11 @@ import SwiftUI
 import ImpositionCore
 
 struct SerialCodeControlsView: View {
+    @ObservedObject var model:Workspace
     @Binding var field: SerialField
     var body: some View {
         VStack(alignment: .leading,spacing: 7) {
-            TextField("İçerik şablonu",text: $field.codeSettings.template).textFieldStyle(.roundedBorder)
+            TextField("İçerik şablonu",text: $field.codeSettings.template).textFieldStyle(.roundedBorder).inspectorSetting(model,"İçerik şablonu QR barkod",SettingGuidance.detail("İçerik şablonu"))
             Text("{no}: önek + basamak + sonek. Yer tutucu yoksa içerik sabittir.").font(.caption).foregroundStyle(.secondary)
             Text("Örnek: \((field.content(at: 0) ?? "Geçersiz").prefix(256))").font(.caption).textSelection(.enabled)
             measurement(field.kind == .qr ? "Boyut (mm, kare)" : "Genişlik (mm)",$field.codeSettings.width)
@@ -13,13 +14,13 @@ struct SerialCodeControlsView: View {
             if field.kind == .qr {
                 Picker("Hata düzeltme",selection: $field.codeSettings.correction) {
                     ForEach(SerialCodeSettings.Correction.allCases,id: \.self) { Text($0.rawValue).tag($0) }
-                }
+                }.inspectorSetting(model,"Hata düzeltme",SettingGuidance.detail("Hata düzeltme"))
             }
             HStack {
                 Text("Sessiz alan (modül)")
                 TextField("Sessiz alan",value: $field.codeSettings.quietZone,format: .number).textFieldStyle(.roundedBorder).frame(width: 60)
             }
-            Toggle("Altına okunabilir metin yaz",isOn: $field.codeSettings.humanReadable).toggleStyle(.checkbox)
+            Toggle("Altına okunabilir metin yaz",isOn: $field.codeSettings.humanReadable).toggleStyle(.checkbox).inspectorSetting(model,"Altına okunabilir metin yaz",SettingGuidance.detail("Altına okunabilir metin yaz"))
             Text("Konum, sessiz alanın sol alt köşesidir; boyut sessiz alanı içerir. QR’da dört kenar, Code 128’de sağ/sol korunur. Beyaz zemin üzerine vektör basılır.")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -28,6 +29,6 @@ struct SerialCodeControlsView: View {
         HStack {
             Text(title); Spacer()
             TextField(title,value: value,format: .number.precision(.fractionLength(0...3))).frame(width: 70).textFieldStyle(.roundedBorder)
-        }
+        }.inspectorSetting(model,title,SettingGuidance.detail(title))
     }
 }

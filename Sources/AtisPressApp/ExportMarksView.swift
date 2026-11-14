@@ -9,7 +9,7 @@ struct ExportMarksView: View {
         VStack(alignment: .leading,spacing: 8) {
             if model.plan.hasBlankBacks {
                 if model.plan.hasBackContent {
-                    Toggle("Boş arka yüzleri çıktıya ekle",isOn: Binding(get: { model.project.includeBlankBacks ?? true },set: { model.project.includeBlankBacks = $0 }))
+                    Toggle("Boş arka yüzleri çıktıya ekle",isOn: Binding(get: { model.project.includeBlankBacks ?? true },set: { model.project.includeBlankBacks = $0 })).settingHint("Boş arka yüzleri çıktıya ekle",SettingGuidance.detail("Boş arka yüzleri çıktıya ekle"))
                     Text("Çift yönlü baskı hizalaması için açık bırakın.").font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text("Arka yüz boş: çıktıya eklenmedi.").font(.caption).foregroundStyle(.secondary)
@@ -20,23 +20,23 @@ struct ExportMarksView: View {
             Toggle(model.autoLabel("Renk skalası",.exportColorBar),isOn: model.autoBinding($model.project.exportMarks.colorBar,.exportColorBar)).automaticReset(model,.exportColorBar)
             Toggle(model.autoLabel("Diz işaretleri",.exportTargets),isOn: model.autoBinding($model.project.exportMarks.registrationTargets,.exportTargets)).automaticReset(model,.exportTargets)
             ColorControlSizeView(model: model)
-            Toggle(model.autoLabel("Kesim işaretleri / crop marks",.exportCrop),isOn: model.autoBinding($model.project.exportMarks.crop,.exportCrop)).automaticReset(model,.exportCrop)
+            Toggle(model.autoLabel("Kesim işaretleri",.exportCrop),isOn: model.autoBinding($model.project.exportMarks.crop,.exportCrop)).automaticReset(model,.exportCrop)
             Toggle(model.autoLabel("Katlama işaretleri",.exportFold),isOn: model.autoBinding($model.project.exportMarks.fold,.exportFold)).automaticReset(model,.exportFold)
             Toggle(model.autoLabel("Taşma çizgisi",.exportBleed),isOn: model.autoBinding($model.project.exportMarks.bleed,.exportBleed)).automaticReset(model,.exportBleed)
             Toggle(model.autoLabel("Güvenli alan",.exportSafeArea),isOn: model.autoBinding($model.project.exportMarks.safeArea,.exportSafeArea)).automaticReset(model,.exportSafeArea)
-            Toggle(model.autoLabel("Sayfa numaraları / slot etiketleri",.exportPageNumbers),isOn: model.autoBinding($model.project.exportMarks.pageNumbers,.exportPageNumbers)).automaticReset(model,.exportPageNumbers)
+            Toggle(model.autoLabel("Sayfa numaraları / yuva etiketleri",.exportPageNumbers),isOn: model.autoBinding($model.project.exportMarks.pageNumbers,.exportPageNumbers)).automaticReset(model,.exportPageNumbers)
             Toggle(model.autoLabel("Tabaka bilgi şeridi (iş adı, tabaka no, ön/arka)",.exportSheetInfo),isOn: model.autoBinding($model.project.exportMarks.sheetInfo,.exportSheetInfo)).automaticReset(model,.exportSheetInfo)
             if model.project.exportMarks.sheetInfo {
                 TextField("İş adı",text: Binding(get: { model.infoJobName },set: { model.infoJobName = $0 })).textFieldStyle(.roundedBorder)
                 HStack {
-                    Toggle("İş adı",isOn: model.sheetInfoBinding(\.showJobName))
-                    Toggle("Tarih",isOn: model.sheetInfoBinding(\.date))
-                    Toggle("Tabaka no / toplam",isOn: model.sheetInfoBinding(\.sheetNumber))
+                    Toggle("İş adı",isOn: model.sheetInfoBinding(\.showJobName)).settingHint("İş adı",SettingGuidance.detail("İş adı"))
+                    Toggle("Tarih",isOn: model.sheetInfoBinding(\.date)).settingHint("Tarih",SettingGuidance.detail("Tarih"))
+                    Toggle("Tabaka no / toplam",isOn: model.sheetInfoBinding(\.sheetNumber)).settingHint("Tabaka no / toplam",SettingGuidance.detail("Tabaka no / toplam"))
                 }
                 HStack {
-                    Toggle("Ön/Arka",isOn: model.sheetInfoBinding(\.side))
-                    Toggle("Tabaka boyutu",isOn: model.sheetInfoBinding(\.sheetSize))
-                    Toggle("Ofset/Dijital",isOn: model.sheetInfoBinding(\.production))
+                    Toggle("Ön/Arka",isOn: model.sheetInfoBinding(\.side)).settingHint("Ön/Arka",SettingGuidance.detail("Ön/Arka"))
+                    Toggle("Tabaka boyutu",isOn: model.sheetInfoBinding(\.sheetSize)).settingHint("Tabaka boyutu",SettingGuidance.detail("Tabaka boyutu"))
+                    Toggle("Ofset/Dijital",isOn: model.sheetInfoBinding(\.production)).settingHint("Ofset/Dijital",SettingGuidance.detail("Ofset/Dijital"))
                 }
                 if let sheet = model.currentSheet {
                     let text = model.sheetInfoText(sheet: sheet,number: model.plan.sheets.prefix(model.sheetIndex).reduce(0) { $0+$1.repeatCount }+model.repetition+1,kind: model.side)
@@ -50,7 +50,7 @@ struct ExportMarksView: View {
             HStack {
                 Picker(model.autoLabel("Renk",.exportColor),selection: model.autoBinding($model.project.exportMarks.color,.exportColor)) {
                     Text("Siyah (CMYK 0,0,0,100)").tag(ExportMarks.Color.black)
-                    Text("Registration (100,100,100,100)").tag(ExportMarks.Color.registration)
+                    Text("Kayıt rengi (100,100,100,100)").tag(ExportMarks.Color.registration)
                 }.automaticReset(model,.exportColor)
                 TextField("Kalınlık (pt)",value: model.autoBinding($model.project.exportMarks.lineWidth,.exportLineWidth),format: .number).frame(width: 70)
                 Text(model.autoLabel("pt",.exportLineWidth)).automaticReset(model,.exportLineWidth)

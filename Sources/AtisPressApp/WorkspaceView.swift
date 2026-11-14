@@ -20,26 +20,30 @@ struct WorkspaceView: View {
         .alert("İşlem tamamlanamadı",isPresented: Binding(get: { model.error != nil },set: { if !$0 { model.error = nil } })) {
             Button("Tamam") { model.error = nil }
         } message: { Text(model.error ?? "") }
+        .sheet(isPresented:$model.preparingExport) { ExportPreparationView(model:model) }
         .sheet(item:$model.rescalePrompt) { RescalePromptView(model:model,prompt:$0) }
         .toolbar {
             Button(action: model.openPanel) { Label("PDF Aç",systemImage: "doc.badge.plus") }
             if model.loading { ProgressView().controlSize(.small); Text("PDF okunuyor…") }
             else if let source = model.source { Text(source.displayName).lineLimit(1) }
+            Picker("Çalışma görünümü",selection:Binding(get:{ model.ui.mode },set:{ model.ui.mode = $0 })) {
+                ForEach(InspectorMode.allCases,id:\.self) { Text($0.rawValue).tag($0) }
+            }.pickerStyle(.segmented).frame(width:155).help("⌘1 Basit · ⌘2 Gelişmiş")
             Spacer()
+            if model.ui.mode == .advanced {
             Button("Fiyatlar") { openWindow(id:"prices") }
             Button("İş maliyeti") { openWindow(id:"costing") }
+            }
             if model.exporting {
                 ProgressView().controlSize(.small)
                 Text("PDF oluşturuluyor…")
                 Button("İptal",action: model.cancelExport)
             }
-            Menu {
-                Button("Bütün iş — tek PDF…") { model.chooseExport(perSheet: false) }
-                Button("Her tabaka — ayrı PDF…") { model.chooseExport(perSheet: true) }
-            } label: { Label("PDF Dışa Aktar",systemImage: "square.and.arrow.up") }
-                .disabled(!model.canExportNow).help("PDF Dışa Aktar").accessibilityLabel("PDF Dışa Aktar")
+            Button { model.preparingExport = true } label: { HStack(spacing:6) { Image(systemName:"square.and.arrow.up"); Text("PDF’i Hazırla / Dışa Aktar").fontWeight(.semibold) }.padding(.horizontal,8).padding(.vertical,3) }
+                .buttonStyle(.borderedProminent).controlSize(.large)
+                .disabled(!model.canExportNow).accessibilityLabel("PDF’i Hazırla / Dışa Aktar")
             if model.samplingBleed { ProgressView().controlSize(.small); Text("Taşma örnekleniyor…") }
-            Button("Otomatik düzenle") { model.autoArrange() }.disabled(model.source == nil || model.loading || model.autoArranging || model.exporting)
+            if model.ui.mode == .advanced { Button("Otomatik düzenle") { model.autoArrange() }.disabled(model.source == nil || model.loading || model.autoArranging || model.exporting) }
             if model.planning { ProgressView().controlSize(.small); Text("Hesaplanıyor…") }
         }
     }
@@ -84,12 +88,14 @@ struct WorkspaceView: View {
                         VStack(alignment: .leading,spacing: 4) {
                             if let layout = sheet.repeatLayout {
                                 Text("İş \(layout.jobIndex+1) · \(sheet.repeatCount) tabaka").fontWeight(.medium)
+                                if model.ui.mode == .advanced {
                                 Picker("İş yüzü",selection: Binding(get: { model.jobPageLayout(frontPage: layout.frontPageNumber) },
                                     set: { model.setJobPageLayout(frontPage: layout.frontPageNumber,mode: $0) })) {
                                     Text("Genel ayar").tag(PageLayout.automatic)
                                     Text("Tek yüz").tag(PageLayout.simplex)
                                     Text("Çift yüz").tag(PageLayout.duplex)
                                 }.pickerStyle(.menu)
+                                }
                                 Text("Ön \(layout.frontPageNumber) / Arka \(layout.backPageNumber.map(String.init) ?? "Yok") · \(layout.columns)×\(layout.rows)")
                                     .font(.caption).foregroundStyle(.secondary)
                                 if let summary = sheet.productionSummary { Text(summary).font(.caption).foregroundStyle(.secondary) }
@@ -208,6 +214,20 @@ struct WorkspaceView: View {
                 }.padding(8)
             }
             Divider()
+            HStack {
+                Text(model.statusSummary).lineLimit(2)
+                Spacer()
+                Menu {
+                    ForEach(Array(model.plan.displayIssues.enumerated()),id:\.offset) { _,issue in
+                        Button(issue.message) { model.reveal(issue) }
+                    }
+                    if model.plan.displayIssues.isEmpty { Text("Sorun bulunamadı") }
+                } label: {
+                    let errors = model.plan.issues.filter { $0.severity == .error }.count
+                    let warnings = model.plan.issues.filter { $0.severity == .warning }.count
+                    Label("\(warnings) uyarı · \(errors) hata",systemImage:errors > 0 ? "xmark.octagon" : "exclamationmark.triangle")
+                }.fixedSize()
+            }.font(.caption).padding(10).background(.bar)
             VStack(alignment: .leading,spacing: 6) {
                 HStack {
                     Text("Doğrulama").font(.headline)

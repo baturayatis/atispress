@@ -13,7 +13,7 @@ struct FireControlsView: View {
                 Picker("Fire türü",selection: waste.mode) {
                     Text("Yüzde (%)").tag(WasteSettings.Mode.percent)
                     Text("Sabit adet").tag(WasteSettings.Mode.fixed)
-                }.labelsHidden()
+                }.labelsHidden().inspectorSetting(model,"Fire türü",SettingGuidance.detail("Fire türü"))
                 if waste.wrappedValue.mode == .percent {
                     TextField("Fire (%)",value: waste.percent,format: .number).frame(width: 65).textFieldStyle(.roundedBorder)
                 } else {
@@ -22,7 +22,7 @@ struct FireControlsView: View {
             }
             Picker("Fire kopyalar",selection: waste.numberCopies) {
                 Text("Numarasız").tag(false); Text("Numaralı").tag(true)
-            }
+            }.inspectorSetting(model,"Fire kopyalar",SettingGuidance.detail("Fire kopyalar"))
             if waste.wrappedValue.numberCopies {
                 Text("Seri aralığı fireyi içerir. Bitiş no, müşteri adedini belirler.").font(.caption).foregroundStyle(.secondary)
             }
