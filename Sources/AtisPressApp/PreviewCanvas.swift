@@ -10,6 +10,7 @@ struct PreviewCanvas: NSViewRepresentable {
     let source: PDFSource?
     let overlays: PreviewOverlays
     let generatedBleed: GeneratedBleedSettings
+    var bleedAmount: Double = 3
     let highlighted: Set<Int>
     let zoomAction: Int
     let zoomFactor: CGFloat
@@ -59,7 +60,7 @@ struct PreviewCanvas: NSViewRepresentable {
         canvas.focusArea = focusArea
         canvas.repetition = repetition; canvas.selectedSerial = selectedSerial
         canvas.selectSerial = selectSerial; canvas.moveSerial = moveSerial; canvas.moveGangBlock = moveGangBlock; canvas.beginEdit = beginEdit; canvas.endEdit = endEdit
-        canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed,controlMarks: controlMarks)
+        canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed,controlMarks: controlMarks,bleedAmount:bleedAmount)
     }
 }
 
@@ -91,6 +92,7 @@ final class SheetCanvasView: NSView {
     var side = Side()
     var source: PDFSource?
     var overlays = PreviewOverlays()
+    var bleedGuideEnabled = false
     var highlighted = Set<Int>()
     var zoomAction = 0
     var sheetIndex = 0
@@ -129,7 +131,7 @@ final class SheetCanvasView: NSView {
     @objc private func magnificationEnded() { needsDisplay = true }
     override var isOpaque: Bool { true }
     override var acceptsFirstResponder: Bool { true }
-    func configure(sheet: Sheet,side: Side,source: PDFSource?,overlays: PreviewOverlays,highlighted: Set<Int>,sheetIndex: Int = 0,kind: SideKind = .front,generatedBleed: GeneratedBleedSettings = GeneratedBleedSettings(),controlMarks: ExportMarks = .none) {
+    func configure(sheet: Sheet,side: Side,source: PDFSource?,overlays: PreviewOverlays,highlighted: Set<Int>,sheetIndex: Int = 0,kind: SideKind = .front,generatedBleed: GeneratedBleedSettings = GeneratedBleedSettings(),controlMarks: ExportMarks = .none,bleedAmount: Double = 3) {
         let edgesChanged = self.source !== source || self.side.slots != side.slots || self.generatedOverlay?.settings != generatedBleed
         if self.source !== source {
             self.source = source; loading = []; failedRasters = []
@@ -139,6 +141,7 @@ final class SheetCanvasView: NSView {
         var previewMarks = controlMarks
         previewMarks.colorBar = overlays.colorBar; previewMarks.registrationTargets = overlays.registrationTargets
         colorControls = overlays.colorBar || overlays.registrationTargets ? PDFColorControlRenderer.geometry(sheet: sheet,settings: previewMarks,kind: kind) : nil
+        bleedGuideEnabled = generatedBleed.enabled && bleedAmount > 0
         self.sheetIndex = sheetIndex; self.sideKind = kind
         self.sheet = sheet; self.side = side; self.overlays = overlays; self.highlighted = highlighted
         originX = padding+max(0,-(side.slots.map(\.x).min() ?? 0))*pointsPerMM
@@ -241,7 +244,7 @@ final class SheetCanvasView: NSView {
         if let focusArea {
             context.saveGState()
             context.setStrokeColor(DesignSystem.focusNS.cgColor); context.setLineWidth(2/pointsPerMM/scale)
-            for mark in side.marks {
+            for mark in visibleGuideMarks {
                 let show:Bool
                 switch focusArea {
                 case .margins: show = mark.kind == .margin
@@ -280,7 +283,7 @@ final class SheetCanvasView: NSView {
         }
         context.saveGState()
         context.setAlpha(0.48)
-        let guides = side.marks.map { mark -> Mark in
+        let guides = visibleGuideMarks.map { mark -> Mark in
             var result = mark
             if result.kind == .gripper && result.label == "Maşa 0.0 mm" { result.label = "" }
             else if let text = result.label { result.label = TRFormat.presentation(text) }
@@ -388,4 +391,21 @@ final class SheetCanvasView: NSView {
         beginEdit = { [weak model] in model?.beginUndoGroup() }; endEdit = { [weak model] in model?.endUndoGroup() }
     }
     override func resetCursorRects() { addCursorRect(bounds,cursor: .openHand) }
+}
+
+
+extension SheetCanvasView {
+    var visibleGuideMarks: [Mark] {
+        side.marks.filter { mark in
+            guard mark.kind == .bleed else { return true }
+            guard let layout = sheet?.gangLayout else { return bleedGuideEnabled }
+            let x = (mark.start.x+mark.end.x)/2, y = (mark.start.y+mark.end.y)/2
+            return side.slots.contains { slot in
+                guard let id = slot.gangJobID, let job = layout.jobs.first(where: { $0.job.id == id })?.job,
+                      job.generatedBleed.enabled, job.bleed > 0 else { return false }
+                return x >= slot.x-job.bleed-0.001 && x <= slot.x+slot.size.width+job.bleed+0.001 &&
+                    y >= slot.y-job.bleed-0.001 && y <= slot.y+slot.size.height+job.bleed+0.001
+            }
+        }
+    }
 }

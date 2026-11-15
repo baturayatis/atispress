@@ -134,33 +134,42 @@ final class WorkflowCardTests:XCTestCase {
         let pdf = try XCTUnwrap(CGContext(consumer:XCTUnwrap(CGDataConsumer(url:sourceURL as CFURL)),mediaBox:&media,nil))
         for _ in 0..<2 { pdf.beginPDFPage(nil); pdf.setFillColor(CGColor(gray:0.4,alpha:1)); pdf.fill(media); pdf.endPDFPage() }; pdf.closePDF()
         let source = try await PDFSource.open(sourceURL)
-        let model = Workspace(uiDefaults:preferences())
-        model.project = Project(pages:source.pages.map(\.sourcePage),sheet:SheetSpec(size:Size(220,160),margins:Insets(),gripperWidth:0,gutter:6),settings:ImpositionSettings(bleed:3,cropMarkLength:0,cropMarkOffset:0),stepAndRepeat:StepAndRepeatSettings(columns:2,rows:2,allowRotation:false,quantity:5))
-        model.project.exportMarks = .none
-        let beforeProject = model.project, before = ImpositionPlanner.plan(model.project)
-        func render(_ plan:ImpositionPlan,_ name:String) throws -> [Data] {
-            let out = directory.appendingPathComponent(name+".pdf")
-            _ = try PDFExporter.export(plan:plan,source:source,destination:.singlePDF(out),marks:model.project.exportMarks)
-            let document = try XCTUnwrap(CGPDFDocument(out as CFURL))
-            return try (1...document.numberOfPages).map { number in
-                let bitmap = try XCTUnwrap(CGContext(data:nil,width:320,height:240,bitsPerComponent:8,bytesPerRow:1280,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue))
-                bitmap.setFillColor(CGColor(gray:1,alpha:1)); bitmap.fill(CGRect(x:0,y:0,width:320,height:240))
-                let page = try XCTUnwrap(document.page(at:number))
-                bitmap.concatenate(page.getDrawingTransform(.mediaBox,rect:CGRect(x:0,y:0,width:320,height:240),rotate:0,preserveAspectRatio:true)); bitmap.drawPDFPage(page)
-                return Data(bytes:try XCTUnwrap(bitmap.data),count:bitmap.bytesPerRow*bitmap.height)
+        for enabled in [false,true] {
+            let model = Workspace(uiDefaults:preferences())
+            model.project = Project(pages:source.pages.map(\.sourcePage),sheet:SheetSpec(size:Size(220,160),margins:Insets(),gripperWidth:0,gutter:6),settings:ImpositionSettings(bleed:3,cropMarkLength:0,cropMarkOffset:0),stepAndRepeat:StepAndRepeatSettings(columns:2,rows:2,allowRotation:false,quantity:5))
+            model.project.settings.generatedBleed = GeneratedBleedSettings(enabled:enabled,method:.solidColor,color:.rgb(0,1,0))
+            model.project.exportMarks = .none
+            let beforeProject = model.project, before = ImpositionPlanner.plan(model.project)
+            func render(_ plan:ImpositionPlan,_ name:String) throws -> [Data] {
+                let out = directory.appendingPathComponent(name+".pdf")
+                _ = try PDFExporter.export(plan:plan,source:source,destination:.singlePDF(out),marks:model.project.exportMarks)
+                let document = try XCTUnwrap(CGPDFDocument(out as CFURL))
+                return try (1...document.numberOfPages).map { number in
+                    let bitmap = try XCTUnwrap(CGContext(data:nil,width:320,height:240,bitsPerComponent:8,bytesPerRow:1280,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue))
+                    bitmap.setFillColor(CGColor(gray:1,alpha:1)); bitmap.fill(CGRect(x:0,y:0,width:320,height:240))
+                    let page = try XCTUnwrap(document.page(at:number))
+                    bitmap.concatenate(page.getDrawingTransform(.mediaBox,rect:CGRect(x:0,y:0,width:320,height:240),rotate:0,preserveAspectRatio:true)); bitmap.drawPDFPage(page)
+                    return Data(bytes:try XCTUnwrap(bitmap.data),count:bitmap.bytesPerRow*bitmap.height)
+                }
             }
+            let pixels = try render(before,"before")
+            model.ui.expandedAddons = Set(WorkflowAddon.allCases); model.ui.detailsExpanded = true; model.ui.focusedArea = .bleed
+            model.overlays.crop.toggle(); model.overlays.fold.toggle(); model.overlays.bleed.toggle()
+            model.overlays.safeArea.toggle(); model.overlays.pageNumbers.toggle(); model.overlays.sheetBoundary.toggle()
+            model.refreshWorkflowRecommendation()
+            try await Task.sleep(for:.milliseconds(240))
+            XCTAssertEqual(model.project,beforeProject)
+            let after = ImpositionPlanner.plan(model.project)
+            XCTAssertEqual(after.sheets,before.sheets); XCTAssertEqual(after.issues,before.issues)
+            XCTAssertEqual(after.totalPressSheets,2); XCTAssertEqual(after.sheets.first?.repeatLayout?.copiesPerSheet,4)
+            XCTAssertEqual(try render(after,"after"),pixels)
+            let restored = try JSONDecoder().decode(Project.self,from:JSONEncoder().encode(beforeProject))
+            XCTAssertEqual(restored,beforeProject)
+            let restoredPlan = ImpositionPlanner.plan(restored)
+            XCTAssertEqual(restoredPlan.sheets,before.sheets)
+            XCTAssertEqual(restoredPlan.generatedBleed,before.generatedBleed)
+            XCTAssertEqual(try render(restoredPlan,"restored"),pixels)
         }
-        let pixels = try render(before,"before")
-        model.ui.expandedAddons = Set(WorkflowAddon.allCases); model.ui.detailsExpanded = true; model.ui.focusedArea = .bleed
-        model.overlays.crop.toggle(); model.overlays.fold.toggle(); model.overlays.bleed.toggle()
-        model.overlays.safeArea.toggle(); model.overlays.pageNumbers.toggle(); model.overlays.sheetBoundary.toggle()
-        model.refreshWorkflowRecommendation()
-        try await Task.sleep(for:.milliseconds(240))
-        XCTAssertEqual(model.project,beforeProject)
-        let after = ImpositionPlanner.plan(model.project)
-        XCTAssertEqual(after.sheets,before.sheets); XCTAssertEqual(after.issues,before.issues)
-        XCTAssertEqual(after.totalPressSheets,2); XCTAssertEqual(after.sheets.first?.repeatLayout?.copiesPerSheet,4)
-        XCTAssertEqual(try render(after,"after"),pixels)
     }
     func testWarningNavigationOpensCorrespondingInlineSettings() async throws {
         let model = Workspace(uiDefaults:preferences())

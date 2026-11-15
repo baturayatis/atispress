@@ -31,6 +31,8 @@ final class WorkspaceTests: XCTestCase {
     }
     func testSettingsReplanAndValidationNavigatesToSlot() async throws {
         let model = Workspace()
+        // This navigation fixture deliberately needs a missing-bleed diagnostic.
+        model.project.settings.generatedBleed.enabled = false
         model.setMode(.saddleStitch)
         model.project.pages = (1...10).map { SourcePage(number: $0,trimSize: Size(100,140),availableBleed: 0) }
         try await settle(model)

@@ -128,7 +128,13 @@ struct InspectorView: View {
                 Text("Taşma payı").frame(maxWidth:.infinity,alignment:.leading)
                 Toggle("Eksik taşmayı üret",isOn:model.autoBinding($model.editableGeneratedBleed.enabled,.generatedEnabled)).labelsHidden().toggleStyle(.switch).help("Eksik taşma payını üretir.")
                 let value = model.project.binding == .gang ? Binding(get:{ model.workflowBleed },set:{ model.workflowBleed = $0 }) : guide(\.bleed,field:.bleed,overlay:\.bleed)
-                DimensionInput("Taşma payı",value:value,range:0...30)
+                DimensionInput("Taşma payı",value:Binding(get:{ value.wrappedValue },set:{ model.editableGeneratedBleed.enabled = true; value.wrappedValue = $0 }),range:0...30,enabled:model.editableGeneratedBleed.enabled)
+            }
+            if model.showsMissingBleedWarning {
+                HStack {
+                    Label(Workspace.missingBleedWarning,systemImage:"exclamationmark.triangle.fill").font(.caption)
+                    Button("Taşmayı aç") { model.enableMissingBleed() }
+                }.padding(8).background(DesignSystem.warning.opacity(0.12),in:RoundedRectangle(cornerRadius:8))
             }
             Toggle("Kesim işaretleri",isOn:model.autoBinding($model.project.exportMarks.crop,.exportCrop)).automaticReset(model,.exportCrop)
             if !model.project.isBooklet {

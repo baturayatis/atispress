@@ -290,7 +290,7 @@ public enum SmartAutoLayout {
         set(.exportTargetSize,\.exportMarks.targetSize,5)
         set(.exportPatchSize,\.exportMarks.patchSize,5)
         set(.exportBarSide,\.exportMarks.barSide,.gripper)
-        set(.generatedEnabled,\.settings.generatedBleed.enabled,p.settings.bleed > 0 && p.pages.contains { ($0.availableBleed ?? 0) < p.settings.bleed })
+        set(.generatedEnabled,\.settings.generatedBleed.enabled,p.pages.contains { ($0.availableBleed ?? 0) <= 0 || ($0.availableBleed ?? 0) < p.settings.bleed })
         set(.generatedMethod,\.settings.generatedBleed.method,.automatic)
         set(.generatedTolerance,\.settings.generatedBleed.tolerance,0.02)
         set(.generatedColor,\.settings.generatedBleed.color,.cmyk(0,0,0,0))

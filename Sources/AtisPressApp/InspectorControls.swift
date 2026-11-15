@@ -4,12 +4,13 @@ import ImpositionCore
 struct DimensionInput:View {
     let title:String
     @Binding var value:Double
+    var enabled = true
     var unit = "mm"
     var range:ClosedRange<Double> = -1000000...1000000
-    init(_ title:String,value:Binding<Double>,unit:String = "mm",range:ClosedRange<Double> = -1000000...1000000) { self.title = title; _value = value; self.unit = unit; self.range = range }
+    init(_ title:String,value:Binding<Double>,unit:String = "mm",range:ClosedRange<Double> = -1000000...1000000,enabled:Bool = true) { self.enabled = enabled; self.title = title; _value = value; self.unit = unit; self.range = range }
     var body:some View {
         HStack(spacing:6) {
-            TextField(title,value:$value,format:TRFormat.detail).multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width:72).accessibilityLabel(title)
+            TextField(title,value:$value,format:TRFormat.detail).multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width:72).accessibilityLabel(title).disabled(!enabled).opacity(enabled ? 1 : 0.45)
             Text(unit).font(.caption).foregroundStyle(DesignSystem.muted).frame(width:24,alignment:.leading)
             Stepper(title,value:$value,in:range,step:0.5).labelsHidden().fixedSize()
         }.fixedSize()

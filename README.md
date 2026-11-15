@@ -2499,3 +2499,39 @@ Betiklerin Bash sözdizimi kontrolü geçti. DMG betiği 0.2.0 / 2 değerlerini
 okudu, ancak bu sandbox'ta `hdiutil create` **Aygıt ayarlanmamış** hatası verdi;
 `AtisPress-0.2.0.dmg` üretilemedi. DMG için betiği normal macOS Terminal'de
 çalıştırın. Ağ/noter hizmeti kullanılmadı, push yapılmadı.
+
+## Taşma anahtarı ve eksik taşma uyarısı
+
+Yeni işler bütün ürün/cilt türlerinde **3 mm**, **Otomatik** taşma üretimi açık
+başlar. Ürün/cilt değişimi açık anahtarı kapatmaz; kaydedilmiş açık/kapalı
+tercihler korunur. Otomatik yerleşimin mevcut tam-tabaka optimizasyonu (0 mm)
+ve planlayıcı geometrisi korunur; bu durumda taşma üretimi anahtarı açık kalır,
+ancak sıfır miktar için kırmızı kılavuz gösterilmez.
+
+Anahtar kapalıysa mm metin alanı devre dışı ve gridir. Anahtar veya yanındaki
+adımlayıcı kullanılarak açılabilir; sayı düzenleme bağlantısı taşma üretimini
+açar. Kırmızı önizleme kılavuzu yalnız açık ve pozitif miktarlı işlerde görünür;
+karışık düzende her işin tercihi uygulanır. Kaynakta taşma yoksa/bilinmiyorsa ve
+üretim kapalıysa **Bu işte taşma yok: kesimde beyaz kenar çıkabilir** uyarısı,
+**Taşmayı aç** düğmesiyle gösterilir. Aynı uyarı PDF hazırlama özetinde bulunur.
+Kaynağında gerçek taşma bulunan işler bu uyarıyı göstermez.
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+swift test --disable-sandbox --filter 'BleedWorkflowTests|WorkflowCardTests|ProjectDocumentTests'
+```
+
+İlk regresyon testi düzeltmeden önce yedi modda başarısız oldu.
+`BleedWorkflowTests` varsayılanları, otomatik yerleşimi, ayrı kapakları,
+alan/adımlayıcı bağlantısını, normal/karışık iş kılavuzlarını ve uyarı yaşam
+döngüsünü kapsar. Mevcut plan/PDF piksel snapshot testi açıkça açık ve kapalı
+üretim ayarlarıyla, proje JSON turu dahil çalışır. Proje şeması **18**, PDF
+motoru ve açıkça kaydedilmiş ayarların üretim hesabı değişmedi.
+Fiziksel klavye/fare ve VoiceOver etkileşimi ayrıca elle denenmedi; uygulama/DMG
+bu değişiklik için yeniden paketlenmedi. Çalışma çevrimdışıdır; push yapılmaz.
+
+Son taşma doğrulaması: **333 XCTest, sıfır hata** (124 çekirdek, 60 PDF,
+149 uygulama); ayrıca 74 hedefli test geçti. Açık tema başlangıç ekranında
+anahtarın açık ve miktarın 3 mm olduğu kontrol edildi.

@@ -281,7 +281,7 @@ final class AllSheetsDocument: NSView {
                 label.stringValue = headerText(location,sheet:sheet)
                 label.frame = NSRect(x:20,y:row.frame.height-headerHeight,width:frame.width-40,height:headerHeight-4)
             }
-            canvas.configure(sheet:sheet,side:location.side == .front ? sheet.front : sheet.back,source:model.source,overlays:model.overlays,highlighted:[],sheetIndex:location.sheet,kind:location.side,generatedBleed:model.plan.generatedBleed,controlMarks:model.project.exportMarks)
+            canvas.configure(sheet:sheet,side:location.side == .front ? sheet.front : sheet.back,source:model.source,overlays:model.overlays,highlighted:[],sheetIndex:location.sheet,kind:location.side,generatedBleed:model.plan.generatedBleed,controlMarks:model.project.exportMarks,bleedAmount:model.project.settings.bleed)
         }
         for location in wanted where rows[location] == nil {
             let index = location.sheet
@@ -297,7 +297,7 @@ final class AllSheetsDocument: NSView {
                 canvas.connectSerialEditing(model)
                 canvas.focusArea = model.ui.focusedArea
                 canvas.repetition = location.repetition
-                canvas.configure(sheet:sheet,side:kind == .front ? sheet.front : sheet.back,source:model.source,overlays:model.overlays,highlighted:[],sheetIndex:index,kind:kind,generatedBleed:model.plan.generatedBleed,controlMarks:model.project.exportMarks)
+                canvas.configure(sheet:sheet,side:kind == .front ? sheet.front : sheet.back,source:model.source,overlays:model.overlays,highlighted:[],sheetIndex:index,kind:kind,generatedBleed:model.plan.generatedBleed,controlMarks:model.project.exportMarks,bleedAmount:model.project.settings.bleed)
                 canvas.setFrameOrigin(NSPoint(x:0,y:0))
                 row.addSubview(canvas)
             }

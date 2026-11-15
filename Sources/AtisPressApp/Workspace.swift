@@ -20,6 +20,7 @@ final class Workspace: ObservableObject {
         var p = Project(pages: [],binding: .stepAndRepeat,
             sheet: SheetSpec(preset: .sra3,margins: Insets(left: 10,right: 10,top: 10,bottom: 10),
                              gripperWidth: 0,gutter: 0))
+        p.settings.generatedBleed.enabled = true
         p.alignment = .center
         p.stepAndRepeat.pageLayout = PageLayoutSettings()
         p.stepAndRepeat.waste = WasteSettings()
@@ -1576,8 +1577,8 @@ extension Workspace {
     var workflowBleed:Double {
         get { selectedGangJob?.bleed ?? project.settings.bleed }
         set {
-            if let job = selectedGangJob { editGangJob(job.id) { $0.bleed = newValue } }
-            else { project.settings.bleed = newValue }
+            if let job = selectedGangJob { editGangJob(job.id) { $0.bleed = newValue; $0.generatedBleed.enabled = true } }
+            else { project.settings.bleed = newValue; project.settings.generatedBleed.enabled = true }
             overlays.bleed = true
         }
     }
@@ -1611,5 +1612,28 @@ extension Workspace {
         let geometry = previewGeometry
         guard geometry.heights.indices.contains(sheetIndex) else { return "Tabaka 0 / 0" }
         return "Tabaka \(geometry.firstNumbers[sheetIndex]+repetition+1) / \(geometry.repetitions.reduce(0,+))"
+    }
+}
+
+
+extension Workspace {
+    static let missingBleedWarning = "Bu işte taşma yok: kesimde beyaz kenar çıkabilir"
+    var showsMissingBleedWarning: Bool {
+        if project.binding == .gang {
+            return (project.gang?.jobs ?? []).contains { job in
+                !job.generatedBleed.enabled && [job.front,job.back].compactMap { $0 }.contains { ($0.availableBleed ?? 0) <= 0 }
+            }
+        }
+        return !project.settings.generatedBleed.enabled && project.pages.contains { ($0.availableBleed ?? 0) <= 0 }
+    }
+    func enableMissingBleed() {
+        if project.binding == .gang {
+            for job in project.gang?.jobs ?? [] where [job.front,job.back].compactMap({ $0 }).contains(where: { ($0.availableBleed ?? 0) <= 0 }) {
+                editGangJob(job.id) { $0.generatedBleed.enabled = true; if $0.bleed <= 0 { $0.bleed = 3 } }
+            }
+        } else {
+            project.settings.generatedBleed.enabled = true
+            if project.settings.bleed <= 0 { project.settings.bleed = 3 }
+        }
     }
 }
