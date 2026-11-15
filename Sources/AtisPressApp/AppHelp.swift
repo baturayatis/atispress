@@ -88,26 +88,3 @@ struct HelpPanel:View {
         }.padding(24).frame(width:500)
     }
 }
-
-@MainActor final class UpdateChecker:ObservableObject {
-    static let shared = UpdateChecker()
-    @Published private(set) var text = "Denetlemek için Yardım menüsünü kullanın."
-    @Published private(set) var available = false
-    private var checking = false
-    // Called exclusively by the explicit menu command, never a view task or launch hook.
-    func check() {
-        guard !checking else { return }
-        checking = true; text = "Denetleniyor…"; available = false
-        Task {
-            defer { checking = false }
-            do {
-                var request = URLRequest(url:URL(string:"https://api.github.com/repos/baturayatis/atispress/releases/latest")!)
-                request.timeoutInterval = 15; request.setValue("application/vnd.github+json",forHTTPHeaderField:"Accept")
-                let (data,response) = try await URLSession.shared.data(for:request)
-                guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
-                available = try AppHelp.updateAvailable(data:data,current:AppHelp.version)
-                text = available ? "Yeni sürüm var" : "Güncelsiniz"
-            } catch { text = "Güncellemeler denetlenemedi. İnternet bağlantısını kontrol edin." }
-        }
-    }
-}

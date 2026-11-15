@@ -2637,3 +2637,48 @@ Universal `dist/AtışPress.app` yeniden oluşturuldu; paket sürümü **0.2.1 /
 arm64/x86_64 ve strict ad-hoc imza doğrulandı. Betiklerin Bash sözdizimi kontrolü
 geçti. LaunchServices kaydı sandbox’ta tamamlanamadı; paket oluşturuldu.
 DMG bu turda üretilmedi. Ağ kullanılmadı, push yapılmadı.
+
+## Sürüm yayınlama
+
+Güncelleyici Apple CryptoKit Ed25519 ile ZIP’i ve `update.json` metadata’sını
+ayrı ayrı doğrular. İlk kurulumda geliştiricinin Mac’inde bir kez:
+
+```sh
+./scripts/make_update_key.sh
+```
+
+Özel anahtar yalnız macOS Keychain’de tutulur; **çevrimdışı şifreli yedeğini alın**.
+Betik yalnız açık anahtarı `packaging/Info.plist` içine yazar. Depodaki anahtar
+başlangıçta boştur; bu kurulum yapılmadan uygulama içi yükleme etkinleşmez.
+Açık anahtarı commit edip uygulamayı yeniden derleyin. Sürüm/build ve
+`RELEASE_NOTES.md` güncellendikten sonra:
+
+```sh
+swift test --disable-sandbox
+./scripts/make_release.sh 0.2.1
+```
+
+Betik universal uygulama, DMG, `AtisPress-0.2.1.zip` ve imzalı `update.json`
+hazırlar; yükleme/push yapmaz. Sonunda tam `gh release create` komutunu basar:
+
+```sh
+gh release create 'v0.2.1' 'dist/AtisPress-0.2.1.dmg' 'dist/AtisPress-0.2.1.zip' 'dist/update.json' --title 'AtışPress 0.2.1' --notes-file 'RELEASE_NOTES.md'
+```
+
+Kullanıcı Yardım → **Güncellemeleri denetle…** ile notları görüp güncellemeyi
+kurabilir. **Açılışta güncellemeyi denetle (günde en fazla bir kez)** varsayılan
+kapalıdır. Denetleme yalnız metadata GET’i, indirme yalnız kullanıcının tıklaması
+ile olur; proje veya kullanıcı verisi gönderilmez. Kurulum yetki yükseltmez;
+DMG/Translocation/yazılamayan hedefte uygulamayı Uygulamalar’a taşımanız istenir.
+**Güncelleyiciden eski sürümler bir kez elle kurulmalıdır.**
+
+Yerel `file://` ile iki sürüm denemesi, anahtar yedekleme/geri yükleme, imzalı
+manifest biçimi ve sınırlar: [docs/UPDATER.md](docs/UPDATER.md).
+
+Son güncelleyici doğrulaması: **378 test geçti, 0 hata** (124 çekirdek, 70 PDF,
+184 uygulama); son başlangıç değişikliğinden sonra 22 hedefli güncelleyici/erişim
+testi de geçti. Universal arm64/x86_64 uygulama yeniden derlendi, strict ad-hoc
+imza doğrulandı. Release paketinde debug açık anahtar override’ı yoktur. Açık/koyu
+güncelleyici pencereleri incelendi. LaunchServices kaydı sandbox’ta engellendi;
+uygulama paketi hazır. Üretim Keychain kurulumu, DMG/yayın ve gerçek
+quit/relaunch bu oturumda yapılmadı.

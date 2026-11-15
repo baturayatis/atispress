@@ -33,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let workspace else { return .terminateNow }
-        guard !workspace.loading,!workspace.exporting,!workspace.autoArranging else { return .terminateCancel }
+        guard !workspace.preparingSource,!workspace.loading,!workspace.exporting,!workspace.autoArranging else { return .terminateCancel }
         let approved = workspace.closeApproved || workspace.confirmDiscard()
         if approved { workspace.cleanRecoveryForNormalQuit() }
         return approved ? .terminateNow : .terminateCancel
@@ -72,6 +72,8 @@ struct AtisPressApp: App {
                     if let path = CommandLine.arguments.dropFirst().first, !path.hasPrefix("-") {
                         workspace.open(URL(fileURLWithPath: path))
                     }
+                    await UpdateChecker.shared.checkOnLaunch()
+                    if UpdateChecker.shared.available || UpdateChecker.shared.launchNotice { openWindow(id:"updates") }
                 }
         }
         .defaultSize(width: 1440,height: 920)
@@ -141,7 +143,7 @@ struct AtisPressApp: App {
         }
         Window("Hata bildir…",id:"report") { HelpPanel(model:workspace,mode:"Hata bildir…") }
         Window("AtışPress Hakkında",id:"about") { HelpPanel(model:workspace,mode:"AtışPress Hakkında") }
-        Window("Güncellemeleri denetle…",id:"updates") { HelpPanel(model:workspace,mode:"Güncellemeleri denetle…") }
+        Window("Güncellemeleri denetle…",id:"updates") { UpdatePanel(model:workspace,checker:UpdateChecker.shared) }
         Window("Fiyatlar",id:"prices") { PricingView(store:prices) }
         Window("İş maliyeti",id:"costing") { CostingView(model:workspace,store:prices) }
     }

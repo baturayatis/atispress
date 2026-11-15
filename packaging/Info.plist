@@ -18,6 +18,9 @@
     <string>0.2.1</string>
     <key>CFBundleVersion</key>
     <string>3</string>
+    <!-- Set by scripts/make_update_key.sh; never embed the private key. -->
+    <key>AtisPressUpdatePublicKey</key>
+    <string></string>
     <key>CFBundleDevelopmentRegion</key>
     <string>tr</string>
     <key>CFBundleIconFile</key>

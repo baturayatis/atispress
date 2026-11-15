@@ -134,3 +134,23 @@ swift test --disable-sandbox --filter 'SourcePreparationTests|PageSplitWorkflowT
   şeffaflık kontrolü. Görsel otomatik doğrulama baskı onayı yerine geçmez.
 - Universal uygulama/DMG bu turda yeniden paketlenmedi. Ağ kullanılmadı;
   push yapılmadı.
+
+## Otomatik güncelleme dalı
+
+`otomatik-guncelleme`: imzalı metadata/ZIP, SHA-256, bundle/codesign doğrulaması,
+ilerlemeli indirme, geri yüklemeli kurulum yardımcısı ve varsayılan kapalı günlük
+denetim eklendi. Plan/PDF ve proje şeması değişmedi. Ayrıntılar ve yerel iki sürüm
+senaryosu [UPDATER.md](UPDATER.md) içinde.
+
+Üretim anahtarı geliştirici Mac’inde `make_update_key.sh` ile kurulmalı; depoda
+başlangıçta açık anahtar boş bırakıldı. Anahtarsız build kurulum düğmesi sunmaz.
+Keychain yedekleme/geri yükleme, GitHub canlı indirmesi, Gatekeeper ve gerçek
+quit/relaunch elle doğrulanmalıdır. Ağ/push kullanılmadı.
+
+Son güncelleyici doğrulaması: **378 test geçti, 0 hata** (124 çekirdek, 70 PDF,
+184 uygulama); son başlangıç değişikliğinden sonra 22 hedefli güncelleyici/erişim
+testi de geçti. Universal arm64/x86_64 uygulama yeniden derlendi, strict ad-hoc
+imza doğrulandı. Release paketinde debug açık anahtar override’ı yoktur. Açık/koyu
+güncelleyici pencereleri incelendi. LaunchServices kaydı sandbox’ta engellendi;
+uygulama paketi hazır. Üretim Keychain kurulumu, DMG/yayın ve gerçek
+quit/relaunch bu oturumda yapılmadı.
