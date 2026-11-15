@@ -2682,3 +2682,12 @@ imza doğrulandı. Release paketinde debug açık anahtar override’ı yoktur. 
 güncelleyici pencereleri incelendi. LaunchServices kaydı sandbox’ta engellendi;
 uygulama paketi hazır. Üretim Keychain kurulumu, DMG/yayın ve gerçek
 quit/relaunch bu oturumda yapılmadı.
+
+## Güncelleme ZIP’i — Unicode ve AppleDouble
+
+NFC/NFD `AtışPress.app` adları artık ZIP kayıtlarından NFC’ye çevrilerek okunur;
+`zipinfo` görüntü çıktısı doğrulama için kullanılmaz. Eski `--sequesterRsrc`
+arşivlerindeki AppleDouble kayıtları açılmaz. Yeni release ve yerel test aynı
+metadata’sız `ditto` biçimini kullanır. Yayın komutu basılmadan önce ortak arşiv,
+imza ve codesign doğrulaması zorunludur. Sınırlar, negatif testler ve ilk sorunlu
+yolu içeren `install.log` ayrıntıları [UPDATER.md](docs/UPDATER.md) içindedir.

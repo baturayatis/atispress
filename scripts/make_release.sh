@@ -9,14 +9,15 @@ source_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' 
 [[ "$version" == "$source_version" ]] || { echo 'Önce plist ve AppHelp sürüm/build değerlerini güncelleyin.' >&2; exit 1; }
 bin_dir="$(mktemp -d)"
 trap 'rm -rf "$bin_dir"' EXIT
-xcrun swiftc Sources/AtisPressApp/UpdateManifest.swift scripts/ReleaseTool/main.swift -o "$bin_dir/release-tool"
+xcrun swiftc Sources/AtisPressApp/UpdateManifest.swift Sources/AtisPressApp/UpdateArchive.swift Sources/AtisPressApp/UpdateInstaller.swift scripts/ReleaseTool/main.swift -o "$bin_dir/release-tool"
 "$bin_dir/release-tool" check "$repo_dir"
 ./scripts/build_app.sh
 # Explicitly clear credentials for this child: release preparation must stay offline.
 env -u APPLE_ID -u TEAM_ID -u APP_PASSWORD ./scripts/make_dmg.sh --skip-build
 zip_path="$repo_dir/dist/AtisPress-$version.zip"
-/usr/bin/ditto -c -k --sequesterRsrc --keepParent 'dist/AtışPress.app' "$bin_dir/update.zip"
+/usr/bin/ditto -c -k --norsrc --noextattr --noacl --noqtn --keepParent 'dist/AtışPress.app' "$bin_dir/update.zip"
 mv "$bin_dir/update.zip" "$zip_path"
 "$bin_dir/release-tool" sign "$repo_dir" "$version" "$zip_path" "$repo_dir/dist/update.json"
+"$bin_dir/release-tool" verify "$zip_path" "$repo_dir/dist/update.json" "$repo_dir/packaging/Info.plist"
 printf '\nYüklemek için bu komutu kendiniz çalıştırın (henüz yüklenmedi):\n'
 printf "gh release create 'v%s' 'dist/AtisPress-%s.dmg' 'dist/AtisPress-%s.zip' 'dist/update.json' --title 'AtışPress %s' --notes-file '%s'\n" "$version" "$version" "$version" "$version" "$(if [[ -f RELEASE_NOTES.md ]]; then echo RELEASE_NOTES.md; else echo CHANGELOG.md; fi)"

@@ -70,8 +70,8 @@ import SwiftUI
         busy=true; progress=0; text="Güncelleme indiriliyor…"
         Task {
             let folder=FileManager.default.temporaryDirectory.appendingPathComponent("AtisPressUpdate-"+UUID().uuidString,isDirectory:true)
-            var helperStarted=false
-            defer {busy=false; progress=nil; if !helperStarted {try? FileManager.default.removeItem(at:folder)}}
+            var helperStarted=false,preserveLog=false
+            defer {busy=false; progress=nil; if !helperStarted && !preserveLog {try? FileManager.default.removeItem(at:folder)}}
             do {
                 try UpdateInstaller.guardTarget(target)
                 try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:false,attributes:[.posixPermissions:0o700])
@@ -91,7 +91,14 @@ import SwiftUI
                 catch {defaults.removeObject(forKey:Self.pendingInstallKey); throw error}
                 helperStarted=true; model.closeApproved=true; text="Uygulama kapatılıp güncelleme kurulacak…"
                 NSApp.terminate(nil)
-            } catch {text=Self.message(error)}
+            } catch {
+                text=Self.message(error)
+                if let log=try? UpdateInstaller.recordFailure(error,in:folder) {
+                    preserveLog=true; text+="\nAyrıntılar: \(log.path)"
+                    try? FileManager.default.removeItem(at:folder.appendingPathComponent("update.zip"))
+                    try? FileManager.default.removeItem(at:folder.appendingPathComponent("unpacked"))
+                }
+            }
         }
     }
 }

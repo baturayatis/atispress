@@ -40,24 +40,29 @@ enum UpdateInstaller {
         try run("/usr/bin/codesign",["--verify","--deep","--strict",app.path])
     }
     static func unpack(_ zip:URL,in folder:URL,manifest:UpdateManifest,currentVersion:String,currentBuild:Int) throws -> URL {
-        let entries=try run("/usr/bin/zipinfo",["-1",zip.path]).split(separator:"\n").map(String.init)
-        guard !entries.isEmpty,entries.allSatisfy({ entry in
-            !entry.hasPrefix("/") && !entry.contains("\\") && !entry.split(separator:"/").contains("..") &&
-            (entry.hasPrefix("AtışPress.app/") || entry.hasPrefix("AtışPress.app/") || entry.hasPrefix("__MACOSX/"))
-        }) else { throw UpdateFailure("Güncelleme arşivinde beklenmeyen dosya yolları var.") }
-        try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:false,attributes:[.posixPermissions:0o700])
-        try run("/usr/bin/ditto",["-x","-k",zip.path,folder.path])
-        let apps=try FileManager.default.contentsOfDirectory(at:folder,includingPropertiesForKeys:nil).filter{$0.pathExtension=="app"}
-        guard apps.count==1 else { throw UpdateFailure("Arşivde tek bir AtışPress uygulaması bulunmalı.") }
-        let app=apps[0],root=folder.resolvingSymlinksInPath().path+"/"
-        guard app.resolvingSymlinksInPath().path.hasPrefix(root) else { throw UpdateFailure("Güvensiz uygulama bağlantısı.") }
-        if let files=FileManager.default.enumerator(at:app,includingPropertiesForKeys:[.isSymbolicLinkKey]) {
-            for case let url as URL in files {
-                guard url.resolvingSymlinksInPath().path.hasPrefix(root) else { throw UpdateFailure("Arşiv dışına çıkan dosya bağlantısı reddedildi.") }
-            }
+        var extracted=false
+        do {
+            let archive=try UpdateArchive(url:zip)
+            let app=try archive.extract(to:folder)
+            extracted=true
+            try validateBundle(app,manifest:manifest,currentVersion:currentVersion,currentBuild:currentBuild)
+            return app
+        } catch {
+            if extracted {try? FileManager.default.removeItem(at:folder)}
+            _ = try? recordFailure(error,in:folder.deletingLastPathComponent())
+            throw error
         }
-        try validateBundle(app,manifest:manifest,currentVersion:currentVersion,currentBuild:currentBuild)
-        return app
+    }
+    @discardableResult static func recordFailure(_ error:Error,in folder:URL) throws -> URL {
+        try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
+        let log=folder.appendingPathComponent("install.log")
+        let line=ISO8601DateFormatter().string(from:Date())+" · "+error.localizedDescription+"\n"
+        if FileManager.default.fileExists(atPath:log.path) {
+            let handle=try FileHandle(forWritingTo:log); defer {try? handle.close()}
+            try handle.seekToEnd(); try handle.write(contentsOf:Data(line.utf8))
+        } else {try Data(line.utf8).write(to:log,options:.withoutOverwriting)}
+        try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:log.path)
+        return log
     }
     static func launchHelper(newApp:URL,target:URL,folder:URL) throws {
         try guardTarget(target)

@@ -22,7 +22,18 @@ do {
     let args=CommandLine.arguments
     guard args.count>=3 else { fail("Kullanım: release-tool keygen|check|sign <repo> [version zip output]") }
     let mode=args[1],root=URL(fileURLWithPath:args[2]), info=root.appendingPathComponent("packaging/Info.plist")
-    if mode=="keygen" {
+    if mode=="verify" {
+        guard args.count==5 else {fail("Kullanım: release-tool verify <zip> <update.json> <Info.plist>")}
+        let zip=URL(fileURLWithPath:args[2]),manifest=try JSONDecoder().decode(UpdateManifest.self,from:Data(contentsOf:URL(fileURLWithPath:args[3])))
+        let p=try plist(args[4])
+        guard let text=p["AtisPressUpdatePublicKey"] as? String,let pub=Data(base64Encoded:text),pub.count==32 else {fail("Doğrulama açık anahtarı eksik.")}
+        try manifest.verifyArchive(zip,publicKey:pub)
+        let folder=FileManager.default.temporaryDirectory.appendingPathComponent("AtisPressReleaseVerify-"+UUID().uuidString)
+        try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:false,attributes:[.posixPermissions:0o700])
+        defer {try? FileManager.default.removeItem(at:folder)}
+        _ = try UpdateInstaller.unpack(zip,in:folder.appendingPathComponent("unpacked"),manifest:manifest,currentVersion:"0.0.0",currentBuild:0)
+        print("Arşiv, imzalar ve uygulama doğrulandı.")
+    } else if mode=="keygen" {
         var q=query(); q[kSecReturnAttributes as String]=true
         guard SecItemCopyMatching(q as CFDictionary,nil)==errSecItemNotFound else { fail("Keychain girdisi zaten var veya erişilemiyor. Mevcut anahtarın üzerine yazılmadı.") }
         var p=try plist(info.path)
@@ -54,4 +65,11 @@ do {
         try encoder.encode(m).write(to:out,options:.atomic)
         print("ZIP ve manifest imzalandı: \(out.path)")
     } else { fail("Bilinmeyen komut.") }
-} catch { fail(error.localizedDescription) }
+} catch {
+    let args=CommandLine.arguments
+    if args.count==5,args[1]=="verify" {
+        let folder=URL(fileURLWithPath:args[2]).deletingLastPathComponent()
+        if let log=try? UpdateInstaller.recordFailure(error,in:folder) {fail(error.localizedDescription+"\nAyrıntılar: \(log.path)")}
+    }
+    fail(error.localizedDescription)
+}

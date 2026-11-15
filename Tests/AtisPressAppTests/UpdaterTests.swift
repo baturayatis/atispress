@@ -189,3 +189,90 @@ final class UpdaterTests:XCTestCase {
         for title in ["Şimdi güncelle","Daha sonra","GitHub’da aç","Açılışta güncellemeyi denetle"] {XCTAssertTrue(panel.contains(title))}
     }
 }
+
+extension UpdaterTests {
+    func testDocumentAndReleaseDittoArchivesAcceptNFCAndNFDWithMetadata() throws {
+        let previous=getenv("LC_ALL").map{String(cString:$0)}
+        setenv("LC_ALL","C",1)
+        defer {if let previous {setenv("LC_ALL",previous,1)} else {unsetenv("LC_ALL")}}
+        let key=Curve25519.Signing.PrivateKey()
+        for form in ["NFC","NFD"] {
+            for producer in ["document","release"] {
+                let folder=try directory()
+                let name=form=="NFC" ? "AtışPress".precomposedStringWithCanonicalMapping : "AtışPress".decomposedStringWithCanonicalMapping
+                let source=try app(in:folder,name:name,version:"0.3.0",build:4)
+                try UpdateInstaller.run("/usr/bin/xattr",["-w","com.atispress.fixture","metadata",source.appendingPathComponent("Contents/Info.plist").path])
+                let zip=folder.appendingPathComponent(producer+".zip")
+                // Exact original doc/release format, deliberately retaining AppleDouble.
+                try UpdateInstaller.run("/usr/bin/ditto",["-c","-k","--sequesterRsrc","--keepParent",form=="NFC" ? source.path.precomposedStringWithCanonicalMapping : source.path.decomposedStringWithCanonicalMapping,zip.path])
+                let m=try signed(key,bytes:Data(contentsOf:zip))
+                try m.verifyArchive(zip,publicKey:key.publicKey.rawRepresentation)
+                let result=try UpdateInstaller.unpack(zip,in:folder.appendingPathComponent("unpacked"),manifest:m,currentVersion:"0.2.1",currentBuild:3)
+                XCTAssertEqual(result.lastPathComponent.precomposedStringWithCanonicalMapping,"AtışPress.app")
+                XCTAssertFalse(FileManager.default.fileExists(atPath:result.deletingLastPathComponent().appendingPathComponent("__MACOSX").path))
+            }
+        }
+    }
+}
+
+extension UpdaterTests {
+    func testCurrentReleaseAndDocumentFormatsAndReleaseVerificationGate() throws {
+        let root=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let folder=try directory(),tool=folder.appendingPathComponent("release-tool")
+        let sources=["UpdateManifest.swift","UpdateArchive.swift","UpdateInstaller.swift"].map{root.appendingPathComponent("Sources/AtisPressApp/"+$0).path}
+        try UpdateInstaller.run("/usr/bin/xcrun",["swiftc"]+sources+[root.appendingPathComponent("scripts/ReleaseTool/main.swift").path,"-o",tool.path])
+        let flags=["-c","-k","--norsrc","--noextattr","--noacl","--noqtn","--keepParent"]
+        let key=Curve25519.Signing.PrivateKey(),info=folder.appendingPathComponent("public.plist")
+        try PropertyListSerialization.data(fromPropertyList:["AtisPressUpdatePublicKey":key.publicKey.rawRepresentation.base64EncodedString()],format:.xml,options:0).write(to:info)
+        for form in ["NFC","NFD"] {
+            for producer in ["document","release"] {
+                let work=folder.appendingPathComponent(form+producer);try FileManager.default.createDirectory(at:work,withIntermediateDirectories:false)
+                let source=try app(in:work,name:form=="NFC" ? "AtışPress".precomposedStringWithCanonicalMapping : "AtışPress".decomposedStringWithCanonicalMapping,version:"0.3.0",build:4)
+                try UpdateInstaller.run("/usr/bin/xattr",["-w","com.atispress.fixture","metadata",source.appendingPathComponent("Contents/Info.plist").path])
+                let zip=work.appendingPathComponent("update.zip"),json=work.appendingPathComponent("update.json")
+                try UpdateInstaller.run("/usr/bin/ditto",flags+[form=="NFC" ? source.path.precomposedStringWithCanonicalMapping : source.path.decomposedStringWithCanonicalMapping,zip.path])
+                let archive=try UpdateArchive(url:zip)
+                XCTAssertTrue(archive.entries.allSatisfy{!$0.skipped})
+                let m=try signed(key,bytes:Data(contentsOf:zip));try JSONEncoder().encode(m).write(to:json)
+                try UpdateInstaller.run(tool.path,["verify",zip.path,json.path,info.path])
+                var changed=m;changed.notes="tampered";try JSONEncoder().encode(changed).write(to:json)
+                XCTAssertThrowsError(try UpdateInstaller.run(tool.path,["verify",zip.path,json.path,info.path]))
+            }
+        }
+        let wrong=try app(in:folder,name:"Other",version:"0.3.0",build:4),badZip=folder.appendingPathComponent("bad.zip"),badJSON=folder.appendingPathComponent("bad.json")
+        try UpdateInstaller.run("/usr/bin/ditto",flags+[wrong.path,badZip.path])
+        try JSONEncoder().encode(signed(key,bytes:Data(contentsOf:badZip))).write(to:badJSON)
+        XCTAssertThrowsError(try UpdateInstaller.run(tool.path,["verify",badZip.path,badJSON.path,info.path]))
+        XCTAssertTrue(try String(contentsOf:folder.appendingPathComponent("install.log")).contains("Other.app/"))
+        let release=try String(contentsOf:root.appendingPathComponent("scripts/make_release.sh")),doc=try String(contentsOf:root.appendingPathComponent("docs/UPDATER.md"))
+        let format="ditto "+flags.joined(separator:" ")
+        XCTAssertTrue(release.contains(format));XCTAssertTrue(doc.contains(format))
+        let verification=try XCTUnwrap(release.range(of:"\"$bin_dir/release-tool\" verify")),upload=try XCTUnwrap(release.range(of:"gh release create"))
+        XCTAssertLessThan(verification.lowerBound,upload.lowerBound);XCTAssertTrue(release.contains("set -euo pipefail"))
+    }
+}
+
+extension UpdaterTests {
+    @MainActor func testInstallFailureShowsOffendingPathAndKeepsLogAfterCleanup() async throws {
+        let folder=try directory(),key=Curve25519.Signing.PrivateKey()
+        let wrong=try app(in:folder,name:"Other",version:"0.3.0",build:4),zip=folder.appendingPathComponent("bad.zip"),json=folder.appendingPathComponent("update.json")
+        try UpdateInstaller.run("/usr/bin/ditto",["-c","-k","--norsrc","--noextattr","--noacl","--noqtn","--keepParent",wrong.path,zip.path])
+        var m=try signed(key,bytes:Data(contentsOf:zip));m.url=zip.absoluteString;try resign(&m,key)
+        try JSONEncoder().encode(m).write(to:json)
+        let target=folder.appendingPathComponent("AtışPress.app");try FileManager.default.createDirectory(at:target,withIntermediateDirectories:false)
+        let suite="AtisPressArchiveFailure-"+UUID().uuidString,defaults=UserDefaults(suiteName:suite)!
+        defer{defaults.removePersistentDomain(forName:suite)}
+        let checker=UpdateChecker(client:UpdateClient(transport:LocalUpdateTransport(),publicKey:key.publicKey.rawRepresentation),manifestURL:json,defaults:defaults,target:target)
+        await checker.checkNow();XCTAssertTrue(checker.available);XCTAssertNil(checker.installBlocked)
+        checker.install(model:Workspace(uiDefaults:defaults))
+        for _ in 0..<1000 {if !checker.busy {break};try await Task.sleep(for:.milliseconds(10))}
+        XCTAssertFalse(checker.busy);XCTAssertTrue(checker.text.contains("Other.app/"))
+        let line=try XCTUnwrap(checker.text.components(separatedBy:"\n").first(where:{$0.hasPrefix("Ayrıntılar: ")}))
+        let log=URL(fileURLWithPath:String(line.dropFirst("Ayrıntılar: ".count)))
+        addTeardownBlock{try? FileManager.default.removeItem(at:log.deletingLastPathComponent())}
+        XCTAssertTrue(try String(contentsOf:log).contains("Other.app/"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath:log.deletingLastPathComponent().appendingPathComponent("update.zip").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath:log.deletingLastPathComponent().appendingPathComponent("unpacked").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath:target.path))
+    }
+}

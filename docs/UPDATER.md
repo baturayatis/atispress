@@ -131,9 +131,10 @@ ditto 'dist/AtışPress.app' "$update_test_dir/AtışPress.app"
 codesign --force --deep --sign - "$update_test_dir/AtışPress.app"
 cp "$update_test_dir/AtışPress.app/Contents/Info.plist" "$update_test_dir/release/packaging/Info.plist"
 printf 'Yerel güncelleme denemesi\n' > "$update_test_dir/release/RELEASE_NOTES.md"
-ditto -c -k --sequesterRsrc --keepParent "$update_test_dir/AtışPress.app" "$update_test_dir/AtisPress-0.3.0.zip"
-xcrun swiftc Sources/AtisPressApp/UpdateManifest.swift scripts/ReleaseTool/main.swift -o "$update_test_dir/release-tool"
+ditto -c -k --norsrc --noextattr --noacl --noqtn --keepParent "$update_test_dir/AtışPress.app" "$update_test_dir/AtisPress-0.3.0.zip"
+xcrun swiftc Sources/AtisPressApp/UpdateManifest.swift Sources/AtisPressApp/UpdateArchive.swift Sources/AtisPressApp/UpdateInstaller.swift scripts/ReleaseTool/main.swift -o "$update_test_dir/release-tool"
 "$update_test_dir/release-tool" sign-local "$update_test_dir/release" 0.3.0 "$update_test_dir/AtisPress-0.3.0.zip" "$update_test_dir/update.json"
+"$update_test_dir/release-tool" verify "$update_test_dir/AtisPress-0.3.0.zip" "$update_test_dir/update.json" "$update_test_dir/release/packaging/Info.plist"
 ATISPRESS_LOCAL_UPDATE="file://$update_test_dir/update.json" "$update_test_dir/Applications/AtışPress.app/Contents/MacOS/AtisPressApp"
 ```
 
@@ -164,3 +165,128 @@ imza doğrulandı. Release paketinde debug açık anahtar override’ı yoktur. 
 güncelleyici pencereleri incelendi. LaunchServices kaydı sandbox’ta engellendi;
 uygulama paketi hazır. Üretim Keychain kurulumu, DMG/yayın ve gerçek
 quit/relaunch bu oturumda yapılmadı.
+
+## Unicode ZIP düzeltmesi ve güvenli arşiv biçimi
+
+Kök neden ZIP içeriği değil, eski `zipinfo -1` çıktısının dosya listesi olarak
+kullanılmasıydı. Oturumun UTF-8 locale’inde NFC `ş` baytları `C5 9F` → `C5 3F` bozuluyordu;
+çıktı geçersiz UTF-8 olunca liste boş sayılıyor ve genel yol hatası veriliyordu.
+NFD (`s` + U+0327) bu UTF-8 ortamında aynı bozulmayı üretmedi. `LC_ALL=C` ile
+ise NFC ad `At????Press.app/`, NFD ad `At??s??Press.app/` olarak listelendi ve
+ikisi de beklenen kök önekiyle eşleşmedi. Eski testlerin locale/ad biçimi bu
+farkı örtüyordu. Gerçek universal uygulamadan üretilen ZIP’in reddedilen NFC
+uygulama girdileri (beklenen ham UTF-8 adlar):
+
+- `AtışPress.app/`
+- `AtışPress.app/Contents/`
+- `AtışPress.app/Contents/Info.plist`
+- `AtışPress.app/Contents/MacOS/`
+- `AtışPress.app/Contents/MacOS/AtisPressApp`
+- `AtışPress.app/Contents/Resources/`
+- `AtışPress.app/Contents/Resources/AppIcon.icns`
+- `AtışPress.app/Contents/Resources/LICENSE.txt`
+- `AtışPress.app/Contents/PkgInfo`
+- `AtışPress.app/Contents/_CodeSignature/`
+- `AtışPress.app/Contents/_CodeSignature/CodeResources`
+
+UTF-8 locale’de ilk girdinin `zipinfo` bayt çıktısı `41 74 C4 B1 C5 3F 50 72 65 73 73 2E 61 70 70 2F`;
+gerçek merkez dizin adı `41 74 C4 B1 C5 9F 50 72 65 73 73 2E 61 70 70 2F`.
+C locale’de aynı çıktı `41 74 3F 3F 3F 3F 50 72 65 73 73 2E 61 70 70 2F` olur.
+Bu `?` karakterleri gerçek dosya adının parçası değildir. Doğrulayıcı artık dış komutun
+locale’e bağlı görüntü metnini kullanmaz; ZIP’in merkez/yerel kayıtlarındaki ham
+UTF-8 adlarını okur, NFC’ye çevirip karşılaştırır. `ditto` UTF-8 bayrağını koymasa
+da geçerli ham UTF-8 kabul edilir; geçersiz kodlama reddedilir.
+
+`--sequesterRsrc` ayrıca `__MACOSX/`, `__MACOSX/AtışPress.app/`,
+`__MACOSX/AtışPress.app/Contents/`,
+`__MACOSX/AtışPress.app/Contents/._Info.plist` ve
+`__MACOSX/AtışPress.app/._Contents` üretti. Bunlar eski önek kontrolünün reddettiği
+girdiler değildi; buna rağmen eski akış bunları açıyordu. Yeni okuyucu
+`__MACOSX/` ve AppleDouble `._*` kayıtlarını **asla açmaz**. Sayı/boyut/yol/tür
+kontrolleri bu atlanan kayıtlar için de geçerlidir.
+
+Güncel yerel komut ve `make_release.sh` aynı `--norsrc --noextattr --noacl --noqtn`
+biçimini kullanır; yeni ZIP’lerde AppleDouble üretilmez. Uygulama eski sequestered
+ZIP’leri de güvenle kabul eder. İmzalar ZIP baytlarını kapsadığı için ZIP’i yeniden
+oluşturduğunuzda manifesti de yeniden imzalayın.
+
+Doğrulayıcı Foundation + Apple Compression ile yalnız store/deflate, tek diskli,
+ZIP64 olmayan arşivleri açar. Sınırlar: **20.000 kayıt, toplam 512 MiB açılmış veri,
+tek kayıtta 256 MiB**, indirilen ZIP’te mevcut 1,5 GB sınırı. Başlıktaki beyanlar ve
+fiilî açılan boyut/CRC kontrol edilir; açıcı beyan edilen boyuttan fazla bellek
+ayıramaz. Merkez ve yerel ad/yöntem/boyut/CRC uyuşmazlığı, üst üste binen veya
+sahipsiz ZIP verisi reddedilir. Yeni/alışılmadık ZIP yöntemleri sessizce denenmez.
+
+Mutlak/boş yollar, `..`, `.`, boş bileşenler, ters eğik çizgi/kontrol karakterleri,
+tek `AtışPress.app` dışındaki girdiler, NFC/harf biçimi çakışmaları, aygıt/FIFO/socket
+ve setuid/setgid türleri reddedilir. Bağlantılar yazılmadan önce bütün zincirleri
+(çevrimsiz ve harf biçimi farkları dahil) denetlenir; hedef uygulama dışına çıkamaz.
+Bir bağlantının altına arşiv girdisi yazılamaz. Normal dosyalar önce, yalnız güvenli
+bağlantılar en son oluşturulur. AppleDouble, karantina, ACL ve kaynak çatalı
+aktarılmaz; codesign doğrulaması bundan sonra zorunlu olarak çalışır.
+
+Hata ilk sorunlu yolu, 160 karaktere kısaltılmış ve kontrol karakterleri kaçırılmış
+olarak gösterir. Aynı mesaj 0600 izinli `install.log` içine yazılır; başarısız
+indirmenin temp klasörü yalnız günlük için korunur, ZIP/yarım uygulama temizlenir.
+Pencerede günlük konumu gösterilir. Hash, Ed25519, metadata, codesign, bundle ID,
+sürüm/build ve kurulum konumu kontrolleri korunur.
+
+`make_release.sh`, imzalamadan sonra aynı kodu kullanan `release-tool verify` ile
+kendi ZIP/manifestini yeniden doğrular, açar ve codesign/bundle kontrollerini
+çalıştırır. Bu adım başarısızsa `set -e` nedeniyle **gh komutu basılmaz**. Verify
+komutu özel anahtar veya ağ kullanmaz; yalnız plist’teki açık anahtarı okur.
+CLI doğrulama hatası da ZIP’in yanındaki `install.log` dosyasına yazılır.
+
+```sh
+swift test --disable-sandbox --filter 'UpdaterTests|UpdateArchiveTests'
+swift test --disable-sandbox
+```
+
+Regresyon matrisi her iki üretici/komut için hem NFC hem NFD’yi, eski AppleDouble
+ve yeni metadata’sız biçimi kapsar. Negatif testler bütün yol/tür/bağlantı/sınır
+retlerini, beyan edilenden fazla açılmayı, günlük mesajını ve release doğrulama
+kapısını sınar. Gerçek Keychain/DMG/GitHub yayını için önceki elle kontrol listesi
+geçerlidir; bu düzeltme yayın yapmaz veya güven kökünü değiştirmez.
+
+Gerçek universal paket üzerinde tüm 27 eski-biçim girdi ve NFC/NFD karşılığı
+`.build/WorkflowQA/update-zip-entries.txt` tanı çıktısına kaydedildi. Yukarıdaki
+11 uygulama girdisine ek olarak aşağıdaki 16 metadata girdisi gözlendi; bunlar
+çıktıya alınmaz (NFD’de yalnız uygulama adındaki `ş`, `s` + U+0327 olur):
+
+```text
+__MACOSX/
+__MACOSX/AtışPress.app/
+__MACOSX/AtışPress.app/Contents/
+__MACOSX/AtışPress.app/Contents/_CodeSignature/
+__MACOSX/AtışPress.app/Contents/_CodeSignature/._CodeResources
+__MACOSX/AtışPress.app/Contents/.__CodeSignature
+__MACOSX/AtışPress.app/Contents/MacOS/
+__MACOSX/AtışPress.app/Contents/MacOS/._AtisPressApp
+__MACOSX/AtışPress.app/Contents/._MacOS
+__MACOSX/AtışPress.app/Contents/Resources/
+__MACOSX/AtışPress.app/Contents/Resources/._AppIcon.icns
+__MACOSX/AtışPress.app/Contents/Resources/._LICENSE.txt
+__MACOSX/AtışPress.app/Contents/._Resources
+__MACOSX/AtışPress.app/Contents/._Info.plist
+__MACOSX/AtışPress.app/Contents/._PkgInfo
+__MACOSX/AtışPress.app/._Contents
+```
+
+Otomatik fixture’de çalıştırılabilir dosyanın adı `TestApp`’tir; aynı hata bu
+adla da ilk kök girdisinde yeniden üretildi. Üretimdeki tam giriş listesi yukarıda
+ayrıca gerçek `AtisPressApp` yürütülebiliriyle kontrol edildi.
+
+Gerçek universal uygulama ZIP’i ayrıca dört birleşimde (NFC/NFD × eski/yeni
+biçim) geçici CryptoKit anahtarıyla imzalanıp metadata, SHA-256, ZIP yapısı ve
+codesign kontrollerinden geçirildi; dördü de geçti. Bu denemede bulunan büyük
+DEFLATE akışının son çıktı tamponu durumu için de regresyon eklendi: Apple
+Compression `OK` döndüğünde ilerleme varsa aynı sınırlı tamponla devam edilir;
+yalnız `END`, tamamen tüketilmiş giriş, birebir boyut ve doğru CRC kabul edilir.
+İlerlemesiz açıcı, artan çıktı veya sonda fazladan sıkıştırılmış veri reddedilir.
+
+Son doğrulama: **387 test, 0 hata** (124 çekirdek, 70 PDF, 193 uygulama).
+Son dosya sistemi bağlantı korumasından sonra 19 hedefli test de geçti.
+Universal arm64/x86_64 uygulama yeniden derlendi; strict ad-hoc imza doğrulandı.
+İlk regresyon eski kodda hata verdi; NFC/NFD ve eski/yeni biçimler düzeltilmiş
+kodda geçti. LaunchServices kaydı sandbox’ta engellendi; paket oluşturuldu.
+Ağ, Keychain anahtar üretimi, DMG oluşturma ve yayın/push yapılmadı.
