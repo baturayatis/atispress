@@ -4,6 +4,7 @@ import ImpositionCore
 struct SerialInspectorView: View {
     @ObservedObject var model: Workspace
     var compact = false
+    var section:Int? = nil
     @FocusState private var editingEnd: UUID?
     @State private var endDraft = ""
     private var job: Int { model.currentSheet?.repeatLayout?.jobIndex ?? 0 }
@@ -12,7 +13,7 @@ struct SerialInspectorView: View {
         GroupBox("Seri Numara") {
             VStack(alignment: .leading,spacing: 9) {
                 if model.project.binding == .stepAndRepeat || (model.project.binding == .gang && model.selectedGangJob != nil) {
-                    Text("İş \(job+1) · Sol alt kesim köşesinden alan konumu (mm)").font(.caption)
+                    Text("İş \(job+1) · Sol alt kesim köşesinden alan konumu (mm)").font(.system(size:12))
                     HStack {
                         Text("Adet")
                         Spacer()
@@ -20,9 +21,10 @@ struct SerialInspectorView: View {
                     }
                     if !compact { FireControlsView(model: model) }
                     if let sheet = model.currentSheet,sheet.unnumberedCopiesDescription != "0" {
-                        Text("Fazla \(sheet.unnumberedCopiesDescription) kopya numarasız").font(.caption).foregroundStyle(DesignSystem.warning)
+                        Text("Fazla \(sheet.unnumberedCopiesDescription) kopya numarasız").font(.system(size:12)).foregroundStyle(DesignSystem.warning)
                     }
                     Button("Alan Ekle") { model.addSerialField() }.disabled(model.editableSerialFields.count >= 100)
+                    if section==nil || section==0 {
                     ForEach(fields) { field in
                         VStack(alignment: .leading,spacing: 4) {
                             Button { model.selectedSerialID = field.id } label: {
@@ -32,20 +34,21 @@ struct SerialInspectorView: View {
                                 }
                             }.buttonStyle(.borderless)
                             Text(field.rangeDescription(quantity: model.serialNumberedQuantity(job: job),sheetCount: model.serialSheetCount(job: job)))
-                                .font(.caption).textSelection(.enabled)
+                                .font(.system(size:12)).textSelection(.enabled)
                         }
                     }
+                    }
                     if let index = model.editableSerialFields.firstIndex(where: { $0.id == model.selectedSerialID && $0.jobIndex == job }) {
-                        editor(index)
+                        if section != 0 {editor(index)}
                     }
                     if !fields.isEmpty {
                         Text("1 mm’ye oturur · ⌥ serbest · ⇧ eksen kilidi")
-                            .font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                            .font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
                         if let sheet = model.currentSheet {
                             Stepper("Baskı tabakası: \(model.repetition+1) / \(sheet.repeatCount)",value: $model.repetition,in: 0...max(0,sheet.repeatCount-1))
                         }
                     }
-                } else { Text(model.project.binding == .gang ? "Önce PDF ekleyin ve bir iş seçin." : "Seri numara için Tekrarlı (kartvizit/düz iş) modunu seçin.").font(.caption) }
+                } else { Text(model.project.binding == .gang ? "Önce PDF ekleyin ve bir iş seçin." : "Seri numara için Tekrarlı (kartvizit/düz iş) modunu seçin.").font(.system(size:12)) }
             }.padding(5).frame(maxWidth: .infinity,alignment: .leading)
         }.onChange(of: editingEnd) { _,_ in syncEndDraft() }
             .onChange(of: model.project.stepAndRepeat.quantity) { _,_ in syncEndDraft() }
@@ -71,7 +74,11 @@ struct SerialInspectorView: View {
                 Text("QR kod").tag(SerialCodeSettings.Kind.qr)
                 Text("Barkod").tag(SerialCodeSettings.Kind.code128)
             }.pickerStyle(.segmented).inspectorSetting(model,"Tür",SettingGuidance.detail("Tür"))
-            if field.wrappedValue.kind != .text { SerialCodeControlsView(model:model,field: field) }
+            if section==nil || section==1 {
+                if field.wrappedValue.kind != .text {SerialCodeControlsView(model:model,field:field)}
+                else {Text("Metin seri numara aralığından üretilir. Başlangıç ve bitişi Aralık grubunda ayarlayın.")}
+            }
+            if section==nil || section==2 {
             Picker("Aralık dağıtımı",selection:field.distribution) {
                 Text("Kopya").tag(SerialField.Distribution.copy)
                 Text("Blok").tag(SerialField.Distribution.block)
@@ -100,30 +107,34 @@ struct SerialInspectorView: View {
                             model.setSerialEnd($0,id: field.wrappedValue.id)
                         })).textFieldStyle(.roundedBorder).focused($editingEnd,equals: field.wrappedValue.id)
                     }
-                    if let error = model.serialInputErrors[field.wrappedValue.id] { Text(error).font(.caption).foregroundStyle(DesignSystem.warning) }
+                    if let error = model.serialInputErrors[field.wrappedValue.id] { Text(error).font(.system(size:12)).foregroundStyle(DesignSystem.warning) }
                 }
                 Toggle("Basamağı elle sabitle",isOn: Binding(get:{ field.wrappedValue.digitsAreManual },set:{ model.serialManualDigitsBinding(snapshot.id).wrappedValue = $0 })).toggleStyle(.switch).inspectorSetting(model,"Basamağı elle sabitle",SettingGuidance.detail("Basamağı elle sabitle"))
                 Stepper("Basamak: \(field.wrappedValue.digits)",value: Binding(get: { field.wrappedValue.digits },
                     set: { model.setSerialDigits($0,id: field.wrappedValue.id) }),in: 0...32)
                 if let note = field.wrappedValue.digitNote(quantity: model.serialNumberedQuantity(job: job)) {
-                    Text(note).font(.caption).foregroundStyle(DesignSystem.warning)
+                    Text(note).font(.system(size:12)).foregroundStyle(DesignSystem.warning)
                 }
                 LabeledContent("Önek") { TextField("İsteğe bağlı",text:field.prefix).textFieldStyle(.roundedBorder) }
                 LabeledContent("Sonek") { TextField("İsteğe bağlı",text:field.suffix).textFieldStyle(.roundedBorder) }
             } else {
-                Text("Sabit içerik: aynı kod her numaralanan kopyaya basılır; Adet / fire politikası korunur.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                Text("Sabit içerik: aynı kod her numaralanan kopyaya basılır; Adet / fire politikası korunur.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
             }
+            }
+            if section==nil || section==3 {
             if field.wrappedValue.kind == .text || field.wrappedValue.codeSettings.humanReadable {
                 Picker("Yazı tipi",selection: field.font) {
                     ForEach(Array(Set(["Helvetica","Helvetica-Bold","Menlo-Regular","Times-Roman","Courier",field.wrappedValue.font])).sorted(),id: \.self) { Text($0).tag($0) }
                 }.inspectorSetting(model,"Yazı tipi",SettingGuidance.detail("Yazı tipi"))
                 LabeledContent("Yazı tipi adı") { TextField("Ad",text:field.font).textFieldStyle(.roundedBorder) }
                 if NSFont(name: field.wrappedValue.font,size: 12) == nil {
-                    Text("Yazı tipi bulunamadı; sistem yedeği kullanılır.").font(.caption).foregroundStyle(DesignSystem.warning)
+                    Text("Yazı tipi bulunamadı; sistem yedeği kullanılır.").font(.system(size:12)).foregroundStyle(DesignSystem.warning)
                 }
                 if field.wrappedValue.kind == .text { number("Boyut (pt)",field.size) }
                 else { number("Okunabilir metin (pt)",field.codeSettings.humanFontSize) }
             }
+            }
+            if section==nil || section==4 {
             number("Dönüş (°)",field.rotation)
             Picker("Yüzler",selection: field.sides) {
                 Text("Ön").tag(SerialField.Sides.front)
@@ -141,12 +152,14 @@ struct SerialInspectorView: View {
                     Button("Sağ üst") { model.placeSerial(snapshot.id,corner:3) }
                 }
             }
-            if let warning = model.serialTrimWarning { Text(warning).font(.caption).foregroundStyle(DesignSystem.warning) }
+            if let warning = model.serialTrimWarning { Text(warning).font(.system(size:12)).foregroundStyle(DesignSystem.warning) }
+            }
+            if section==nil || section==3 {
             if field.wrappedValue.kind == .text {
                 Picker("Renk uzayı",selection: Binding(get: { field.wrappedValue.color.components.count == 4 },set: {
                     field.wrappedValue.color = $0 ? .cmyk(0,0,0,1) : .rgb(0,0,0)
                 })) { Text("CMYK").tag(true); Text("RGB").tag(false) }.inspectorSetting(model,"Renk uzayı",SettingGuidance.detail("Renk uzayı"))
-            } else { Text("Kod rengi: CMYK").font(.caption) }
+            } else { Text("Kod rengi: CMYK").font(.system(size:12)) }
             let names = field.wrappedValue.kind != .text || field.wrappedValue.color.components.count == 4 ? ["C","M","Y","K"] : ["R","G","B"]
             ForEach(Array(names.enumerated()),id: \.offset) { channel,name in
                 number(name+" (%)",Binding(get: {
@@ -161,8 +174,9 @@ struct SerialInspectorView: View {
                         .rgb(components[0],components[1],components[2])
                 }))
             }
+            }
             Text("Adet, Tekrarlı Yerleşim ile eşzamanlıdır ve her işe uygulanır. Bitiş no yalnız seçili alan üzerinden adedi belirler.")
-                .font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                .font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
         }
     }
     private func syncEndDraft() {

@@ -137,7 +137,7 @@ struct ScalingSuggestionBanner:View {
     let prompt:RescalePrompt
     var body:some View {
         VStack(alignment:.leading,spacing:6) {
-            Text("Bu iş \(ScalingPresentation.size(prompt.size)). \(model.project.isBooklet ? "İsterseniz tüm sayfaları daha küçük ebada ölçekleyin." : "Standart kartvizit 90 × 50 değil.")").font(.caption)
+            Text("Bu iş \(ScalingPresentation.size(prompt.size)). \(model.project.isBooklet ? "İsterseniz tüm sayfaları daha küçük ebada ölçekleyin." : "Standart kartvizit 90 × 50 değil.")").font(.system(size:12))
             HStack { Button("Ölçekle") { model.openScaleWindow(prompt:prompt) }; Button("Olduğu gibi bas") { model.finishScaleSuggestion(prompt) } }
         }.padding(8).background(DesignSystem.warningSurface,in:RoundedRectangle(cornerRadius:8))
     }
@@ -167,7 +167,7 @@ struct ScaleWindowView:View {
         VStack(alignment:.leading,spacing:14) {
             Text("Ebadı değiştir").font(.title2.bold())
             Text("1 · Yeni ebat").font(.headline)
-            Text("Şu an: \(ScalingPresentation.size(currentSize))").font(.caption)
+            Text("Şu an: \(ScalingPresentation.size(currentSize))").font(.system(size:12))
             LazyVGrid(columns:[GridItem(.adaptive(minimum:90))],spacing:6) {
                 ForEach(Array(ScalingPresentation.targets(booklet:model.project.isBooklet).enumerated()),id:\.offset) { _,target in
                     Button { settings.target = target.1; custom = false } label: {
@@ -194,9 +194,9 @@ struct ScaleWindowView:View {
                     Button("Genel ayarı kullan") { model.useGeneralScale(row:row) }
                 }
             } else { Text("Tüm işler").font(.callout) }
-            if model.project.isBooklet { Text("Tüm sayfalar ölçeklenir, sayfa sayısı değişmez").font(.caption) }
+            if model.project.isBooklet { Text("Tüm sayfalar ölçeklenir, sayfa sayısı değişmez").font(.system(size:12)) }
             ScaleMiniature(source:source,settings:settings,image:image,afterImage:afterImage).frame(height:95)
-            ForEach(ScalingPresentation.warnings(source:source,settings:settings,sourceDPI:model.scalingSourceDPI(pages:pages)),id:\.self) { Text($0).font(.caption).foregroundStyle(DesignSystem.warning) }
+            ForEach(ScalingPresentation.warnings(source:source,settings:settings,sourceDPI:model.scalingSourceDPI(pages:pages)),id:\.self) { Text($0).font(.system(size:12)).foregroundStyle(DesignSystem.warning) }
             HStack {
                 if model.project.hasRescaling { Button("Ölçeklemeyi kaldır") { model.applyScaleWindow(nil,all:all,row:row) } }
                 Spacer()
@@ -212,8 +212,8 @@ struct ScaleWindowView:View {
         Button { settings.mode = mode } label: {
             VStack(alignment:.leading,spacing:5) {
                 ScaleMiniature(source:source,settings:RescaleSettings(target:settings.target,mode:mode),image:nil).frame(height:42)
-                Text(title).font(.callout.bold()); Text(detail).font(.caption).fixedSize(horizontal:false,vertical:true)
-                if mode == .stretch,settings.isValid,ArtworkRescale(source:source,settings:RescaleSettings(target:settings.target,mode:mode)).aspectWarning { Text("Oran %2’den fazla değişir").font(.caption2).foregroundStyle(DesignSystem.warning) }
+                Text(title).font(.callout.bold()); Text(detail).font(.system(size:12)).fixedSize(horizontal:false,vertical:true)
+                if mode == .stretch,settings.isValid,ArtworkRescale(source:source,settings:RescaleSettings(target:settings.target,mode:mode)).aspectWarning { Text("Oran %2’den fazla değişir").font(.system(size:12)).foregroundStyle(DesignSystem.warning) }
             }.padding(8).frame(maxWidth:.infinity,minHeight:120,alignment:.topLeading).background(settings.mode == mode ? DesignSystem.successSurface : DesignSystem.workspace,in:RoundedRectangle(cornerRadius:8))
         }.buttonStyle(.plain)
     }
@@ -225,9 +225,9 @@ struct ScaleMiniature:View {
     var afterImage:NSImage?
     var body:some View {
         HStack(spacing:10) {
-            thumbnail(source:source,settings:RescaleSettings(target:source)).overlay(alignment:.bottom) { Text("Önce").font(.caption2).background(.regularMaterial) }
+            thumbnail(source:source,settings:RescaleSettings(target:source)).overlay(alignment:.bottom) { Text("Önce").font(.system(size:12)).background(.regularMaterial) }
             Image(systemName:"arrow.right")
-            Group { if let afterImage { Image(nsImage:afterImage).resizable().scaledToFit() } else { thumbnail(source:source,settings:settings) } }.overlay(alignment:.bottom) { Text("Sonra").font(.caption2).background(.regularMaterial) }
+            Group { if let afterImage { Image(nsImage:afterImage).resizable().scaledToFit() } else { thumbnail(source:source,settings:settings) } }.overlay(alignment:.bottom) { Text("Sonra").font(.system(size:12)).background(.regularMaterial) }
         }
     }
     private func thumbnail(source:Size,settings:RescaleSettings) -> some View {

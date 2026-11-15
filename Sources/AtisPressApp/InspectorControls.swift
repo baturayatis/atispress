@@ -11,7 +11,7 @@ struct DimensionInput:View {
     var body:some View {
         HStack(spacing:6) {
             TextField(title,value:$value,format:TRFormat.detail).multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width:72).accessibilityLabel(title).disabled(!enabled).opacity(enabled ? 1 : 0.45)
-            Text(unit).font(.caption).foregroundStyle(DesignSystem.muted).frame(width:24,alignment:.leading)
+            Text(unit).font(.system(size:12)).foregroundStyle(DesignSystem.muted).fixedSize().frame(width:32,alignment:.leading)
             Stepper(title,value:$value,in:range,step:0.5).labelsHidden().fixedSize()
         }.fixedSize()
     }
@@ -57,7 +57,7 @@ struct IntegerInput:View {
     var body:some View {
         HStack(spacing:6) {
             TextField(title,value:$value,format:.number.locale(TRFormat.locale)).textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing).frame(width:72)
-            Text(unit).font(.caption).foregroundStyle(DesignSystem.muted)
+            Text(unit).font(.system(size:12)).foregroundStyle(DesignSystem.muted)
             Stepper(title,onIncrement:{ value += 1 },onDecrement:{ value -= 1 }).labelsHidden().fixedSize()
         }
     }
@@ -70,7 +70,7 @@ struct OptionalDimensionInput:View {
     var body:some View {
         HStack(spacing:6) {
             TextField("Girilmedi",value:$value,format:TRFormat.detail).textFieldStyle(.roundedBorder).frame(width:72).accessibilityLabel(title)
-            Text(unit).font(.caption).frame(width:24,alignment:.leading)
+            Text(unit).font(.system(size:12)).fixedSize().frame(width:32,alignment:.leading)
             Stepper(title,onIncrement:{ value = (value ?? 0)+0.5 },onDecrement:{ value = max(0,(value ?? 0)-0.5) }).labelsHidden().fixedSize()
         }
     }
@@ -82,7 +82,7 @@ struct OptionalIntegerInput:View {
     var body:some View {
         HStack(spacing:6) {
             TextField("Girilmedi",value:$value,format:.number.locale(TRFormat.locale)).textFieldStyle(.roundedBorder).frame(width:72).accessibilityLabel(title)
-            Text(unit).font(.caption)
+            Text(unit).font(.system(size:12))
             Stepper(title,onIncrement:{ value = (value ?? 0)+1 },onDecrement:{ value = max(0,(value ?? 0)-1) }).labelsHidden().fixedSize()
         }
     }

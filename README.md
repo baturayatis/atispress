@@ -19,22 +19,25 @@ agent environment), use `swift build --disable-sandbox` and
 
 ## Ayarlara erişim
 
-Sağdaki simge çubuğu İş, Tabaka, Taşma, İşaretler, Seri No, Ölçek ve Böl,
-Cilt ve Kitap, Fiyat ve Çıktı bölümlerine gider. Cilt ve Kitap, kitap/spiral
-işlerinde görünür. ⌘1–⌘9 aynı bölümleri açar. Kaydırırken görünür bölüm seçilir;
-nokta, manuel ayarı veya uyarıyı gösterir.
+Sağdaki 72 pt simge çubuğundan bir simge seçmek, 350 pt sütunda yalnız o
+paneli açar. Paneller İş, Tabaka, Kenarlar, Taşma, İşaretler, Seri No,
+Ölçek/Böl, Cilt, Fiyat ve Çıktı sırasındadır. Cilt kitap/yaprak işlerinde
+görünür. Seçili panel hatırlanır; ilk kullanımda İş açılır.
 
-Çubuğun altından bölümler topluca açılıp daraltılabilir. **Tek bölüm göster**
-varsayılan kapalıdır. Başlığa çift tıklama denetçiyi simge çubuğuna daraltır;
-simgeye basmak o bölümü açılır panelde gösterir. Görünüm menüsündeki
-**Simge çubuğunu göster** ve **Denetçiyi daralt** klavyeden de kullanılabilir.
-Bu görünüm tercihleri uygulamada hatırlanır.
+⌘1–⌘9 ilk dokuz paneli seçer. Çıktı simgeden veya Görüntü → Ayarlar bölümüne
+git menüsünden açılır. ⌘0 mevcut Sığdır kısayoludur. Başlığa çift tıklama
+sütunu daraltır; simgeye basmak aynı paneli açılır pencerede gösterir.
+Görüntü menüsünden simge çubuğu gizlenebilir. Yoğun panellerin Alt grup
+menüsünde adlandırılmış ayar grupları bulunur.
 
-Üstteki bağlam satırı seçili işin veya numara/QR alanının ayarlarını gösterir.
-Alan seçimini kaldırınca iş türünün ayarlarına döner. Dar pencerede kalan
-kontroller **…** altında bulunur. Denetçi ve bağlam satırı aynı ayarları kullanır;
-birindeki değişiklik diğerine yansır ve tek geri alma adımıdır. Sayfa bölme ve
-kılavuz seçiminin bağlam kontrolleri kendi pencerelerinde görünür.
+56 pt bağlam satırında etiketler kontrolün yanındadır. Dar pencerede öncelik
+sırasına göre kalan kontroller **…** altına taşınır. Panel ve üst satır aynı
+Workspace bağlarını kullanır ve değişiklik tek geri alma adımıdır. PDF yokken
+satır ve durum alanı **PDF seçin** gösterir. Hücre ve kılavuz seçiminin bağlam
+kontrolleri kendi pencerelerindedir.
+
+Yerleşim tarifi [docs/ikon-panel-mockup.md](docs/ikon-panel-mockup.md), test
+kapsamı ve elle kontrol listesi [docs/STATUS.md](docs/STATUS.md) içindedir.
 
 ## Kurulum
 

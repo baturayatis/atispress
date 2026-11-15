@@ -97,15 +97,15 @@ struct PreflightView: View {
         GroupBox("Ön Kontrol") {
             VStack(alignment: .leading,spacing: 7) {
                 Text(model.project.autoLayout?.production == .offset ? "Ofset: RGB bulgularını ve renk ayrımlarını kontrol edin." : "Dijital: RGB bulguları bilgilendirme amaçlıdır.")
-                    .font(.caption)
-                if model.source == nil { Text("PDF yüklenince otomatik incelenir.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1) }
+                    .font(.system(size:12))
+                if model.source == nil { Text("PDF yüklenince otomatik incelenir.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1) }
                 else {
                     ForEach(model.preflightRows) { row in
-                        Text(TRFormat.presentation(row.text)).font(.caption).foregroundStyle(row.severity == .warning ? Color.orange : DesignSystem.muted)
+                        Text(TRFormat.presentation(row.text)).font(.system(size:12)).foregroundStyle(row.severity == .warning ? Color.orange : DesignSystem.muted)
                             .textSelection(.enabled)
                     }
                     Text("En iyi çaba; bulgu olmaması uygunluk onayı değildir. Renk yönetimi, bindirme, gerçek piksel mürekkep kaplaması ve tüm PDF özellikleri kontrol edilemedi. Dışa aktarımı engellemez.")
-                        .font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                        .font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
                 }
             }.frame(maxWidth: .infinity,alignment: .leading).padding(5)
         }

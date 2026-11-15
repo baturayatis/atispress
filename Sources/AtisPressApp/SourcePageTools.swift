@@ -8,19 +8,19 @@ struct SourcePageTools:View {
     var body:some View {
         VStack(alignment:.leading,spacing:6) {
             if let split=model.suggestedPageSplit {
-                Text("Bu sayfa birden fazla kart içeriyor gibi görünüyor (\(split.columns) × \(split.rows)).").font(.caption)
+                Text("Bu sayfa birden fazla kart içeriyor gibi görünüyor (\(split.columns) × \(split.rows)).").font(.system(size:12))
                 HStack {Button("Sayfayı böl") {model.showingPageSplit=true};Button("Olduğu gibi kullan",action:model.dismissPageSplitSuggestion)}
             }
             if model.canSplitSource {Button("Sayfa birden fazla ürün içeriyor") {model.showingPageSplit=true}}
             if model.canInspectSourceGuides,let input=model.preparationInput {
                 if input.guides.count>0 {
-                    Text(input.guides.count>model.hiddenSourceGuideCount ? "Dosyada baskıya girebilecek kılavuz çizgileri var (\(input.guides.count-model.hiddenSourceGuideCount) çizgi)":"Dosyadaki kılavuz çizgileri gizlendi").font(.caption).foregroundStyle(DesignSystem.warning)
+                    Text(input.guides.count>model.hiddenSourceGuideCount ? "Dosyada baskıya girebilecek kılavuz çizgileri var (\(input.guides.count-model.hiddenSourceGuideCount) çizgi)":"Dosyadaki kılavuz çizgileri gizlendi").font(.system(size:12)).foregroundStyle(DesignSystem.warning)
                     Button("Kılavuz çizgileri…") {model.showingSourceGuides=true}
                 } else if input.guides.rasterFramesSuspected {
-                    Text("Raster görüntü içinde kılavuz benzeri çerçeveler saptandı; ayrı çizgi olarak gizlenemez.").font(.caption).foregroundStyle(DesignSystem.warning)
+                    Text("Raster görüntü içinde kılavuz benzeri çerçeveler saptandı; ayrı çizgi olarak gizlenemez.").font(.system(size:12)).foregroundStyle(DesignSystem.warning)
                 }
             }
-            if model.hiddenSourceGuideCount>0 {Text("\(model.hiddenSourceGuideCount) kılavuz çizgisi gizlendi").font(.caption)}
+            if model.hiddenSourceGuideCount>0 {Text("\(model.hiddenSourceGuideCount) kılavuz çizgisi gizlendi").font(.system(size:12))}
         }
     }
 }
@@ -67,10 +67,10 @@ struct PageSplitView:View {
     var body:some View {
         VStack(alignment:.leading,spacing:12) {
             Text("Sayfayı böl").font(.title2.bold())
-            Text("Hücreler yeni vektör sayfalara kırpılır. Ürünlerin Ön ve Arka yüzleri birlikte eşlenir; onay vermeden kaynak değişmez.").font(.caption)
+            Text("Hücreler yeni vektör sayfalara kırpılır. Ürünlerin Ön ve Arka yüzleri birlikte eşlenir; onay vermeden kaynak değişmez.").font(.system(size:12))
             if let index=selectedCell,settings.cells.indices.contains(index) {
                 HStack(spacing:12) {
-                    Text("Hücre \(index+1)").font(.caption)
+                    Text("Hücre \(index+1)").font(.system(size:12))
                     Menu("Ata") {
                         Button("Boş (kullanma)") {settings.cells[index].product=nil}
                         ForEach(1...max(2,settings.cells.count),id:\.self) {n in
@@ -108,7 +108,7 @@ struct PageSplitView:View {
                                     Button("Ürün \(n) · Ön") {settings.cells[i]=SplitCell(product:n)}
                                     Button("Ürün \(n) · Arka") {settings.cells[i]=SplitCell(product:n,side:.back)}
                                 }
-                            } label: {Text(cellTitle(i)).font(.caption).padding(4).background(.regularMaterial,in:RoundedRectangle(cornerRadius:4))}
+                            } label: {Text(cellTitle(i)).font(.system(size:12)).padding(4).background(.regularMaterial,in:RoundedRectangle(cornerRadius:4))}
                                 .simultaneousGesture(TapGesture().onEnded {selectedCell=i})
                                 .fixedSize().position(x:(cell.origin.x+cell.size.width/2)*scale,y:(size.height-cell.origin.y-cell.size.height/2)*scale)
                         }
@@ -124,33 +124,33 @@ struct PageSplitView:View {
                     HStack {Text("Sütun");IntegerInput(title:"Sütun",value:Binding(get:{settings.columns},set:{resize(columns:min(12,max(1,$0)),rows:settings.rows)}),unit:"")}
                     HStack {Text("Satır");IntegerInput(title:"Satır",value:Binding(get:{settings.rows},set:{resize(columns:settings.columns,rows:min(12,max(1,$0)))}),unit:"")}
                     Picker("Hazır eşleme",selection:Binding<PageSplitSettings.Preset?>(get:{settings.matchingPreset},set:{if let value=$0 {settings.assign(value)}})) {Text("Özel eşleme").tag(PageSplitSettings.Preset?.none);ForEach(PageSplitSettings.Preset.allCases,id:\.self) {Text($0.rawValue).tag(Optional($0))}}
-                    Text(settings.matchingPreset?.rawValue ?? "Özel eşleme").font(.caption).foregroundStyle(DesignSystem.muted).fixedSize(horizontal:false,vertical:true)
-                    Text("Kesim çizgilerini sürükleyin. Hücre menüsünden ürün ve yüz seçin.").font(.caption).fixedSize(horizontal:false,vertical:true)
+                    Text(settings.matchingPreset?.rawValue ?? "Özel eşleme").font(.system(size:12)).foregroundStyle(DesignSystem.muted).fixedSize(horizontal:false,vertical:true)
+                    Text("Kesim çizgilerini sürükleyin. Hücre menüsünden ürün ve yüz seçin.").font(.system(size:12)).fixedSize(horizontal:false,vertical:true)
                     if !useTrim {HStack {Text("Hücrede taşma");DimensionInput("Hücrede taşma",value:$settings.cellBleed,range:0...30)}}
                     else {
                         let minimum=settings.rectangles(size:size).map {cell in let t=settings.trim(in:cell);return min(t.origin.x-cell.origin.x,t.origin.y-cell.origin.y,cell.origin.x+cell.size.width-t.origin.x-t.size.width,cell.origin.y+cell.size.height-t.origin.y-t.size.height)}.min() ?? 0
-                        Text("Hücrede taşma: en az \(TRFormat.dimension(max(0,minimum),detail:true)) mm (kesim ebadından hesaplandı)").font(.caption).fixedSize(horizontal:false,vertical:true)
+                        Text("Hücrede taşma: en az \(TRFormat.dimension(max(0,minimum),detail:true)) mm (kesim ebadından hesaplandı)").font(.system(size:12)).fixedSize(horizontal:false,vertical:true)
                     }
                     Toggle("Kesim ebadını elle gir",isOn:$useTrim).onChange(of:useTrim) {_,v in settings.explicitTrim=v ? trim:nil}
                     if useTrim {
                         HStack {Text("Kesim eni");DimensionInput("Kesim genişliği",value:$trim.width,range:1...3000)}
                         HStack {Text("Kesim boyu");DimensionInput("Kesim yüksekliği",value:$trim.height,range:1...3000)}
-                        Text(settings.learnedTrimCenters == nil ? "Kesim hücrenin ortalanmış alanıdır; çevresindeki alan gerçek kaynak taşmasıdır.":"Kesim merkezleri algılanan çerçevelerden alındı; dış sayfa boşlukları kesimi kaydırmaz.").font(.caption).fixedSize(horizontal:false,vertical:true)
+                        Text(settings.learnedTrimCenters == nil ? "Kesim hücrenin ortalanmış alanıdır; çevresindeki alan gerçek kaynak taşmasıdır.":"Kesim merkezleri algılanan çerçevelerden alındı; dış sayfa boşlukları kesimi kaydırmaz.").font(.system(size:12)).fixedSize(horizontal:false,vertical:true)
                     }
                     if settings.learnedTrimCenters != nil {Button("Kesimi hücrelerde ortala") {settings.learnedTrimCenters=nil}}
                     if let first=settings.rectangles(size:size).first {
                         let t=settings.trim(in:first)
-                        Text("Kesim: \(TRFormat.size(t.size.width,t.size.height))").font(.caption.weight(.medium))
+                        Text("Kesim: \(TRFormat.size(t.size.width,t.size.height))").font(.system(size:12).weight(.medium))
                     }
-                    Text("Adet her ürün içindir. Ürünler aynı tabakayı paylaşabilir; Ön/Arka eşlemesi seçilen çevirme yöntemini kullanır.").font(.caption).fixedSize(horizontal:false,vertical:true)
+                    Text("Adet her ürün içindir. Ürünler aynı tabakayı paylaşabilir; Ön/Arka eşlemesi seçilen çevirme yöntemini kullanır.").font(.system(size:12)).fixedSize(horizontal:false,vertical:true)
                 }.frame(width:285)
             }
-            if model.project.hasRescaling && settings != model.project.sourcePreparation?.split {Text("Bölme, sayfanın mevcut hedef ebat ölçeklemesini kaldırır; ürün ebatları hücrelerden alınır.").font(.caption).foregroundStyle(DesignSystem.warning)}
-            if let warning {Text(warning).font(.caption).foregroundStyle(DesignSystem.warning)}
-            if let message=settings.validation(size:size) {Text(message).font(.caption).foregroundStyle(DesignSystem.error)}
-            if let error {Text(error).font(.caption).foregroundStyle(DesignSystem.error)}
+            if model.project.hasRescaling && settings != model.project.sourcePreparation?.split {Text("Bölme, sayfanın mevcut hedef ebat ölçeklemesini kaldırır; ürün ebatları hücrelerden alınır.").font(.system(size:12)).foregroundStyle(DesignSystem.warning)}
+            if let warning {Text(warning).font(.system(size:12)).foregroundStyle(DesignSystem.warning)}
+            if let message=settings.validation(size:size) {Text(message).font(.system(size:12)).foregroundStyle(DesignSystem.error)}
+            if let error {Text(error).font(.system(size:12)).foregroundStyle(DesignSystem.error)}
             HStack {
-                Text("\(Set(settings.cells.compactMap(\.product)).count) ürün").font(.caption)
+                Text("\(Set(settings.cells.compactMap(\.product)).count) ürün").font(.system(size:12))
                 Spacer();Button("Vazgeç") {model.showingPageSplit=false}.keyboardShortcut(.cancelAction)
                 if model.preparingSource {ProgressView().controlSize(.small)}
                 Button("Uygula") {apply()}.buttonStyle(.borderedProminent).disabled(settings.validation(size:size) != nil || model.preparingSource).keyboardShortcut(.defaultAction)
@@ -207,7 +207,7 @@ struct SourceGuidesView:View {
             Text("Kılavuz çizgileri").font(.title2.bold())
             if !selected.isEmpty {
                 HStack(spacing:12) {
-                    Text("\(selected.count) grup seçili").font(.caption)
+                    Text("\(selected.count) grup seçili").font(.system(size:12))
                     Menu("Grup") {
                         ForEach(input.guides.groups) {group in
                             Button("\(group.role) · \(group.count) çizgi") {selected=[group.id]}
@@ -227,7 +227,7 @@ struct SourceGuidesView:View {
                 }.controlSize(.small).padding(6).background(DesignSystem.card).accessibilityIdentifier("context.guideSelection")
             }
 
-            Text("Çizgi seç: bir çizgiye tıklayın; ⇧ ile gruba ekleyin. İşaretli kutu = gizli. Gizleme yalnız seçilen ince vektör çizgilerinde doğrulanır.").font(.caption)
+            Text("Çizgi seç: bir çizgiye tıklayın; ⇧ ile gruba ekleyin. İşaretli kutu = gizli. Gizleme yalnız seçilen ince vektör çizgilerinde doğrulanır.").font(.system(size:12))
             HStack(alignment:.top) {
                 VStack {
                     if input.pages.count>1 {Stepper("Sayfa \(page)",value:$page,in:1...input.pages.count)}
@@ -259,8 +259,8 @@ struct SourceGuidesView:View {
                                 Button {selected=[group.id];page=input.guides.strokes.first(where:{$0.groupID==group.id})?.page ?? 1} label: {
                                     VStack(alignment:.leading) {
                                         Text("\(group.count) çizgi · \(TRFormat.dimension(group.width,detail:true)) pt · \(group.role)")
-                                        Text(group.layer.isEmpty ? "Katman adı yok":group.layer).font(.caption)
-                                        if !group.canHide {Text("Bu grupta güvenli gizleme desteklenmiyor.").font(.caption).foregroundStyle(DesignSystem.warning)}
+                                        Text(group.layer.isEmpty ? "Katman adı yok":group.layer).font(.system(size:12))
+                                        if !group.canHide {Text("Bu grupta güvenli gizleme desteklenmiyor.").font(.system(size:12)).foregroundStyle(DesignSystem.warning)}
                                     }.frame(maxWidth:.infinity,alignment:.leading)
                                 }.buttonStyle(.plain)
                             }.padding(6).background(selected.contains(group.id) ? DesignSystem.successSurface:DesignSystem.card,in:RoundedRectangle(cornerRadius:6))
@@ -274,18 +274,18 @@ struct SourceGuidesView:View {
                     Button("Göster") {apply(hidden.subtracting(selected))}.disabled(selected.isEmpty || hidden.intersection(selected).isEmpty || model.preparingSource)
                 }
             }
-            if input.guides.groups.contains(where:{!$0.canHide}) {Text(SourcePreparationError.unsafeGuides.localizedDescription).font(.caption).foregroundStyle(DesignSystem.warning)}
+            if input.guides.groups.contains(where:{!$0.canHide}) {Text(SourcePreparationError.unsafeGuides.localizedDescription).font(.system(size:12)).foregroundStyle(DesignSystem.warning)}
             if !input.guides.learned.isEmpty,model.canSplitSource {
                 Button("Kesim ölçüsünü çizgilerden öğren") {learning=true}
                 if learning,let learned=input.guides.learned.first {
-                    HStack {Text("Öneri: \(TRFormat.size(learned.trim.width,learned.trim.height)) · \(TRFormat.dimension(learned.bleed)) mm taşma").font(.caption)
+                    HStack {Text("Öneri: \(TRFormat.size(learned.trim.width,learned.trim.height)) · \(TRFormat.dimension(learned.bleed)) mm taşma").font(.system(size:12))
                         Button("Bölme penceresinde kullan") {model.useLearnedSourceTrim(learned)}
                     }
                 }
             }
-            if input.guides.unsupported {Text("Bazı iç içe/karmaşık içerikler yalnız okunur veya inceleme sınırı dışında. Listede olmayan çizgiler gizlenmez.").font(.caption).foregroundStyle(DesignSystem.muted)}
-            if let error {Text(error).font(.caption).foregroundStyle(DesignSystem.error)}
-            HStack {if model.preparingSource {ProgressView().controlSize(.small);Text("Çizgi dışındaki pikseller doğrulanıyor…").font(.caption)};Spacer();Button("Kapat") {model.showingSourceGuides=false}.keyboardShortcut(.cancelAction)}
+            if input.guides.unsupported {Text("Bazı iç içe/karmaşık içerikler yalnız okunur veya inceleme sınırı dışında. Listede olmayan çizgiler gizlenmez.").font(.system(size:12)).foregroundStyle(DesignSystem.muted)}
+            if let error {Text(error).font(.system(size:12)).foregroundStyle(DesignSystem.error)}
+            HStack {if model.preparingSource {ProgressView().controlSize(.small);Text("Çizgi dışındaki pikseller doğrulanıyor…").font(.system(size:12))};Spacer();Button("Kapat") {model.showingSourceGuides=false}.keyboardShortcut(.cancelAction)}
         }.padding(20).background(DesignSystem.workspace).tint(DesignSystem.teal)
         .task(id:"\(page)-\(model.source?.id.uuidString ?? "")") {image=SourceImage.render(input,page:page,url:model.source?.guidePreviewURL)}
     }

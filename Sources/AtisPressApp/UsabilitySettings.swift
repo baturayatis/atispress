@@ -55,40 +55,18 @@ final class UsabilitySettings: ObservableObject {
     @Published var revealedSection: InspectorSection?
     @Published private var collapsed: Set<String> { didSet { defaults.set(Array(collapsed),forKey:"atispress.ui.collapsed") } }
     @Published var railVisible=true {didSet {defaults.set(railVisible,forKey:"atispress.ui.rail");if !railVisible {inspectorCollapsed=false}}}
-    @Published var accordion=false {didSet {defaults.set(accordion,forKey:"atispress.ui.accordion");if accordion {expandedPanels=[activePanel]}}}
     @Published var inspectorCollapsed=false {didSet {defaults.set(inspectorCollapsed,forKey:"atispress.ui.inspectorCollapsed");if inspectorCollapsed {railVisible=true} else {flyoutPanel=nil}}}
-    @Published var expandedPanels:Set<InspectorPanel> = [.job,.sheet,.bleed,.marks] {didSet {defaults.set(expandedPanels.map(\.rawValue),forKey:"atispress.ui.expandedPanels")}}
-    @Published var activePanel:InspectorPanel = .job
+    @Published var activePanel:InspectorPanel = .job {didSet {defaults.set(activePanel.rawValue,forKey:"atispress.ui.activePanel")}}
     @Published var flyoutPanel:InspectorPanel?
-    @Published var flashingPanel:InspectorPanel?
-    @Published var panelJump=UUID()
-    @Published var navigatingPanel=false
-    func setPanel(_ panel:InspectorPanel,open:Bool) {
-        if open {
-            if accordion {expandedPanels=[panel]} else {expandedPanels.insert(panel)}
-        } else {expandedPanels.remove(panel)}
-    }
     func jump(_ panel:InspectorPanel) {
         activePanel=panel
-        setPanel(panel,open:true)
-        flashingPanel=panel
-        navigatingPanel=true
         if inspectorCollapsed {flyoutPanel=panel}
-        panelJump=UUID()
     }
-    func expandAllPanels() {
-        accordion=false
-        expandedPanels=Set(InspectorPanel.allCases)
-        detailsExpanded=true
-        expandedAddons=Set(WorkflowAddon.allCases)
-    }
-    func collapseAllPanels() {expandedPanels=[]}
     init(defaults:UserDefaults = .standard) {
         self.defaults = defaults
+        activePanel=defaults.string(forKey:"atispress.ui.activePanel").flatMap(InspectorPanel.init(rawValue:)) ?? .job
         railVisible=defaults.object(forKey:"atispress.ui.rail") as? Bool ?? true
-        accordion=defaults.bool(forKey:"atispress.ui.accordion")
         inspectorCollapsed=(defaults.object(forKey:"atispress.ui.rail") as? Bool ?? true) && defaults.bool(forKey:"atispress.ui.inspectorCollapsed")
-        if let saved=defaults.stringArray(forKey:"atispress.ui.expandedPanels") {expandedPanels=Set(saved.compactMap(InspectorPanel.init(rawValue:)))}
         collapsedCards = Set(defaults.stringArray(forKey:"atispress.workflow.collapsedCards") ?? [])
         detailsExpanded = defaults.bool(forKey:"atispress.workflow.details")
         expandedAddons = Set((defaults.stringArray(forKey:"atispress.workflow.addons") ?? []).compactMap(WorkflowAddon.init(rawValue:)))

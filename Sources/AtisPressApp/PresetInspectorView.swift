@@ -19,14 +19,14 @@ struct PresetInspectorView: View {
                     Button("Yeniden adlandır") { if let selected { run { try model.renamePreset(selected.id,to:name) } } }.disabled(selected == nil || name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
                     Button("Çoğalt") { if let selected { run { try model.duplicatePreset(selected.id) } } }.disabled(selected == nil)
                     Button("Sil") { if let selected { run { try model.deletePreset(selected.id) } } }.disabled(selected == nil)
-                }.font(.caption)
+                }.font(.system(size:12))
                 HStack {
                     Button("Paket içe aktar…",action:model.choosePresetImport)
                     Button("Paket dışa aktar…",action:model.choosePresetExport)
-                }.font(.caption)
+                }.font(.system(size:12))
                 if let name = model.project.autoLayout?.presetName {
-                    Text("Hazır ayar kaynağı: "+name+". PDF, sayfa seçimi, adet/fire ve seri alanları korunur.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
-                } else { Text("PDF, sayfa seçimi, adet/fire ve seri alanları hazır ayara kaydedilmez.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1) }
+                    Text("Hazır ayar kaynağı: "+name+". PDF, sayfa seçimi, adet/fire ve seri alanları korunur.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                } else { Text("PDF, sayfa seçimi, adet/fire ve seri alanları hazır ayara kaydedilmez.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1) }
             }.padding(5)
         }.disabled(model.loading || model.exporting || model.autoArranging)
     }

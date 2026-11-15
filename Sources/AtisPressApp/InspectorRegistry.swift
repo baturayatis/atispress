@@ -2,18 +2,19 @@ import Foundation
 import ImpositionCore
 
 enum InspectorPanel:String,CaseIterable,Identifiable,Codable {
-    case job, sheet, bleed, marks, serial, scaling, binding, price, output
+    case job, sheet, edges, bleed, marks, serial, scaling, binding, price, output
     var id:String {rawValue}
     var number:Int {Self.allCases.firstIndex(of:self)!+1}
     var title:String {
         switch self {
         case .job: return "İş"
         case .sheet: return "Tabaka"
+        case .edges: return "Kenarlar"
         case .bleed: return "Taşma"
         case .marks: return "İşaretler"
         case .serial: return "Seri No"
         case .scaling: return "Ölçek ve Böl"
-        case .binding: return "Cilt ve Kitap"
+        case .binding: return "Cilt"
         case .price: return "Fiyat"
         case .output: return "Çıktı"
         }
@@ -25,6 +26,7 @@ enum InspectorPanel:String,CaseIterable,Identifiable,Codable {
         switch self {
         case .job:return "doc.text"
         case .sheet:return "rectangle.portrait"
+        case .edges:return "arrow.up.left.and.arrow.down.right"
         case .bleed:return "drop"
         case .marks:return "crop"
         case .serial:return "number.square"
@@ -44,7 +46,8 @@ enum InspectorPanel:String,CaseIterable,Identifiable,Codable {
     static func legacy(_ section:InspectorSection) -> Self {
         switch section {
         case .product:return .job
-        case .sheet,.edges:return .sheet
+        case .sheet:return .sheet
+        case .edges:return .edges
         case .marks:return .bleed
         case .serial:return .serial
         case .binding:return .binding
@@ -87,17 +90,19 @@ enum InspectorRegistry {
         settingsByEditor[editor]!.sorted().map {Setting(editor:editor,path:$0,panel:owner(editor:editor,path:$0))}
     }
     static func owner(editor:String,path:String) -> InspectorPanel {
+        if path.hasPrefix("model.overlays.") {return .marks}
         switch editor {
         case "BookInspectorView","LeafInspectorView","BlankPlacementView":return .binding
         case "SerialInspectorView","SerialCodeControlsView":return .serial
         case "RescaleInspectorView","ScaleWindowView","SourcePageTools":return .scaling
         case "PricingView":return .price
-        case "ExportMarksView":return path.contains("sheetInfo") || path.contains("JobName") || path.contains("keyPath.") || path=="includeBlankBacks" ? .output : .marks
+        case "ExportMarksView":return path=="includeBlankBacks" ? .output : .marks
         case "ColorControlSizeView","PreviewLayersView":return .marks
         case "FireControlsView","GangInspectorView","PresetInspectorView":return .job
         default:
-            if path=="settings.signatureSize" || path=="settings.turnMethod" || path=="book" {return .binding}
-            if path=="blockAlignment" {return .sheet}
+            if path=="settings.signatureSize" || path=="book" {return .binding}
+            if path=="settings.turnMethod" {return .sheet}
+            if path=="blockAlignment" || path.contains("margins") || path.contains("gripper") || path=="sheet.gutter" {return .edges}
             if path.contains("GeneratedBleed") || path.contains("bleed") {return .bleed}
             if path.contains("overlays") || path.contains("exportMarks") || path.contains("crop") || path.contains("safeArea") {return .marks}
             if path.contains("sheet") || path.contains("gutter") || path.contains("columns") || path.contains("rows") || path.contains("allowRotation") || path.contains("repeatArrangement") {return .sheet}
@@ -110,17 +115,32 @@ enum InspectorRegistry {
         case .cropLength,.cropOffset,.safeArea:return .marks
         case .exportCrop,.exportFold,.exportFullCut,.exportLineWidth,.exportColor,.exportColorBar,.exportTargets,.exportTargetSize,.exportPatchSize,.exportBarSide:return .marks
         case .exportBleed,.exportSafeArea,.exportPageNumbers:return .marks
-        case .exportSheetInfo:return .output
+        case .exportSheetInfo:return .marks
+        case .marginLeft,.marginRight,.marginTop,.marginBottom,.gripperEdge,.gripperWidth,.gutter,.alignment:return .edges
         default:return .sheet
         }
     }
     static func fields(_ panel:InspectorPanel) -> [AutoLayoutField] {AutoLayoutField.allCases.filter{owner($0)==panel}}
-    /// Closest visible header at the top of the inspector viewport, including
-    /// the final short card when the scroll view reaches its bottom.
-    static func sectionInView(frames:[InspectorPanel:CGRect],height:CGFloat) -> InspectorPanel? {
-        if let last=frames[.output],last.minY>=0,last.maxY<=height-24 {return .output}
-        let visible=frames.filter {$0.value.maxY>0 && $0.value.minY<height}
-        if let crossing=visible.filter({$0.value.minY<=20}).max(by:{$0.value.minY<$1.value.minY}) {return crossing.key}
-        return visible.min(by:{$0.value.minY<$1.value.minY})?.key
+}
+
+// Sub-groups replace long stacks within the selected panel.
+extension InspectorPanel {
+    func groups(for project:Project) -> [String] {
+        if self == .binding && project.isLeafBinding {return ["Cilt", "Kapak"]}
+        return groups
+    }
+    var groups:[String] {
+        switch self {
+        case .job:return ["İş", "Yöntem", "Ürünler", "Fire", "Hazır ayar"]
+        case .sheet:return ["Tabaka", "Yerleşim"]
+        case .edges:return ["Kenarlar"]
+        case .bleed:return ["Taşma", "Yöntem"]
+        case .marks:return ["Baskı", "Ölçüler", "Renk", "Bilgi", "Katmanlar"]
+        case .serial:return ["Alanlar", "İçerik", "Aralık", "Görünüm", "Konum"]
+        case .scaling:return ["Ölçek/Böl"]
+        case .binding:return ["Cilt", "Kapak", "Kâğıt", "Sırt ve creep", "Boş sayfalar"]
+        case .price:return ["Maliyet", "İşçilik", "Sonuç", "Teklif", "Fiyat kitaplığı"]
+        case .output:return ["Çıktı", "Ön kontrol"]
+        }
     }
 }

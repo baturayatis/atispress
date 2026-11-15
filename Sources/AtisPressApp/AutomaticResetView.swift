@@ -7,7 +7,7 @@ struct AutomaticResetButton: View {
     var body: some View {
         if model.isManual(field) {
             Button("Otomatik'e dön") { model.returnToAutomatic(field) }
-                .font(.caption2).buttonStyle(.borderless).fixedSize()
+                .font(.system(size:12)).buttonStyle(.borderless).fixedSize()
         }
     }
 }

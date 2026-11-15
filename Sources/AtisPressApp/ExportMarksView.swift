@@ -4,7 +4,7 @@ import PDFEngine
 
 struct ExportMarksView: View {
     @ObservedObject var model: Workspace
-    enum Scope {case all,printed,output}
+    enum Scope {case all,printed,output,info,options}
     var inline = false
     var scope:Scope = .all
     @ViewBuilder var body: some View {
@@ -12,27 +12,27 @@ struct ExportMarksView: View {
     }
     private var fields:some View {
         VStack(alignment: .leading,spacing: 8) {
-            if scope != .printed && model.plan.hasBlankBacks {
+            if (scope == .all || scope == .options || scope == .output) && model.plan.hasBlankBacks {
                 if model.plan.hasBackContent {
                     Toggle("Boş arka yüzleri çıktıya ekle",isOn: Binding(get: { model.project.includeBlankBacks ?? true },set: { model.project.includeBlankBacks = $0 })).settingHint("Boş arka yüzleri çıktıya ekle",SettingGuidance.detail("Boş arka yüzleri çıktıya ekle"))
-                    Text("Çift yönlü baskı hizalaması için açık bırakın.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                    Text("Çift yönlü baskı hizalaması için açık bırakın.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
                 } else {
-                    Text("Arka yüz boş: çıktıya eklenmedi.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                    Text("Arka yüz boş: çıktıya eklenmedi.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
                 }
                 Divider()
             }
-            if scope != .output {
+            if scope == .all || scope == .printed {
                 Text("Çıktı İşaretleri").font(.headline)
                 Toggle("Renk skalası (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.colorBar,.exportColorBar)).automaticReset(model,.exportColorBar)
                 Toggle("Diz işaretleri (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.registrationTargets,.exportTargets)).automaticReset(model,.exportTargets)
-                ColorControlSizeView(model: model)
+                if scope == .all {ColorControlSizeView(model:model)}
                 Toggle("Kesim işaretleri (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.crop,.exportCrop)).automaticReset(model,.exportCrop)
                 if model.project.isBooklet { Toggle("Katlama işaretleri (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.fold,.exportFold)).automaticReset(model,.exportFold) }
                 Toggle("Taşma çizgisi (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.bleed,.exportBleed)).automaticReset(model,.exportBleed)
                 Toggle("Güvenli alan (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.safeArea,.exportSafeArea)).automaticReset(model,.exportSafeArea)
                 Toggle("Sayfa numaraları / yuva etiketleri (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.pageNumbers,.exportPageNumbers)).automaticReset(model,.exportPageNumbers)
             }
-            if scope != .printed {
+            if scope == .all || scope == .info || scope == .output {
                 Toggle("Tabaka bilgi şeridi (iş adı, tabaka no, ön/arka) (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.sheetInfo,.exportSheetInfo)).automaticReset(model,.exportSheetInfo)
                 if model.project.exportMarks.sheetInfo {
                     LabeledContent("İş adı") { TextField("İş adı",text: Binding(get: { model.infoJobName },set: { model.infoJobName = $0 })).textFieldStyle(.roundedBorder) }
@@ -48,14 +48,14 @@ struct ExportMarksView: View {
                     }
                     if let sheet = model.currentSheet {
                         let text = model.sheetInfoText(sheet: sheet,number: model.plan.sheets.prefix(model.sheetIndex).reduce(0) { $0+$1.repeatCount }+model.repetition+1,kind: model.side)
-                        Text("Örnek (6 pt): "+(text.isEmpty ? "Alan seçilmedi; şerit basılmaz." : text)).font(.caption)
+                        Text("Örnek (6 pt): "+(text.isEmpty ? "Alan seçilmedi; şerit basılmaz." : text)).font(.system(size:12))
                         if !text.isEmpty,PDFSheetInfo.placement(text: text,side: model.currentSide ?? sheet.front,sheet: sheet,marks: model.project.exportMarks,kind: model.side) == nil {
-                            Text(PDFSheetInfo.noRoomWarning).font(.caption).foregroundStyle(DesignSystem.warning)
+                            Text(PDFSheetInfo.noRoomWarning).font(.system(size:12)).foregroundStyle(DesignSystem.warning)
                         }
                     }
                 }
             }
-            if scope != .output {
+            if scope == .all || scope == .printed {
                 Toggle("Ürün üzerinde tam kesim çizgisi (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.fullCut,.exportFullCut)).automaticReset(model,.exportFullCut)
                 VStack(alignment:.leading,spacing:DesignSystem.Space.sm) {
                     Picker("Çizgi rengi",selection:model.autoBinding($model.project.exportMarks.color,.exportColor)) {
@@ -71,7 +71,7 @@ struct ExportMarksView: View {
                 let warnings = Set(model.plan.sheets.flatMap { sheet in
                     [sheet.front,sheet.back].flatMap { PDFExportMarkRenderer.geometry(side: $0,sheet: sheet,settings: model.project.exportMarks).warnings } + PDFColorControlRenderer.geometry(sheet: sheet,settings: model.project.exportMarks).warnings
                 }).sorted()
-                ForEach(warnings,id: \.self) { Text(TRFormat.presentation($0)).font(.caption).foregroundStyle(DesignSystem.warning) }
+                ForEach(warnings,id: \.self) { Text(TRFormat.presentation($0)).font(.system(size:12)).foregroundStyle(DesignSystem.warning) }
             }
         }.toggleStyle(.switch).padding(12).frame(maxWidth: .infinity,alignment: .leading)
     }

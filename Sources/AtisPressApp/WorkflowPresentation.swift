@@ -56,7 +56,7 @@ extension WorkflowPresentation {
 }
 
 extension Workspace {
-    var workflowIssues:[ValidationIssue] { WorkflowPresentation.actionableIssues(plan.displayIssues) }
+    var workflowIssues:[ValidationIssue] { !project.hasPanelItems ? [] : WorkflowPresentation.actionableIssues(plan.displayIssues) }
     var visibleWorkflowRecommendation:WorkflowSheetRecommendation? {
         guard let recommendation = workflowRecommendation, recommendation.name != SmartAutoLayout.presetName(for:project.sheet.size) else { return nil }
         let size = project.sheet.size
@@ -69,5 +69,13 @@ extension Workspace {
         let production = project.autoLayout?.production == .offset ? "ofset" : "dijital"
         let copies = plan.sheets.first.map { $0.repeatLayout?.copiesPerSheet ?? $0.front.slots.count } ?? 0
         return "\(recommendation.name) \(production) makinede çalışır · \(recommendation.copies) adet. Seçili \(SmartAutoLayout.presetName(for:project.sheet.size)) · \(copies) adet."
+    }
+}
+
+// Gang projects may carry their pages only in the product jobs.
+extension Project {
+    var hasPanelItems:Bool {
+        if binding == .gang {return !(gang?.jobs.isEmpty ?? true)}
+        return !pages.isEmpty
     }
 }

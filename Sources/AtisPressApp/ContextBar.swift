@@ -77,7 +77,7 @@ enum ContextControl:String,Identifiable {
         case .binding:return "Cilt yöntemi"
         case .signature:return "Forma"
         case .cover:return "Kapak modu"
-        case .field:return "Alan seçici"
+        case .field:return "Alan"
         case .kind:return "Tür"
         case .font:return "Yazı tipi"
         case .size:return "Boyut"
@@ -94,21 +94,21 @@ enum ContextControl:String,Identifiable {
     }
     var width:CGFloat {
         switch self {
-        case .sheet:return 116
-        case .orientation:return 130
-        case .production:return 114
-        case .bleed:return 132
-        case .crop:return 108
-        case .arrangement:return 132
-        case .binding:return 132
-        case .signature:return 96
-        case .cover:return 108
-        case .font:return 140
-        case .field:return 126
-        case .kind:return 96
-        case .dimensions:return 150
-        case .color,.center,.split,.guides:return 82
-        default:return 82
+        case .sheet:return 205
+        case .orientation:return 290
+        case .production:return 230
+        case .quantity:return 215
+        case .bleed:return 250
+        case .crop:return 200
+        case .binding:return 265
+        case .signature:return 210
+        case .cover:return 240
+        case .font:return 265
+        case .field:return 210
+        case .kind:return 200
+        case .dimensions:return 230
+        case .color,.center,.split,.guides:return 160
+        default:return 200
         }
     }
 }
@@ -122,7 +122,7 @@ enum ContextPresentation {
     }
     static func controls(_ kind:ContextKind) -> [ContextControl] {
         switch kind {
-        case .flat:return [.sheet,.orientation,.production,.quantity,.bleed,.crop,.arrangement]
+        case .flat:return [.sheet,.orientation,.production,.quantity,.bleed,.crop]
         case .book:return [.binding,.signature,.cover,.sheet,.orientation,.production,.bleed]
         case .serial:return [.field,.kind,.font,.size,.color,.x,.y,.rotation,.center]
         case .job:return [.quantity,.waste,.dimensions]
@@ -137,8 +137,8 @@ enum ContextPresentation {
     static func layout(_ controls:[ContextControl],width:CGFloat) -> Layout {
         let limit=min(8,controls.count)
         let total=controls.prefix(limit).reduce(CGFloat(0)) {$0+$1.width+8}
-        let hasOverflow=controls.count>limit || total>width-16
-        let budget=max(0,width-16-(hasOverflow ? 44:0))
+        let hasOverflow=controls.count>limit || total>width-24
+        let budget=max(0,width-24-(hasOverflow ? 44:0))
         var used:CGFloat=0,count=0
         for control in controls.prefix(8) {
             guard used+control.width+8<=budget else {break}
@@ -163,28 +163,31 @@ struct ContextBar:View {
         GeometryReader { geometry in
             let layout=ContextPresentation.layout(controls,width:geometry.size.width)
             HStack(spacing:8) {
-                ForEach(layout.visible) {control in field(control).frame(width:control.width)}
-                Spacer(minLength:0)
-                if !layout.overflow.isEmpty {
-                    Button("…") {overflow.toggle()}.frame(width:32).help("Diğer bağlam ayarları")
-                        .accessibilityLabel("Diğer bağlam ayarları")
-                        .popover(isPresented:$overflow) {
-                            VStack(alignment:.leading,spacing:12) {
-                                ForEach(layout.overflow) {control in field(control).frame(width:max(control.width,230))}
-                            }.padding(16)
-                        }
+                if !model.project.hasPanelItems {Text("PDF seçin");Spacer()}
+                else {
+                    ForEach(layout.visible) {control in field(control).frame(width:control.width)}
+                    Spacer(minLength:0)
+                    if !layout.overflow.isEmpty {
+                        Button("…") {overflow.toggle()}.frame(width:32).help("Diğer bağlam ayarları")
+                            .accessibilityLabel("Diğer bağlam ayarları")
+                            .popover(isPresented:$overflow) {
+                                VStack(alignment:.leading,spacing:12) {
+                                    ForEach(layout.overflow) {control in field(control).frame(width:480)}
+                                }.padding(16)
+                            }
+                    }
                 }
-            }.padding(.horizontal,8).frame(height:36)
-        }.frame(height:36).background(DesignSystem.card)
+            }.padding(.horizontal,12).frame(height:56)
+        }.frame(height:56).background(DesignSystem.card)
             .disabled(model.loading || model.preparingSource || model.exporting || model.autoArranging)
-            .controlSize(.small)
+            .font(.system(size:13)).controlSize(.large)
             .onChange(of:ContextPresentation.kind(model)) {_,_ in overflow=false}
     }
     private func field(_ control:ContextControl) -> some View {
-        VStack(alignment:.leading,spacing:1) {
-            Text(control.title).font(.system(size:9)).foregroundStyle(DesignSystem.muted)
-            editor(control).frame(maxWidth:.infinity,alignment:.leading)
-        }.help(control.title).accessibilityElement(children:.contain)
+        HStack(spacing:8) {
+            Text(control.title).font(.system(size:13)).fixedSize()
+            editor(control).frame(maxWidth:.infinity,minHeight:32,alignment:.leading)
+        }.frame(minHeight:32).help(control.title).accessibilityElement(children:.contain)
             .accessibilityIdentifier("context."+control.rawValue)
     }
     @ViewBuilder private func editor(_ control:ContextControl) -> some View {
@@ -202,21 +205,21 @@ struct ContextBar:View {
                 }
         case .orientation:
             Picker("Yön",selection:values.orientation) {
-                Image(systemName:"arrow.triangle.2.circlepath").tag(Orientation.auto).help("Otomatik")
-                Image(systemName:"rectangle.portrait").tag(Orientation.portrait).help("Dikey")
-                Image(systemName:"rectangle").tag(Orientation.landscape).help("Yatay")
+                Text("Otomatik").tag(Orientation.auto)
+                Text("Yatay").tag(Orientation.landscape)
+                Text("Dikey").tag(Orientation.portrait)
             }.labelsHidden().pickerStyle(.segmented).accessibilityLabel("Yön, otomatik, dikey veya yatay")
         case .production:
             Picker("Üretim",selection:values.production) {Text("Dijital").tag(ProductionType.digital);Text("Ofset").tag(ProductionType.offset)}.labelsHidden().pickerStyle(.segmented)
         case .quantity:
-            HStack(spacing:2) {TextField("Girilmedi",value:values.quantity,format:.number.locale(TRFormat.locale));Text("adet").font(.system(size:9))}.textFieldStyle(.roundedBorder).accessibilityLabel("Adet")
+            HStack(spacing:6) {TextField("Girilmedi",value:values.quantity,format:.number.locale(TRFormat.locale));Text("adet").font(.system(size:13))}.textFieldStyle(.roundedBorder).accessibilityLabel("Adet")
         case .bleed:
             HStack(spacing:3) {
                 Toggle("Eksik taşmayı üret",isOn:values.bleedEnabled).labelsHidden().toggleStyle(.switch)
                 TextField("Taşma payı",value:values.bleed,format:.number.locale(TRFormat.locale)).frame(minWidth:34).textFieldStyle(.roundedBorder).disabled(!values.bleedEnabled.wrappedValue)
-                Text("mm").font(.system(size:9))
+                Text("mm").font(.system(size:13))
             }
-        case .crop:Toggle("Çıktıya basılır",isOn:values.crop).toggleStyle(.checkbox).font(.system(size:10)).help("Kesim işaretleri (çıktıya basılır)")
+        case .crop:Toggle("Kesim işaretleri",isOn:values.crop).labelsHidden().toggleStyle(.checkbox).font(.system(size:13)).help("Kesim işaretleri (çıktıya basılır)")
         case .arrangement:
             Picker("Dizilim",selection:values.arrangement) {
                 Text("Bitişik").tag(RepeatArrangement.adjacent);Text("Aralıklı").tag(RepeatArrangement.spaced)
@@ -276,7 +279,7 @@ struct ContextBar:View {
         }
     }
     private func number(_ title:String,_ value:Binding<Double>,unit:String) -> some View {
-        HStack(spacing:2) {TextField(title,value:value,format:.number.locale(TRFormat.locale)).textFieldStyle(.roundedBorder);Text(unit).font(.system(size:9))}
+        HStack(spacing:6) {TextField(title,value:value,format:.number.locale(TRFormat.locale)).textFieldStyle(.roundedBorder);Text(unit).font(.system(size:13))}
     }
     private func serialColor(_ field:SerialField) -> Binding<Color> {
         let binding=values.serial(field.id,\.color,fallback:field.color)

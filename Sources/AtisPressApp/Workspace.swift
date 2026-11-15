@@ -456,6 +456,7 @@ final class Workspace: ObservableObject {
         planTask?.cancel()
         let token = UUID(); revision = token
         let snapshot = project
+        guard snapshot.hasPanelItems else {plan=ImpositionPlan();planning=false;return}
         planning = true
         planTask = Task {
             do { try await Task.sleep(for: .milliseconds(140)) } catch { return }
@@ -1491,6 +1492,7 @@ extension Workspace {
         return section.fields.contains(where: { isManual($0) || project.autoLayout?.presetFields?.contains($0) == true }) ? "Manuel" : "Otomatik"
     }
     var statusSummary:String {
+        guard project.hasPanelItems else {return "PDF seçin"}
         let scaleSuffix = scalingStatus.isEmpty ? "" : " · "+scalingStatus
         let copies = currentSheet?.repeatLayout?.copiesPerSheet ?? currentSheet?.front.slots.filter { $0.sourcePageNumber != nil }.count ?? 0
         if project.isBooklet || project.isLeafBinding {
@@ -1580,6 +1582,7 @@ extension Workspace {
         }
     }
     var workflowReadyText:String {
+        guard project.hasPanelItems else {return "PDF seçin"}
         if source == nil { return "PDF seçerek başlayın" }
         if planning || autoArranging { return "Yerleşim hesaplanıyor…" }
         if exporting { return "PDF hazırlanıyor…" }

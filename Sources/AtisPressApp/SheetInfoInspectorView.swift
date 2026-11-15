@@ -22,9 +22,9 @@ struct SheetInfoInspectorView:View {
                 }
                 if let sheet = model.currentSheet {
                     let text = model.sheetInfoText(sheet: sheet,number: model.plan.sheets.prefix(model.sheetIndex).reduce(0) { $0+$1.repeatCount }+model.repetition+1,kind: model.side)
-                    Text("Örnek (6 pt): "+(text.isEmpty ? "Alan seçilmedi; şerit basılmaz." : text)).font(.caption)
+                    Text("Örnek (6 pt): "+(text.isEmpty ? "Alan seçilmedi; şerit basılmaz." : text)).font(.system(size:12))
                     if !text.isEmpty,PDFSheetInfo.placement(text: text,side: model.currentSide ?? sheet.front,sheet: sheet,marks: model.project.exportMarks,kind: model.side) == nil {
-                        Text(PDFSheetInfo.noRoomWarning).font(.caption).foregroundStyle(DesignSystem.warning)
+                        Text(PDFSheetInfo.noRoomWarning).font(.system(size:12)).foregroundStyle(DesignSystem.warning)
                     }
                 }
 

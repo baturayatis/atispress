@@ -6,8 +6,8 @@ import ImpositionCore
 enum DesignSystem {
     enum Space { static let xs:CGFloat = 4, sm:CGFloat = 8, md:CGFloat = 12, lg:CGFloat = 16, xl:CGFloat = 24 }
     enum Radius { static let control:CGFloat = 8, card:CGFloat = 12 }
-    static let minimumWindow = CGSize(width:1180,height:760)
-    static let inspectorWidth:CGFloat = 400
+    static let minimumWindow = CGSize(width:1180,height:800)
+    static let inspectorWidth:CGFloat = 350
     static let lightPairs:[String:(UInt32,UInt32)] = ["primary":(0xFFFFFF,0x16213E),"action":(0xFFFFFF,0x0B7F86),"success":(0x17613A,0xE3F4EA),"warning":(0x8A4B00,0xFFF3E0),"paperFocus":(0x0B7F86,0xFFFFFF),"paperAnnotation":(0x60458C,0xFFFFFF),"paperError":(0xAA212B,0xFFFFFF)]
     static let darkPairs:[String:(UInt32,UInt32)] = ["primary":(0xEAF0FF,0x273656),"action":(0xFFFFFF,0x086970),"success":(0xA0E0B9,0x183B29),"warning":(0xFFD08C,0x432C14),"paperFocus":(0x0B7F86,0xFFFFFF),"paperAnnotation":(0x60458C,0xFFFFFF),"paperError":(0xAA212B,0xFFFFFF)]
     static func rgb(_ hex:UInt32) -> NSColor { NSColor(srgbRed:CGFloat((hex>>16)&255)/255,green:CGFloat((hex>>8)&255)/255,blue:CGFloat(hex&255)/255,alpha:1) }
@@ -50,10 +50,10 @@ struct WorkflowCard<Content:View>: View {
     @ViewBuilder var content:Content
     init(_ number:Int? = nil,_ title:String,panel:InspectorPanel? = nil,@ViewBuilder content:()->Content) { self.number = number; self.title = title; self.panel=panel; self.content = content() }
     init(_ title:String,@ViewBuilder content:()->Content) { self.number = nil; self.title = title; self.panel=nil; self.content = content() }
-    private var collapsed:Bool {panel.map{!model.ui.expandedPanels.contains($0)} ?? model.ui.collapsedCards.contains(title)}
+    private var collapsed:Bool {model.ui.collapsedCards.contains(title)}
     var body:some View {
         VStack(alignment:.leading,spacing:DesignSystem.Space.lg) {
-            Button { if let panel {model.ui.setPanel(panel,open:collapsed)} else if collapsed { model.ui.collapsedCards.remove(title) } else { model.ui.collapsedCards.insert(title) } } label: {
+            Button { if collapsed { model.ui.collapsedCards.remove(title) } else { model.ui.collapsedCards.insert(title) } } label: {
             HStack(spacing:DesignSystem.Space.sm) {
                 if let number { Text(String(number)).font(.headline).foregroundStyle(DesignSystem.selectedText).frame(width:28,height:28).background(DesignSystem.selected,in:RoundedRectangle(cornerRadius:DesignSystem.Radius.control)) }
                 Text(title).font(.headline).foregroundStyle(DesignSystem.text)

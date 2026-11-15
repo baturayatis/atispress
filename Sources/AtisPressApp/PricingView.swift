@@ -83,7 +83,7 @@ struct PricingView: View {
                     Button("Tablo içe aktar…") { importTable() }
                 }
                 if let error = store.error { Text(error).foregroundStyle(DesignSystem.error) }
-                Text("Kâğıt: seçilen KDV oranıyla netleştirilir. Baskı ve işçilik fiyatları KDV hariçtir. İçe aktarma kitaplığı değiştirir; önce dışa aktararak yedekleyebilirsiniz.").font(.caption)
+                Text("Kâğıt: seçilen KDV oranıyla netleştirilir. Baskı ve işçilik fiyatları KDV hariçtir. İçe aktarma kitaplığı değiştirir; önce dışa aktararak yedekleyebilirsiniz.").font(.system(size:12))
             }.textFieldStyle(.roundedBorder).padding(inline ? 0 : 24)
         .onChange(of:store.library) { _,_ in store.save() }
     }
@@ -103,15 +103,19 @@ struct CostingView: View {
     private var settings: Binding<JobCostSettings> { Binding(get:{ model.project.costing ?? JobCostSettings() },set:{ model.project.costing = $0 }) }
     private var result: CostResult { CostCalculator.calculate(project:model.project,plan:model.plan,library:store.library) }
     var inline = false
+    var section:Int? = nil
     @ViewBuilder var body:some View {
         if inline { fields } else { ScrollView { fields }.frame(minWidth:760,minHeight:650) }
     }
     private var fields:some View {
             VStack(alignment:.leading,spacing:16) {
                 Text("İş maliyeti").font(inline ? .headline : .largeTitle.bold())
-                Text("Bu proje bir teklif işidir. Karışık işte ortak tabaka yalnız bir kez hesaplanır; adet bazlı işçilik bütün işlerin toplam adedine uygulanır.").font(.caption)
-                selection("Kâğıt",kind:.paper,value:settings.paper)
-                selection("Baskı",kind:nil,value:settings.printing)
+                Text("Bu proje bir teklif işidir. Karışık işte ortak tabaka yalnız bir kez hesaplanır; adet bazlı işçilik bütün işlerin toplam adedine uygulanır.").font(.system(size:12))
+                if section==nil || section==0 {
+                    selection("Kâğıt",kind:.paper,value:settings.paper)
+                    selection("Baskı",kind:nil,value:settings.printing)
+                }
+                if section==nil || section==1 {
                 GroupBox("Ek işlemler") {
                     VStack(alignment:.leading) {
                         ForEach(store.library.entries.filter { $0.kind == .finishing }) { entry in
@@ -126,15 +130,19 @@ struct CostingView: View {
                         }
                     }
                 }
+                }
+                if section==nil || section==0 {
                 VStack {
                     PriceNumber(title:"Bu işe özel kâr (%)",value:settings.margin)
                     PriceNumber(title:"Bu işe özel KDV (%)",value:settings.vat)
                 }
-                Text("Boş bırakılan kâr/KDV kitaplıktan alınır. Kitaplık: kâr \(store.library.margin.map { "\($0)%" } ?? "girilmedi"), KDV \(store.library.vat.map { "\($0)%" } ?? "girilmedi")").font(.caption)
+                Text("Boş bırakılan kâr/KDV kitaplıktan alınır. Kitaplık: kâr \(store.library.margin.map { "\($0)%" } ?? "girilmedi"), KDV \(store.library.vat.map { "\($0)%" } ?? "girilmedi")").font(.system(size:12))
                 if model.project.isBooklet || model.project.isLeafBinding { LabeledContent("Yayın adedi (adet)") { OptionalIntegerInput(title:"Yayın adedi",value:settings.copies,unit:"adet") } }
                 LabeledContent("Ek fire (tabaka)") { IntegerInput(title:"Ek fire",value:settings.extraWasteSheets,unit:"tabaka") }
                 Text("Plan + fire: \(result.sheets) tabaka · Satış adedi: \(result.quantity)")
                 if model.planning { Text("Plan hesaplanıyor…").foregroundStyle(DesignSystem.warning) }
+                }
+                if section==nil || section==2 {
                 breakdown(result)
                 Button("Tabaka karşılaştır") { comparison = EconomicSheets.compare(project:model.project,library:store.library) }.disabled(model.planning)
                 ForEach(comparison) { row in
@@ -142,13 +150,14 @@ struct CostingView: View {
                         VStack(alignment:.leading) {
                             Text(row.title + (row.cheapest ? " · En ekonomik" : "" )).bold()
                             Text(row.paperPriced ? "\(row.result.sheets) tabaka · Kâğıt \(money(row.result.lines.first?.amount)) · Toplam \(money(row.result.sale))" : "fiyat yok")
-                            if row.paperPriced && row.result.sale == nil { Text(row.result.missing.joined(separator:"; ")).font(.caption) }
+                            if row.paperPriced && row.result.sale == nil { Text(row.result.missing.joined(separator:"; ")).font(.system(size:12)) }
                         }
                         Spacer()
                         Button("Uygula") { model.project = row.project; model.sheetPreset = row.title; comparison = [] }.disabled(row.result.sale == nil)
                     }.padding(8).background(row.cheapest ? DesignSystem.success.opacity(0.12) : DesignSystem.muted.opacity(0.05))
                 }
-                quoteEditor
+                }
+                if section==nil || section==3 {quoteEditor}
             }.padding(inline ? 0 : 24).textFieldStyle(.roundedBorder)
         .onChange(of:model.project) { old,new in
             comparison = []

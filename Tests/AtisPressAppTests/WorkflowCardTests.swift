@@ -118,7 +118,7 @@ final class WorkflowCardTests:XCTestCase {
             host.appearance = NSAppearance(named:scheme == .light ? .aqua : .darkAqua)
             host.frame = CGRect(origin:.zero,size:DesignSystem.minimumWindow)
             host.layoutSubtreeIfNeeded()
-            XCTAssertEqual(host.frame.width,1180); XCTAssertEqual(host.frame.height,760)
+            XCTAssertEqual(host.frame.width,1180); XCTAssertEqual(host.frame.height,800)
             let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in:host.bounds))
             host.cacheDisplay(in:host.bounds,to:bitmap)
             XCTAssertGreaterThan(bitmap.pixelsWide,0); XCTAssertGreaterThan(bitmap.pixelsHigh,0)

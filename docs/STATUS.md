@@ -155,62 +155,76 @@ güncelleyici pencereleri incelendi. LaunchServices kaydı sandbox’ta engellen
 uygulama paketi hazır. Üretim Keychain kurulumu, DMG/yayın ve gerçek
 quit/relaunch bu oturumda yapılmadı.
 
-## Simge çubuğu ve bağlam satırı — ikon-panel
+## Tekil paneller ve okunabilir bağlam satırı — ikon-panel
 
-### Çalışanlar
+### Panel içerikleri
 
-- Sağda 56 pt simge çubuğu, Türkçe kısa adlar, SF Symbols, tam ad/kısayol
-  ipuçları, seçim ve manuel ayar/uyarı noktaları bulunur. Bölüm sırası ve
-  denetçi kartları `InspectorPanel` üzerinden üretilir. Erişilebilirlik testi
-  aynı `InspectorRegistry` envanterini kullanır. Önceki 257 alan korunur;
-  kaynak hazırlama alanları da envantere dahildir.
-- ⌘1–⌘9 bölümü açar, kaydırır ve kısa süre çerçeveler. Gerçek NSScrollView
-  üzerinde sona atlama ve elle başa kaydırınca seçimin İş'e dönmesi test edilir.
-  AppKit bölüm çapası, açılan kartın yerleşimi tamamlandıktan sonra kaydırır.
-- Tümünü aç/daralt, varsayılan kapalı tek bölüm seçeneği, Görünüm menüsünden
-  simge çubuğunu gizleme ve başlığa çift tıklamayla denetçiyi daraltma çalışır.
-  Dar denetçide simge tıklanınca aynı kart açılır panelde gösterilir. Tercihler
-  UserDefaults'a yazılır. Proje şeması bu görünüm tercihleri için değişmez.
-- 36 pt bağlam satırı düz iş, kitap/yaprak, seçili iş ve seri/QR alanına göre
-  değişir. Tabaka listesinin tüm hazır ölçüleri ve özel ölçü girişi bulunur.
-  En fazla sekiz kontrol gösterilir; öncelik sırasındaki kalanlar … açılır
-  paneline taşınır. Ortala da bu panelden erişilir.
-- Ortak Workspace bağları iki yönlü güncellenir. Bir değişiklik tek undo grubudur.
-  Hücre seçiminin Ata/Böl/Gizle-Göster kontrolleri Sayfayı böl penceresindedir.
-  Kılavuz grubunun seçimi, Böl ve doğrulamalı Gizle/Göster kendi penceresindedir.
-  Grup rolleri mevcut otomatik saptamadan gelir.
-- Açık/koyu 1180×760 görünüm ve 460 pt seri alanı bağlam satırı PNG'leri
-  `.build/WorkflowQA/ikon-*.png` altında üretilir. Simge düğmelerinde VoiceOver
-  adı, seçim durumu ve ok tuşlarıyla gezinme; başlıkta Return eylemi bulunur.
+| Panel | İçerik / alt gruplar |
+| --- | --- |
+| İş | Ürün tipi, ebat/değiştir, adet, fire; yöntem, ürünlerin ön/arka eşlemesi, ayrıntılı fire, hazır yerleşim ayarları |
+| Tabaka | Ölçü chip'leri, özel ölçü, yön, üretim, ön/arka çevirme; yerleşim, dönüş izni ve satır/sütun |
+| Kenarlar | Dört kenar payı, maşa kenarı/payı, ara boşluk, hizalama |
+| Taşma | Üretim anahtarı, miktar, kaynak/sonuç satırları; yöntem, tolerans ve renk |
+| İşaretler | Baskı işaretleri, kesim/güvenli alan ölçüleri, renk/diz ölçüleri, bilgi şeridi, önizleme katmanları |
+| Seri No | Alanlar, içerik/kod, aralık, görünüm, konum; aynı seri/QR alanları |
+| Ölçek/Böl | Ebat penceresi, sayfa bölme, kaynak kılavuzları ve boyut önerileri |
+| Cilt | Kitap işinde yöntem, kapak, kâğıt, sırt/creep, boş sayfalar; yaprak işinde Cilt ve Kapak grupları |
+| Fiyat | Maliyet, işçilik, sonuç/tabaka karşılaştırması, teklif, fiyat kitaplığı |
+| Çıktı | Çıktı hazır seçimleri, boş arka seçenekleri, PDF hazırlama, ön kontrol |
 
-### Doğrulama ve çalıştırma
+### Davranış
+
+- Simge bir tek panel seçer. Uzun denetçi, bölümler arası kaydırma/takip,
+  Tümünü aç/daralt ve accordion kaldırıldı. Seçim UserDefaults'ta hatırlanır.
+  Eski görünüm tercihleri üretim veya proje ayarlarını değiştirmez.
+- Sütun 350 pt, simge çubuğu 72 pt, minimum içerik boyutu 1180×800 pt'dir.
+  Başlığa çift tıklama sütunu daraltır; simge aynı paneli flyout'ta açar.
+  ⌘1–⌘9 ilk dokuz paneli seçer. Onuncu Çıktı simgeden/menüden açılır;
+  mevcut ⌘0 Sığdır, ⌘E ve ⌘O korunur.
+- 56 pt üst satırda inline 13 pt etiketler ve büyük kontroller kullanılır.
+  Sayı alanları tam Girilmedi ve birim için yer ayırır. Sığmayanlar sabit
+  öncelikle … altına taşınır. Panel ve bar aynı bağlarla çalışır.
+- Hücre/kılavuz seçimi modal pencerede olduğundan ilgili Ata/Böl/Gizle-Göster
+  kontrolleri aynı pencerenin bağlam satırındadır. Kılavuz rollerinin otomatik
+  saptaması ve güvenli gizleme mekanizması kullanılır.
+- Boş projede planlama çağrısı başlatılmaz. Üst/durum satırı PDF seçin gösterir.
+  Boş plan dışa aktarılamaz. Dolu planların yerleşim hesapları korunur.
+
+### Doğrulama
 
 ```sh
 cd /Users/baturayatis/Developer/AtisPressCore
-swift run --disable-sandbox AtisPressApp
 swift test --disable-sandbox
-swift test --disable-sandbox --filter IconPanelTests
+./scripts/build_app.sh
+open "dist/AtışPress.app"
 ```
 
-Son tam koşuda **397 test geçti, 0 hata** (70 PDFEngine, 124 ImpositionCore,
-203 AtisPressApp). Güncelleyici, reachability, round-trip ve snapshot testleri dahildir.
+Son tam koşuda **399 test geçti, 0 hata** (70 PDFEngine, 124 ImpositionCore,
+205 AtisPressApp). Son panel/envanter doğrulamasında ayrıca 22 hedefli test geçti.
 
-Yeni testler envanter eşlemesi, bölüm atlama/kaydırma takibi, accordion/açılır
-panel durumu ve tercih kalıcılığı, bağlam seçimi, iki yönlü bağlar/undo, taşma
-menüsü sırası ve dört iş türünde plan/PDF piksel eşitliğini kapsar. Aynı projeler
-kaydedilip açıldığında da plan ve PDF görüntüleri karşılaştırılır.
+`IconPanelTests` envanterin tekil panel sahipliğini, seçim/kalıcılık/flyout,
+boş projenin hatasız durumunu, 12 pt alt sınırını, bağlam/overflow ve iki yönlü
+bağ/undo davranışını sınar. Dört iş türünde bütün görünür panel alt grupları
+350×743 pt panel alanında yerel kaydırmaya gerek kalmadan oluşturulur.
+Açık/koyu 1180×800 ve dar bağlam satırı görselleri `.build/WorkflowQA` altındadır.
+Dört modda plan, dışa aktarılan PDF piksel snapshot'ı ve proje kaydet/aç sonucu
+karşılaştırılır. Önceki reachability, round-trip ve güncelleyici testleri de koşulur.
 
-### Bilinen eksikler ve elle denenecekler
+Paketlenmiş uygulamada erişilebilirlik ağacı üzerinden tek panel seçimi,
+⌘1–⌘9 (Cilt kitap işinde), simgeden Çıktı, çift tıklamayla daraltma ve flyout
+kontrol edildi. Boş durumda iki yerde PDF seçin ve hatasız görünüm görüldü.
+Oluşturulan 12 sayfalı test PDF'inde Adet üst satırdan 123, panelden 456 yapıldı;
+ikisi eşzamanlı değişti ve tek undo 123'e döndürdü. Kitap bağlam satırı da görüldü.
+Test projesi kaydedilmeden kapatıldı. Açık/koyu minimum boyut görselleri incelendi.
+Universal arm64/x86_64 uygulama ve strict codesign doğrulaması üretildi.
+LaunchServices kaydı sandbox'ta engellendi; paket masaüstü aracıyla açıldı.
 
-- VoiceOver'ın sesli okuması ve gerçek klavye odağının tüm menü/panel geçişleri
-  bu ortamda uçtan uca doğrulanamadı. Otomatik test erişilebilirlik etiketlerinin
-  ve kısayolların tanımlarını denetler. macOS'ta Klavye ile gezinme açıkken Tab,
-  Shift-Tab, oklar, Return ve ⌘1–⌘9 ile; VoiceOver açıkken bölüm adları ve
-  açılır panelden çıkış elle kontrol edilmeli.
-- Hücre menüsüyle seçim ve kılavuz penceresindeki bağlam kontrolleri gerçek
-  Illustrator dosyasıyla elle denenmeli. Yeni bir kılavuz rolü atama editörü
-  eklenmedi; otomatik roller ve mevcut güvenli gizleme akışı kullanılır.
-- Universal arm64/x86_64 uygulama `dist/AtışPress.app` altında yeniden derlendi;
-  codesign doğrulaması geçti. LaunchServices kaydı sandbox'ta yapılamadı.
-  Finder kaydı için uygulama Uygulamalar'a taşınıp bir kez açılmalı.
-  Yeni görünüm için DMG/yayın hazırlanmadı.
+### Sınırlar ve elle denenecekler
+
+- Çok sayıda seri alanı/ürün, fiyat kitaplığı satırı, uzun kullanıcı metni veya
+  ek uyarı içerikleri sığmazsa yalnız seçili alt grubun içinde yerel kaydırma
+  kullanılır. Bölümler arasında kaydırma bulunmaz.
+- Hücre/kılavuz bağlamları gerçek Illustrator PDF'iyle ayrıca denenmeli.
+  Kılavuz grubuna yeni rol atayan editör sunulmaz.
+- VoiceOver sesli okuması ve tüm karmaşık menü/panel odak geçişleri fiziksel
+  kullanımda ayrıca kontrol edilmeli.

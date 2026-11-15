@@ -87,9 +87,11 @@ struct AtisPressApp: App {
                 Toggle("Denetçiyi daralt",isOn:Binding(get:{workspace.ui.inspectorCollapsed},set:{workspace.ui.inspectorCollapsed=$0}))
                 Menu("Ayarlar bölümüne git") {
                     ForEach(InspectorPanel.allCases) {panel in
+                        if panel.number<=9 {
                         Button(panel.title) {workspace.ui.jump(panel)}
                             .keyboardShortcut(KeyEquivalent(Character(String(panel.number))),modifiers:.command)
                             .disabled(!InspectorPanel.visible(for:workspace.project).contains(panel))
+                        } else {Button(panel.title) {workspace.ui.jump(panel)}}
                     }
                 }
                 Divider()

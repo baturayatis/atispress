@@ -48,6 +48,9 @@ import PDFEngine
             XCTAssertTrue(InspectorPanel.allCases.contains(setting.panel),setting.id)
             XCTAssertFalse(setting.panel.title.isEmpty)
         }
+        XCTAssertEqual(InspectorRegistry.owner(editor:"InspectorView",path:"model.overlays.bleed"),.marks)
+        XCTAssertEqual(InspectorRegistry.owner(editor:"InspectorView",path:"sheet.margins.left"),.edges)
+        XCTAssertEqual(InspectorRegistry.owner(editor:"InspectorView",path:"model.editableGeneratedBleed.enabled"),.bleed)
         let fields=InspectorPanel.allCases.flatMap(InspectorRegistry.fields)
         XCTAssertEqual(Set(fields),Set(AutoLayoutField.allCases))
         XCTAssertEqual(fields.count,Set(fields).count)
@@ -55,43 +58,50 @@ import PDFEngine
             var project=Workspace.newProject();project.binding=method
             XCTAssertEqual(InspectorPanel.visible(for:project).contains(.binding),project.isBooklet || project.isLeafBinding)
         }
-        XCTAssertEqual(InspectorPanel.allCases.map(\.number),Array(1...9))
+        var leaf=Workspace.newProject();leaf.binding = .spiral
+        XCTAssertEqual(InspectorPanel.binding.groups(for:leaf),["Cilt","Kapak"])
+        XCTAssertEqual(InspectorPanel.allCases.map(\.number),Array(1...10))
         let flat=InspectorPanel.visible(for:Workspace.newProject())
         XCTAssertEqual(InspectorPanel.neighbor(of:.job,step:-1,visible:flat),.job)
         XCTAssertEqual(InspectorPanel.neighbor(of:.scaling,step:1,visible:flat),.price)
         XCTAssertEqual(InspectorPanel.neighbor(of:.output,step:1,visible:flat),.output)
         XCTAssertEqual(InspectorPanel.neighbor(of:.serial,step:-1,visible:flat),.marks)
     }
-    func testScrollSpySelectsVisibleSectionIncludingLastShortCard() {
-        let frames:[InspectorPanel:CGRect] = [.job:CGRect(x:0,y:-160,width:400,height:150),.sheet:CGRect(x:0,y:-10,width:400,height:500),.bleed:CGRect(x:0,y:510,width:400,height:300)]
-        XCTAssertEqual(InspectorRegistry.sectionInView(frames:frames,height:600),.sheet)
-        XCTAssertEqual(InspectorRegistry.sectionInView(frames:[.job:CGRect(x:0,y:16,width:400,height:300)],height:600),.job)
-        XCTAssertEqual(InspectorRegistry.sectionInView(frames:[.price:CGRect(x:0,y:-20,width:400,height:400),.output:CGRect(x:0,y:400,width:400,height:150)],height:600),.output)
-        XCTAssertNil(InspectorRegistry.sectionInView(frames:[.job:CGRect(x:0,y:700,width:400,height:40)],height:600))
-    }
-    func testJumpAccordionFlyoutAndPersistenceDoNotEditProject() throws {
-        let store=defaults(),model=Workspace(uiDefaults:store),before=try ProjectDocument(state:model.state).encoded()
-        XCTAssertTrue(model.ui.railVisible);XCTAssertFalse(model.ui.accordion)
-        let jump=model.ui.panelJump
-        model.ui.jump(.marks)
-        XCTAssertEqual(model.ui.activePanel,.marks);XCTAssertEqual(model.ui.flashingPanel,.marks)
-        XCTAssertTrue(model.ui.expandedPanels.contains(.marks));XCTAssertNotEqual(model.ui.panelJump,jump)
-        model.ui.accordion=true;model.ui.jump(.serial)
-        XCTAssertEqual(model.ui.expandedPanels,[.serial])
-        model.ui.jump(.scaling);XCTAssertEqual(model.ui.expandedPanels,[.scaling])
-        model.ui.inspectorCollapsed=true;model.ui.jump(.price)
-        XCTAssertEqual(model.ui.flyoutPanel,.price)
-        model.ui.expandAllPanels();XCTAssertFalse(model.ui.accordion)
-        XCTAssertEqual(model.ui.expandedPanels,Set(InspectorPanel.allCases))
-        model.ui.collapseAllPanels();XCTAssertTrue(model.ui.expandedPanels.isEmpty)
-        model.ui.accordion=true;model.ui.railVisible=false
+    func testPanelSelectionFlyoutAndPersistenceDoNotEditProject() throws {
+        let store=defaults(),model=Workspace(uiDefaults:store)
+        let before=try ProjectDocument(state:model.state).encoded()
+        XCTAssertEqual(model.ui.activePanel,.job)
+        for panel in InspectorPanel.allCases {
+            model.ui.jump(panel)
+            XCTAssertEqual(model.ui.activePanel,panel)
+            XCTAssertEqual(UsabilitySettings(defaults:store).activePanel,panel)
+        }
+        model.ui.inspectorCollapsed=true;model.ui.jump(.marks)
+        XCTAssertEqual(model.ui.flyoutPanel,.marks)
+        model.ui.railVisible=false
         XCTAssertFalse(model.ui.inspectorCollapsed);XCTAssertNil(model.ui.flyoutPanel)
-        let reopened=UsabilitySettings(defaults:store)
-        XCTAssertFalse(reopened.railVisible);XCTAssertTrue(reopened.accordion)
-        XCTAssertEqual(reopened.expandedPanels,model.ui.expandedPanels)
-        model.ui.inspectorCollapsed=true
-        XCTAssertTrue(model.ui.railVisible,"A collapsed inspector always leaves a reachable rail")
         XCTAssertEqual(try ProjectDocument(state:model.state).encoded(),before)
+    }
+    func testEmptyWorkspaceNeverPlansOrDisplaysValidationErrors() async throws {
+        let model=Workspace(uiDefaults:defaults())
+        model.schedulePlan();try await settle(model)
+        XCTAssertTrue(model.plan.sheets.isEmpty)
+        XCTAssertTrue(model.plan.issues.isEmpty)
+        XCTAssertTrue(model.workflowIssues.isEmpty)
+        XCTAssertFalse(model.planning)
+        XCTAssertFalse(model.canExportNow)
+        XCTAssertFalse(model.plan.canExport)
+        XCTAssertEqual(model.statusSummary,"PDF seçin")
+    }
+    func testGangJobsStillPlanWithoutTheLegacyPageArray() async throws {
+        let model=Workspace(uiDefaults:defaults())
+        var project=Workspace.newProject();project.binding = .gang
+        var gang=GangSettings()
+        gang.jobs=[GangJob(sourceID:UUID(),name:"Kart",front:SourcePage(number:1,trimSize:Size(85,55),availableBleed:3))]
+        project.gang=gang;model.project=project
+        try await settle(model)
+        XCTAssertTrue(model.project.hasPanelItems)
+        XCTAssertFalse(model.plan.sheets.isEmpty)
     }
     func testContextFollowsSelectionAndOverflowPreservesPriority() {
         let model=Workspace(uiDefaults:defaults())
@@ -115,7 +125,7 @@ import PDFEngine
                 XCTAssertEqual(layout.visible+layout.overflow,controls)
                 XCTAssertEqual(layout.visible,Array(controls.prefix(layout.visible.count)))
                 let occupied=layout.visible.reduce(CGFloat(0)){$0+$1.width+8}
-                XCTAssertLessThanOrEqual(occupied,max(0,width-16-(layout.overflow.isEmpty ? 0:44)))
+                XCTAssertLessThanOrEqual(occupied,max(0,width-24-(layout.overflow.isEmpty ? 0:44)))
             }
         }
         XCTAssertEqual(ContextPresentation.layout(ContextPresentation.controls(.serial),width:2000).overflow,[.center])
@@ -182,10 +192,9 @@ import PDFEngine
                 }
             }
             let baseline=try pixels(before,"before")
-            model.ui.accordion=true
             for panel in InspectorPanel.visible(for:model.project) {model.ui.jump(panel)}
             model.ui.inspectorCollapsed=true;model.ui.jump(.scaling)
-            model.ui.railVisible=false;model.ui.expandAllPanels();model.ui.collapseAllPanels()
+            model.ui.railVisible=false
             model.selectedPages=[1];_ = ContextPresentation.kind(model);model.selectedPages=[]
             XCTAssertEqual(try ProjectDocument(state:model.state).encoded(),state)
             let after=ImpositionPlanner.plan(model.project)
@@ -209,10 +218,10 @@ import PDFEngine
             host.frame=CGRect(origin:.zero,size:DesignSystem.minimumWindow);host.layoutSubtreeIfNeeded()
             let bitmap=try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in:host.bounds));host.cacheDisplay(in:host.bounds,to:bitmap)
             try bitmap.representation(using:.png,properties:[:])?.write(to:artifacts.appendingPathComponent("ikon-panel-\(scheme == .light ? "light" : "dark").png"))
-            XCTAssertEqual(bitmap.pixelsWide,1180);XCTAssertEqual(bitmap.pixelsHigh,760)
+            XCTAssertEqual(bitmap.pixelsWide,1180);XCTAssertEqual(bitmap.pixelsHigh,800)
             model.editableSerialFields=[SerialField()];model.selectedSerialID=model.editableSerialFields.first?.id
             let bar=NSHostingView(rootView:ContextBar(model:model).environment(\.colorScheme,scheme))
-            bar.appearance=host.appearance;bar.frame=CGRect(x:0,y:0,width:460,height:36);bar.layoutSubtreeIfNeeded()
+            bar.appearance=host.appearance;bar.frame=CGRect(x:0,y:0,width:460,height:56);bar.layoutSubtreeIfNeeded()
             let narrow=try XCTUnwrap(bar.bitmapImageRepForCachingDisplay(in:bar.bounds));bar.cacheDisplay(in:bar.bounds,to:narrow)
             try narrow.representation(using:.png,properties:[:])?.write(to:artifacts.appendingPathComponent("ikon-context-narrow-\(scheme == .light ? "light" : "dark").png"))
             model.selectedSerialID=nil
@@ -226,38 +235,39 @@ import PDFEngine
     }
 }
 
-private final class PanelTestWindow:NSWindow {
-    override func constrainFrameRect(_ frameRect:NSRect,to screen:NSScreen?) -> NSRect {frameRect}
-}
-
 extension IconPanelTests {
-    func testNativeInspectorScrollJumpAndScrollSpy() async throws {
+    func testEveryPanelAndDefaultSubgroupFitsAt800PointWindowHeight() async throws {
         let model=Workspace(uiDefaults:defaults()),prices=PricingStore(url:try directory().appendingPathComponent("prices.json"))
-        NSApplication.shared.finishLaunching()
-        let host=NSHostingView(rootView:WorkspaceView(model:model,prices:prices))
-        host.sizingOptions=[]
-        host.frame=CGRect(origin:.zero,size:DesignSystem.minimumWindow)
-        let window=PanelTestWindow(contentRect:host.bounds,styleMask:[.titled,.resizable],backing:.buffered,defer:false)
-        window.isReleasedWhenClosed=false
-        window.contentView=host
-        window.contentMinSize=DesignSystem.minimumWindow
-        window.setContentSize(DesignSystem.minimumWindow)
-        window.orderFront(nil)
-        defer {window.contentView=nil;window.close()}
-        host.layoutSubtreeIfNeeded()
-        try await Task.sleep(for:.milliseconds(200))
-        host.frame=CGRect(origin:.zero,size:DesignSystem.minimumWindow)
-        host.layoutSubtreeIfNeeded()
-        model.ui.jump(.output)
-        try await Task.sleep(for:.milliseconds(700));host.layoutSubtreeIfNeeded()
-        XCTAssertEqual(model.ui.activePanel,.output)
-        XCTAssertTrue(model.ui.expandedPanels.contains(.output))
-        func views(_ parent:NSView) -> [NSView] {parent.subviews.flatMap{[$0]+views($0)}}
-        let scrolls=views(host).compactMap{$0 as? NSScrollView}
-        let inspector=try XCTUnwrap(scrolls.filter{$0.frame.width>350 && $0.frame.width<450}.max(by:{($0.documentView?.frame.height ?? 0)<($1.documentView?.frame.height ?? 0)}))
-        XCTAssertGreaterThan(inspector.contentView.bounds.minY,0,"Jump should scroll the real inspector")
-        inspector.contentView.scroll(to:.zero);inspector.reflectScrolledClipView(inspector.contentView)
-        try await Task.sleep(for:.milliseconds(200));host.layoutSubtreeIfNeeded()
-        XCTAssertEqual(model.ui.activePanel,.job)
+        model.open(try fixture(),confirmChanges:false);try await settle(model)
+        func descendants(_ view:NSView)->[NSView] {view.subviews.flatMap{[$0]+descendants($0)}}
+        for mode in [BindingMethod.stepAndRepeat,.gang,.saddleStitch,.spiral] {
+        model.setMode(mode);try await settle(model)
+        if model.project.isBooklet {model.enableBookSettings();try await settle(model)}
+        if mode == .stepAndRepeat {model.addSerialField();try await settle(model)}
+        for panel in InspectorPanel.visible(for:model.project) {
+            model.ui.jump(panel)
+            for group in panel.groups(for:model.project).indices {
+            let host=NSHostingView(rootView:InspectorView(model:model,prices:prices,group:group))
+            host.frame=CGRect(x:0,y:0,width:350,height:743);host.layoutSubtreeIfNeeded()
+            let scrolling=descendants(host).compactMap{$0 as? NSScrollView}.filter{($0.documentView?.frame.height ?? 0)>$0.contentView.bounds.height+1}
+            XCTAssertTrue(scrolling.isEmpty,"Panel needs scrolling: \(panel.title) / \(panel.groups(for:model.project)[group])")
+            XCTAssertEqual(model.ui.activePanel,panel)
+            }
+        }
+        }
+    }
+    func testPanelAndContextTypographyAndNavigationDefinitions() throws {
+        for file in ["InspectorRail","InspectorView","ContextBar"] {
+            let text=try String(contentsOf:root.appendingPathComponent("Sources/AtisPressApp/"+file+".swift"))
+            let pattern=try NSRegularExpression(pattern:#"size:\s*(\d+)"#)
+            for match in pattern.matches(in:text,range:NSRange(text.startIndex...,in:text)) {
+                let value=Int((text as NSString).substring(with:match.range(at:1)))!
+                XCTAssertGreaterThanOrEqual(value,12,file)
+            }
+            XCTAssertFalse(text.contains("scrollTo"));XCTAssertFalse(text.contains("scrollSpy"))
+        }
+        let rail=try String(contentsOf:root.appendingPathComponent("Sources/AtisPressApp/InspectorRail.swift"))
+        XCTAssertFalse(rail.contains("Tümünü"));XCTAssertFalse(rail.contains("accordion"))
+        XCTAssertTrue(rail.contains(".onMoveCommand"));XCTAssertTrue(rail.contains(".accessibilityLabel"))
     }
 }

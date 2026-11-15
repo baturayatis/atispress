@@ -367,7 +367,7 @@ public struct ImpositionPlan: Sendable {
             return sum.overflow ? Int.max : sum.partialValue
         }
     }
-    public var canExport: Bool { !issues.contains { $0.severity == .error } }
+    public var canExport: Bool { !sheets.isEmpty && !issues.contains { $0.severity == .error } }
     public init(sheets: [Sheet] = [], issues: [ValidationIssue] = [], addedBlankPages: Int = 0, signaturePageCount: Int = 0,generatedBleed: GeneratedBleedSettings = GeneratedBleedSettings()) {
         self.sheets = sheets; self.issues = issues; self.addedBlankPages = addedBlankPages
         self.signaturePageCount = signaturePageCount; self.generatedBleed = generatedBleed

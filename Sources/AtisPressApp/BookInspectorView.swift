@@ -3,21 +3,26 @@ import ImpositionCore
 
 struct BookInspectorView: View {
     @ObservedObject var model: Workspace
+    var section:Int? = nil
     private var book: Binding<BookSettings> { $model.bookSettings }
     private var info: BookSheetInfo? { model.plan.sheets.compactMap(\.bookInfo).first }
     var body: some View {
         GroupBox("Kitap: kapak, sırt ve creep") {
             VStack(alignment:.leading,spacing:10) {
                 if model.project.book == nil {
-                    Text("Mevcut forma düzeni korunuyor. Kapak, sırt ve creep için ölçülmüş kâğıt bilgileriyle kitap ayarlarını açın.").font(.caption)
+                    Text("Mevcut forma düzeni korunuyor. Kapak, sırt ve creep için ölçülmüş kâğıt bilgileriyle kitap ayarlarını açın.").font(.system(size:12))
                     Button("Kitap ayarlarını aç",action:model.enableBookSettings)
                 } else {
-                    coverControls
+                    if section==nil || section==0 {coverControls}
+                    if section==nil || section==1 {
                     PaperCaliperEditor(model:model,title:"İç kâğıt",paper:book.interiorPaper)
                     PaperCaliperEditor(model:model,title:"Kapak kâğıdı",paper:book.coverPaper)
+                    }
+                    if section==nil || section==2 {
                     if model.project.binding == .perfectBound { spineControls }
                     if model.project.binding == .saddleStitch || model.bookSettings.creepEnabled { creepControls }
-                    if let info { Text(TRFormat.presentation(info.summary)).font(.caption).textSelection(.enabled) }
+                    }
+                    if let info { Text(TRFormat.presentation(info.summary)).font(.system(size:12)).textSelection(.enabled) }
                     HStack {
                         Button("Kapak önizle") { model.showBookSection(.cover) }
                         Button("İç sayfalar") { model.showBookSection(.interior) }
@@ -34,12 +39,12 @@ struct BookInspectorView: View {
                 Text("Ayrı PDF").tag(CoverMode.separate)
             }.pickerStyle(.segmented).inspectorSetting(model,"Kapak modu",SettingGuidance.detail("Kapak modu"))
             if model.project.coverMode == .included {
-                Text("İlk iki / son iki sayfa otomatik kapaktır. Seçilen kapak yüzleri iç bloktan ayrılır ve bağımsız basılır.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                Text("İlk iki / son iki sayfa otomatik kapaktır. Seçilen kapak yüzleri iç bloktan ayrılır ve bağımsız basılır.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
             }
             if model.project.coverMode == .separate {
                 if model.project.sourcePreparation?.split == nil {Button("Kapak PDF yükle…",action:model.chooseCoverPDF).disabled(model.source == nil || model.loading)}
                 if let id = model.bookSettings.coverSourceID,let asset = model.gangAssets.first(where:{ $0.saved.id==id }) {
-                    Text(asset.saved.reference.fileName).font(.caption)
+                    Text(asset.saved.reference.fileName).font(.system(size:12))
                 }
                 Picker("PDF biçimi",selection:book.coverArtwork) {
                     Text("Tek yüzler").tag(BookSettings.CoverArtwork.panels)
@@ -49,7 +54,7 @@ struct BookInspectorView: View {
             if model.project.coverMode == .separate && model.bookSettings.coverArtwork == .spread {
                 pagePicker("Dış açılım",\.front)
                 pagePicker("İç açılım",\.insideFront,allowBlank:true)
-                Text("Açılım PDF’si ölçeklenmez. Ölçü farkı tam sayılarla bildirilir; baskı içeriği hesaplanan açılıma kırpılır.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                Text("Açılım PDF’si ölçeklenmez. Ölçü farkı tam sayılarla bildirilir; baskı içeriği hesaplanan açılıma kırpılır.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
             } else {
                 pagePicker("Ön kapak",\.front)
                 pagePicker("İç ön",\.insideFront,allowBlank:true)
@@ -82,22 +87,22 @@ struct BookInspectorView: View {
             Text("Amerikan cilt: sırt ve kapak açılımı").font(.headline)
             measure("Kapak payı (mm) — varsayılan 0",book.coverAllowance)
             measure("Yapıştırıcı payı (mm) — varsayılan 0",book.adhesiveAllowance)
-            Text("Sırt = (iç sayfa / 2) × iç kâğıt kalınlığı + kapak payı + yapıştırıcı payı").font(.caption)
+            Text("Sırt = (iç sayfa / 2) × iç kâğıt kalınlığı + kapak payı + yapıştırıcı payı").font(.system(size:12))
             if let info,let spine = info.spine,let thickness = info.interiorPaper.millimetres {
-                Text("(\(info.interiorPageCount) / 2) × \(TRFormat.dimension(thickness,detail:true)) + \(TRFormat.dimension(model.bookSettings.coverAllowance,detail:true)) + \(TRFormat.dimension(model.bookSettings.adhesiveAllowance,detail:true)) ≈ \(TRFormat.dimension(spine,detail:true)) mm").font(.caption).textSelection(.enabled)
-            } else { Text("Kalınlık girilmeden sırt hesaplanamaz; çıktı engellenir.").font(.caption).foregroundStyle(DesignSystem.warning) }
-            Text("İç sayfa sayısı, forma için eklenen boşları içerir. Kapak kalınlığı otomatik pay olarak eklenmez; kapak payını siz girin.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                Text("(\(info.interiorPageCount) / 2) × \(TRFormat.dimension(thickness,detail:true)) + \(TRFormat.dimension(model.bookSettings.coverAllowance,detail:true)) + \(TRFormat.dimension(model.bookSettings.adhesiveAllowance,detail:true)) ≈ \(TRFormat.dimension(spine,detail:true)) mm").font(.system(size:12)).textSelection(.enabled)
+            } else { Text("Kalınlık girilmeden sırt hesaplanamaz; çıktı engellenir.").font(.system(size:12)).foregroundStyle(DesignSystem.warning) }
+            Text("İç sayfa sayısı, forma için eklenen boşları içerir. Kapak kalınlığı otomatik pay olarak eklenmez; kapak payını siz girin.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
             measure("Sol kulak (mm)",book.leftFlap)
             measure("Sağ kulak (mm)",book.rightFlap)
-            Text("Panellerde kulak ve sırt boştur. Baskılı kulak / sırt için hazır açılım PDF’si kullanın.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
+            Text("Panellerde kulak ve sırt boştur. Baskılı kulak / sırt için hazır açılım PDF’si kullanın.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
         }
     }
     private var creepControls: some View {
         VStack(alignment:.leading,spacing:7) {
             Toggle("Kat kalınlığı kaydırması",isOn:book.creepEnabled).inspectorSetting(model,"Kat kalınlığı kaydırması",SettingGuidance.detail("Kat kalınlığı kaydırması"))
-            if model.bookSettings.creepEnabled && (model.bookSettings.interiorPaper.millimetres == nil || model.bookSettings.coverPaper.millimetres == nil) { Text("En çok kaydırma: hesaplanamadı").font(.caption).foregroundStyle(DesignSystem.warning) }
-            else { Text("En çok kaydırma: \(TRFormat.dimension(info?.maximumCreep ?? 0)) mm").font(.caption) }
-            Text("Basit doğrusal yaklaşım: iç yaprak i için kapak kalınlığı + i × iç kâğıt kalınlığı. Kapak kaydırılmaz; iç baskı kat yerine doğru kayar. Fiziksel katlama / kesim testiyle doğrulayın.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
+            if model.bookSettings.creepEnabled && (model.bookSettings.interiorPaper.millimetres == nil || model.bookSettings.coverPaper.millimetres == nil) { Text("En çok kaydırma: hesaplanamadı").font(.system(size:12)).foregroundStyle(DesignSystem.warning) }
+            else { Text("En çok kaydırma: \(TRFormat.dimension(info?.maximumCreep ?? 0)) mm").font(.system(size:12)) }
+            Text("Basit doğrusal yaklaşım: iç yaprak i için kapak kalınlığı + i × iç kâğıt kalınlığı. Kapak kaydırılmaz; iç baskı kat yerine doğru kayar. Fiziksel katlama / kesim testiyle doğrulayın.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
         }
     }
     private func measure(_ title: String,_ binding: Binding<Double>) -> some View {
@@ -120,9 +125,9 @@ private struct PaperCaliperEditor: View {
             else {
                 optional("Gramaj (g/m²)",$paper.grammage)
                 optional("Cilt katsayısı (cm³/g)",$paper.bulk)
-                Text("Gramaj × katsayı = µm; varsayılan katsayı yoktur.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                Text("Gramaj × katsayı = µm; varsayılan katsayı yoktur.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
             }
-            Text(TRFormat.presentation(paper.description)).font(.caption).foregroundStyle(paper.millimetres == nil ? DesignSystem.warning : DesignSystem.muted)
+            Text(TRFormat.presentation(paper.description)).font(.system(size:12)).foregroundStyle(paper.millimetres == nil ? DesignSystem.warning : DesignSystem.muted)
         }
     }
     private func optional(_ title: String,_ binding: Binding<Double?>) -> some View {

@@ -15,7 +15,7 @@ struct ColorControlSizeView: View {
                 Text("Maşanın karşısı").tag(ColorControlSettings.BarSide.opposite)
             }.pickerStyle(.segmented).automaticReset(model,.exportBarSide)
             }
-            Text("Diz: kalıpları hizalar · Skala: baskı rengini kontrol eder.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
+            Text("Diz: kalıpları hizalar · Skala: baskı rengini kontrol eder.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
         }
     }
 }
