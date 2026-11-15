@@ -19,9 +19,9 @@ agent environment), use `swift build --disable-sandbox` and
 
 ## Kurulum
 
-Güncel uygulama sürümü **0.2.0 (build 2)**. Sürüm kaynağı
+Güncel uygulama sürümü **0.2.1 (build 3)**. Sürüm kaynağı
 `packaging/Info.plist`; Hakkında, tanı bilgisi ve güncelleme karşılaştırması
-aynı paket sürümünü kullanır. `swift run` için de 0.2.0 / 2 yedeği bulunur.
+aynı paket sürümünü kullanır. `swift run` için de 0.2.1 / 3 yedeği bulunur.
 Proje dosyası şeması bağımsızdır ve **19**’dur; eski projeler açılır.
 
 **macOS 14 veya üzeri** gerekir. Intel ve Apple Silicon Mac’ler aynı universal
@@ -73,7 +73,7 @@ mimari, yapılandırma ve ürün seçeneklerini değiştirmeyin.
 
 `make_dmg.sh`, uygulamayı ve `/Applications` hedefli sembolik bağlantıyı **AtışPress**
 adlı HFS+ birimine koyar. `UDZO` sıkıştırmalı dosya adı ASCII’dir:
-`dist/AtisPress-0.2.0.dmg`. Sürüm, uygulamanın `Info.plist` dosyasındaki
+`dist/AtisPress-0.2.1.dmg`. Sürüm, uygulamanın `Info.plist` dosyasındaki
 `CFBundleShortVersionString` değeridir; kaynağı `packaging/Info.plist` içindedir.
 Buradaki pazarlama sürümü ve build numarası `.atispress` proje şemasından bağımsızdır.
 Betik `hdiutil create` ile HFS+/UDZO görüntüsünü oluşturur, `hdiutil verify`
@@ -85,12 +85,12 @@ Elle kontrol:
 
 ```sh
 lipo -info "dist/AtışPress.app/Contents/MacOS/AtisPressApp"
-hdiutil verify dist/AtisPress-0.2.0.dmg
-hdiutil attach -readonly -nobrowse dist/AtisPress-0.2.0.dmg
+hdiutil verify dist/AtisPress-0.2.1.dmg
+hdiutil attach -readonly -nobrowse dist/AtisPress-0.2.1.dmg
 ls -ld "/Volumes/AtışPress/AtışPress.app" "/Volumes/AtışPress/Applications"
 readlink "/Volumes/AtışPress/Applications"
 hdiutil detach "/Volumes/AtışPress"
-shasum -a 256 dist/AtisPress-0.2.0.dmg
+shasum -a 256 dist/AtisPress-0.2.1.dmg
 ```
 
 Disk aygıtlarına erişimi olmayan sandbox’larda `hdiutil` oluşturma/bağlama
@@ -2623,3 +2623,17 @@ swift run --disable-sandbox AtisPressApp
 swift test --disable-sandbox
 swift test --disable-sandbox --filter 'SourcePreparationTests|PageSplitWorkflowTests'
 ```
+
+## 0.2.1 sürüm derlemesi
+
+Uygulama sürümü **0.2.1 (build 3)**. Kaynak `packaging/Info.plist`;
+Hakkında ve güncelleme denetimi bu değeri kullanır. Paket dışı yedek de
+0.2.1 / 3’tür. Güncelleme karşılaştırması 0.2.1’i güncel, 0.2.2’yi yeni kabul eder.
+`build_app.sh` ve `make_dmg.sh` sürüm/build değerlerini plist’ten otomatik okur;
+DMG adı `AtisPress-0.2.1.dmg` olur. Proje şeması 19 olarak korunur.
+
+0.2.1 doğrulaması: **368 test, sıfır hata** (124 çekirdek, 70 PDF, 174 uygulama).
+Universal `dist/AtışPress.app` yeniden oluşturuldu; paket sürümü **0.2.1 / 3**,
+arm64/x86_64 ve strict ad-hoc imza doğrulandı. Betiklerin Bash sözdizimi kontrolü
+geçti. LaunchServices kaydı sandbox’ta tamamlanamadı; paket oluşturuldu.
+DMG bu turda üretilmedi. Ağ kullanılmadı, push yapılmadı.
