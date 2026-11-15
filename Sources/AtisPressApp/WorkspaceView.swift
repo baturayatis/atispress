@@ -24,6 +24,8 @@ struct WorkspaceView: View {
         .alert("İşlem tamamlanamadı",isPresented: Binding(get: { model.error != nil },set: { if !$0 { model.error = nil } })) {
             Button("Tamam") { model.error = nil }
         } message: { Text(TRFormat.presentation(model.error ?? "")) }
+        .sheet(isPresented:$model.showingPageSplit) { if let input=model.preparationInput {PageSplitView(model:model,input:input)} }
+        .sheet(isPresented:$model.showingSourceGuides,onDismiss:{if model.showSplitAfterGuides {model.showSplitAfterGuides=false;model.showingPageSplit=model.canSplitSource}}) { if let input=model.preparationInput {SourceGuidesView(model:model,input:input)} }
         .sheet(isPresented:$model.preparingExport) { ExportPreparationView(model:model) }
         .sheet(item:$model.scaleWindow) { ScaleWindowView(model:model,request:$0) }
         .toolbar {
@@ -34,7 +36,7 @@ struct WorkspaceView: View {
                 HStack(spacing:DesignSystem.Space.sm) { Image(systemName:"square.and.arrow.up"); Text("PDF’i Hazırla").fontWeight(.semibold) }.padding(.horizontal,DesignSystem.Space.md).padding(.vertical,DesignSystem.Space.xs)
             }.buttonStyle(.borderedProminent).tint(DesignSystem.action).controlSize(.large).disabled(!model.canExportNow).accessibilityLabel("PDF’i Hazırla").help("Çıktı seçeneklerini kontrol edip baskı PDF’sini hazırlayın · ⌘E")
             if model.exporting { ProgressView().controlSize(.small); Button("İptal",action:model.cancelExport) }
-        }.tint(DesignSystem.teal)
+        }.tint(DesignSystem.teal).disabled(model.preparingSource)
     }
     @ViewBuilder private var sidebar: some View {
         if model.project.binding == .gang { GangSidebarView(model: model) } else { classicSidebar }
@@ -213,6 +215,7 @@ struct WorkspaceView: View {
                         Button(TRFormat.presentation(first.message)) { model.revealWorkflowIssue(first) }.buttonStyle(.plain).font(.caption).lineLimit(2).accessibilityLabel("Ayarı göster: "+TRFormat.presentation(first.message))
                     }
                 }
+                Text(model.cropMarkStatus).font(.caption).foregroundStyle(DesignSystem.muted)
                 if let summary = model.currentSheet?.productionSummary { Text(summary).font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1) }
                 Spacer(minLength:0)
             }.font(.callout).padding(DesignSystem.Space.md)

@@ -73,6 +73,11 @@ extension Workspace {
                 PDFPreflightFinding("bleed",page: $0.number,"Taşma payı eksik veya kontrol edilemedi.")
             }
         }
+        if let input=preparationInput,canInspectSourceGuides {
+            let visible=max(0,input.guides.count-hiddenSourceGuideCount)
+            if visible>0 {findings.append(PDFPreflightFinding("source-guides",page:1,"Dosyada baskıya girebilecek kılavuz çizgileri var (\(visible) çizgi)"))}
+            if input.guides.rasterFramesSuspected {findings.append(PDFPreflightFinding("raster-guides",page:1,"Kılavuz benzeri çerçeveler raster görüntünün parçası; ayrı çizgi olarak gizlenemez."))}
+        }
         var groups: [String:PreflightRow] = [:]
         for var finding in findings {
             if finding.code == "rgb",project.autoLayout?.production != .offset { finding.severity = .notice }

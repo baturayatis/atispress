@@ -58,6 +58,7 @@ struct InspectorView: View {
     private var workflowProduct:some View {
         VStack(alignment:.leading,spacing:DesignSystem.Space.md) {
             Text(model.workflowProductSummary).font(.callout.weight(.medium)).fixedSize(horizontal:false,vertical:true)
+            SourcePageTools(model:model)
             RescaleInspectorView(model:model)
             if let prompt = model.rescalePrompt { ScalingSuggestionBanner(model:model,prompt:prompt) }
             Picker("Ürün tipi",selection:Binding(get:{ model.productKind },set:model.setProductKind)) {
@@ -132,6 +133,7 @@ struct InspectorView: View {
                 let value = model.project.binding == .gang ? Binding(get:{ model.workflowBleed },set:{ model.workflowBleed = $0 }) : guide(\.bleed,field:.bleed,overlay:\.bleed)
                 DimensionInput("Taşma payı",value:Binding(get:{ value.wrappedValue },set:{ model.markManual(.bleed); model.workflowBleed = $0 }),range:0...30,enabled:model.editableGeneratedBleed.enabled)
             }
+            ForEach(Array(model.bleedResultLines.enumerated()),id:\.offset) { _,line in Text(line).font(.caption).foregroundStyle(DesignSystem.muted).fixedSize(horizontal:false,vertical:true) }
             if model.showsMissingBleedWarning {
                 HStack {
                     Label(Workspace.missingBleedWarning,systemImage:"exclamationmark.triangle.fill").font(.caption)

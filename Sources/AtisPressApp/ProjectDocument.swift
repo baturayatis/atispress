@@ -89,7 +89,7 @@ struct ProjectState: Codable, Equatable {
     }
 }
 struct ProjectDocument: Codable, Equatable {
-    static let currentVersion = 18
+    static let currentVersion = 19
     var version: Int = currentVersion
     var state: ProjectState
     static func decode(_ data: Data) throws -> ProjectDocument {
@@ -109,6 +109,9 @@ struct ProjectDocument: Codable, Equatable {
         let sources = file.state.linkedSources ?? file.state.gangSources ?? []
         guard Set(sources.map(\.id)).count == sources.count,sources.allSatisfy({ $0.pageCount > 0 }),
               (file.state.project.gang?.jobs ?? []).allSatisfy({ job in sources.contains { $0.id==job.sourceID } }) else { throw ProjectFileError.invalidSelection }
+        if let preparation=file.state.project.sourcePreparation,preparation.split != nil {
+            guard sources.contains(where:{$0.id==preparation.sourceID}) else {throw ProjectFileError.invalidSelection}
+        }
         if let id = file.state.project.book?.coverSourceID, !sources.contains(where: { $0.id==id }) { throw ProjectFileError.invalidSelection }
         try file.state.validateSelection(pageCount: file.state.order.count)
         return file

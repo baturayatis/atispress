@@ -23,6 +23,7 @@ enum PreviewLineLegend {
             .init(id:"trim",title:"Kesim yuvası sınırı",color:DesignSystem.muted,printed:false),
             .init(id:"fold",title:"Katlama kılavuzu",color:.blue,dashed:true,printed:false),
             .init(id:"bleed",title:"Taşma kılavuzu",color:.red,dashed:true,printed:false),
+            .init(id:"generatedBleed",title:"Üretilen taşma alanı",color:DesignSystem.teal,printed:false),
             .init(id:"safeArea",title:"Güvenli alan: \(TRFormat.dimension(safeArea)) mm",color:.green,dashed:true,printed:false),
             .init(id:"pageLabel",title:"Sayfa numaraları",color:.blue,printed:false),
             .init(id:"sheetBoundary",title:"Tabaka sınırı",color:.black,printed:false),
@@ -56,6 +57,6 @@ struct PreviewLineLegendView:View {
 }
 extension Workspace {
     var hasPreviewGuides:Bool {
-        overlays.crop || overlays.fold || overlays.bleed || overlays.safeArea || overlays.pageNumbers || overlays.sheetBoundary || overlays.pressGuides || overlays.punch || overlays.colorBar || overlays.registrationTargets
+        overlays.crop || overlays.fold || overlays.bleed || overlays.safeArea || overlays.pageNumbers || overlays.sheetBoundary || overlays.pressGuides || overlays.punch || overlays.colorBar || overlays.registrationTargets || overlays.generatedBleedTint == true
     }
 }

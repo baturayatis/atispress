@@ -22,7 +22,7 @@ agent environment), use `swift build --disable-sandbox` and
 Güncel uygulama sürümü **0.2.0 (build 2)**. Sürüm kaynağı
 `packaging/Info.plist`; Hakkında, tanı bilgisi ve güncelleme karşılaştırması
 aynı paket sürümünü kullanır. `swift run` için de 0.2.0 / 2 yedeği bulunur.
-Proje dosyası şeması bağımsızdır ve **18** olarak kalır.
+Proje dosyası şeması bağımsızdır ve **19**’dur; eski projeler açılır.
 
 **macOS 14 veya üzeri** gerekir. Intel ve Apple Silicon Mac’ler aynı universal
 uygulamayı kullanır.
@@ -2595,3 +2595,31 @@ Alan matrisi dört türde **174 × 4 = 696** dönüşü raporlar; kart/kılavuz 
 çiftleri ve türetilmiş kontrol geçişleri ayrıca sınanır. Minimum ana ekran ve
 iki temalı ebat penceresi görselleri incelendi. Yeni dosyalar dahil çalışma
 çevrimdışı tamamlandı; push yapılmadı.
+
+
+## Sayfayı böl ve kaynak kılavuzları — şema 19
+
+Tek sayfalı düz/karışık PDF’de çoklu kart önerisi veya kart 1’de **Sayfa birden
+fazla ürün içeriyor** ile bölme penceresi açılır. Kesim çizgileri, hücre eşlemesi
+ve taşma/kesim ebadı yalnız **Uygula** ile üretime geçer. 2×2 Ön|Arka düzeni iki
+bağımsız çift yüzlü gang işine dönüşür. Hücreler vektör kalır; kaynak PDF değişmez.
+
+**Kılavuz çizgileri…** renk/kalınlık/katman gruplarını listeler, tıklama/⇧ seçimi
+ve uygun gruplarda doğrulanmış gizleme/gösterme sunar. İç pembe/dış magenta
+dikdörtgenlerden ölçü önerilir. Karmaşık veya iç içe yapıların gizleme kontrolleri
+sunulmaz. Bütün sınırlar, eksikler ve elle yapılacak kontrol listesi
+[docs/STATUS.md](docs/STATUS.md) içindedir; gerçek Illustrator dosyasında bu
+kapsam özellikle kontrol edilmelidir.
+
+Yeni bölme/gizleme tercihleri ve önizlemedeki **Üretilen taşma** katmanı
+`.atispress` şema **19** ile saklanır. Şema 1–18 açılır. Kaydet/aç, özgün PDF’den
+aynı vektör hücreleri yeniden kurar; geçici dosyaya link bırakmaz. Planner math
+ve PDF yerleşim hesabı korunur; kaynak hazırlama iki tüketici için ortaktır.
+Taşma sonuç satırları ve kesim işareti sayısı üretim durumunu açıklar. Önizleme
+kesim vurgusu en az 1,5 cihaz pikselidir; fiziksel PDF çizgisi değişmez.
+
+```sh
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+swift test --disable-sandbox --filter 'SourcePreparationTests|PageSplitWorkflowTests'
+```

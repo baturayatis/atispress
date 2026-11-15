@@ -4,6 +4,7 @@ import Foundation
 import ImpositionCore
 
 public struct PDFRenderOptions: Equatable, Sendable, Codable {
+    public var generatedBleedTint:Bool? = nil
     public var punchVisible: Bool? = nil
     public var punch: Bool { get { punchVisible ?? true } set { punchVisible = newValue } }
     public var crop: Bool

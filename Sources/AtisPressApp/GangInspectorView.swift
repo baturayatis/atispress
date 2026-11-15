@@ -9,7 +9,7 @@ struct GangInspectorView: View {
     var body: some View {
         GroupBox("Karışık iş") {
             VStack(alignment:.leading,spacing:9) {
-                Button("PDF ekle…",action:model.chooseGangPDFs)
+                if model.project.sourcePreparation?.split == nil && model.project.sourcePreparation?.hiddenGuideGroups.isEmpty != false { Button("PDF ekle…",action:model.chooseGangPDFs) }
                 Picker("Düzen",selection:Binding(get: { model.project.gang?.mode ?? .automatic },set: { value in
                     if value == .manual { model.manualGang() } else { model.project.gang?.mode = .automatic }
                 })) {
@@ -72,7 +72,7 @@ struct GangSidebarView: View {
     @ObservedObject var model: Workspace
     var body: some View {
         VStack(alignment:.leading,spacing:8) {
-            HStack { Text("Karışık İşler").font(.headline); Spacer(); Button("PDF ekle…",action:model.chooseGangPDFs) }.padding(10)
+            HStack { Text("Karışık İşler").font(.headline); Spacer(); if model.project.sourcePreparation?.split == nil && model.project.sourcePreparation?.hiddenGuideGroups.isEmpty != false { Button("PDF ekle…",action:model.chooseGangPDFs) } }.padding(10)
             ForEach(model.gangAssets,id:\.saved.id) { asset in Text(asset.saved.reference.fileName).font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1).padding(.horizontal) }
             if let layout = model.currentSheet?.gangLayout { Text(layout.summary).font(.callout).padding(.horizontal) }
             List(selection:$model.selectedGangJobID) {

@@ -277,7 +277,31 @@ final class SheetCanvasView: NSView {
         }
         PDFPlanRenderer.drawMarks(guides,sheetSize: sheet.size,in: context,options: overlays,displayScale: scale)
         context.restoreGState()
+        if overlays.generatedBleedTint == true {
+            for slot in side.slots {
+                let settings=slot.gangJobID.flatMap {sheet.generatedBleedByJob[$0]} ?? generatedOverlay?.settings
+                guard let settings,settings.enabled,let clip=slot.artworkClip else {continue}
+                if settings.method != .solidColor {
+                    guard let number=slot.sourcePageNumber,let cache=source?.edgeSamples else {continue}
+                    if let scale=slot.rescale {guard cache.cached(page:number,rescale:scale) != nil else {continue}}
+                    else {guard cache.cached(page:number) != nil else {continue}}
+                }
+                context.saveGState()
+                context.addRect(CGRect(x:clip.origin.x,y:clip.origin.y,width:clip.size.width,height:clip.size.height))
+                context.addRect(CGRect(x:slot.x,y:slot.y,width:slot.size.width,height:slot.size.height));context.clip(using:.evenOdd)
+                context.setFillColor(DesignSystem.focusNS.withAlphaComponent(0.28).cgColor)
+                context.fill(CGRect(x:clip.origin.x,y:clip.origin.y,width:clip.size.width,height:clip.size.height));context.restoreGState()
+            }
+        }
         PDFExportMarkRenderer.draw(side:side,sheet:sheet,in:context,settings:printedMarks,info:printedInfo,kind:sideKind)
+        // Screen-space emphasis is a preview overlay; PDF stroke widths stay physical.
+        if printedMarks.crop || printedMarks.fullCut {
+            let geometry=PDFExportMarkRenderer.geometry(side:side,sheet:sheet,settings:printedMarks)
+            context.saveGState();context.setStrokeColor(NSColor.black.cgColor);context.setLineDash(phase:0,lengths:[])
+            context.setLineWidth(Self.cropStrokeWidth(lineWidth:printedMarks.lineWidth,zoom:Double(scale),backing:Double(window?.backingScaleFactor ?? 1)))
+            for mark in geometry.segments where mark.kind == .crop || mark.kind == .sharedCut {context.move(to:CGPoint(x:mark.start.x,y:mark.start.y));context.addLine(to:CGPoint(x:mark.end.x,y:mark.end.y));context.strokePath()}
+            context.restoreGState()
+        }
         if overlays.punch { PDFPlanRenderer.drawPunchMarks(side.punchMarks,in:context) }
         if let colorControls { PDFColorControlRenderer.draw(colorControls,in: context) }
         context.restoreGState()
@@ -395,4 +419,8 @@ extension SheetCanvasView {
             }
         }
     }
+}
+
+extension SheetCanvasView {
+    static func cropStrokeWidth(lineWidth:Double,zoom:Double,backing:Double) -> Double { max(lineWidth/PDFPreviewDrawing.pointsPerMM,1.5/(PDFPreviewDrawing.pointsPerMM*max(0.001,zoom)*max(1,backing))) }
 }

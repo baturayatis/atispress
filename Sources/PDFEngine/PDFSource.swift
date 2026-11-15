@@ -28,10 +28,16 @@ public enum PDFReadError: LocalizedError {
 /// PDFKit stays on one serial queue. Main-thread vector drawing uses a separate CGPDFDocument.
 /// Reading and rasterization never mutate the source file.
 public final class PDFSource: @unchecked Sendable {
+    private var usesCellMetadata=false
+    private var preparedGuideURL:URL?
+    public var guidePreviewURL:URL { preparedGuideURL ?? (linkedSources.count == 1 ? linkedSources[0].guidePreviewURL : preparationInput.url) }
+    private var preparationParent:PDFSource?
+    public var preparationInput:PDFSource { preparationParent?.preparationInput ?? (linkedSources.count == 1 ? linkedSources[0].preparationInput : self) }
+    public let guides:PDFGuideAnalysis
     private var linkedSources: [PDFSource] = []
     private var compositeTitle: String?
     private var temporaryDirectory: URL?
-    public var protectedURLs: [URL] { linkedSources.isEmpty ? [url] : linkedSources.flatMap(\.protectedURLs)+[url] }
+    public var protectedURLs: [URL] { if let preparationParent { return preparationParent.protectedURLs+[url]+(preparedGuideURL.map{[$0]} ?? []) };return linkedSources.isEmpty ? [url] : linkedSources.flatMap(\.protectedURLs)+[url] }
     public var displayName: String { compositeTitle ?? (linkedSources.isEmpty ? url.lastPathComponent : "Karışık iş (\(linkedSources.count) PDF)") }
     public let bindingStripCache = PDFBindingStripCache()
     public let edgeSamples = PDFEdgeSampleCache()
@@ -46,6 +52,11 @@ public final class PDFSource: @unchecked Sendable {
 
     private init(url: URL, pages: [PDFPageInfo], scopedAccess: Bool,preflight: [PDFPreflightFinding]) {
         self.url = url; self.pages = pages; self.scopedAccess = scopedAccess; self.preflight = preflight
+        if let document=CGPDFDocument(url as CFURL) {
+            var analysis=PDFGuideDetector.inspect(document)
+            if !PDFGuideEditor.supports(url) || !PDFGuideEditor.canVerify(document) { for i in analysis.groups.indices { analysis.groups[i].canHide=false } }
+            guides=analysis
+        } else {guides=PDFGuideAnalysis()}
         cache.totalCostLimit = 64 * 1024 * 1024
     }
     deinit {
@@ -55,6 +66,7 @@ public final class PDFSource: @unchecked Sendable {
     /// PDFKit copies page objects without rasterizing artwork. The originals remain linked and protected.
     public static func combine(_ sources: [PDFSource],displayName: String? = nil) async throws -> PDFSource {
         guard !sources.isEmpty else { throw PDFReadError.empty }
+        if sources.count==1,sources[0].usesCellMetadata {return sources[0]}
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("AtisPress-gang-"+UUID().uuidString)
         try FileManager.default.createDirectory(at: folder,withIntermediateDirectories: true)
         do {
@@ -71,13 +83,36 @@ public final class PDFSource: @unchecked Sendable {
                 }
                 guard merged.write(to: url) else { throw PDFReadError.unreadable }
             }.value
-            let combined = try await open(url)
+            let combined = try await open(url,preparedCells:sources.allSatisfy{$0.usesCellMetadata})
             guard combined.pages.count == sources.reduce(0,{ $0+$1.pages.count }),zip(combined.pages,sources.flatMap(\.pages)).allSatisfy({ $0.trimSize == $1.trimSize && $0.availableBleed == $1.availableBleed }) else { throw PDFReadError.unreadable }
             combined.linkedSources = sources; combined.temporaryDirectory = folder; combined.compositeTitle = displayName
             return combined
         } catch { try? FileManager.default.removeItem(at: folder); throw error }
     }
-    public static func open(_ url: URL) async throws -> PDFSource {
+    public func prepared(_ settings:SourcePreparationSettings) async throws -> PDFSource {
+        let input=preparationInput
+        if settings.split == nil && settings.hiddenGuideGroups.isEmpty { return input }
+        let folder=FileManager.default.temporaryDirectory.appendingPathComponent("atispress-prepared-"+UUID().uuidString)
+        try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+        do {
+            var url=input.url
+            var guideURL:URL?
+            if !settings.hiddenGuideGroups.isEmpty {
+                let hidden=folder.appendingPathComponent("hidden.pdf")
+                try await Task.detached(priority:.userInitiated) {try PDFGuideEditor.hiddenCopy(source:input.url,destination:hidden,analysis:input.guides,groups:Set(settings.hiddenGuideGroups))}.value
+                url=hidden;guideURL=hidden
+            }
+            if let split=settings.split {
+                let splitURL=folder.appendingPathComponent("cells.pdf"),from=url
+                try await Task.detached(priority:.userInitiated) {try PDFSourcePreparation.split(source:from,destination:splitURL,settings:split)}.value
+                url=splitURL
+            }
+            let result=try await PDFSource.open(url,preparedCells:settings.split != nil)
+            result.preparationParent=input;result.preparedGuideURL=guideURL;result.temporaryDirectory=folder;result.compositeTitle=input.displayName
+            return result
+        } catch {try? FileManager.default.removeItem(at:folder);throw error}
+    }
+    public static func open(_ url: URL,preparedCells:Bool = false) async throws -> PDFSource {
         let scopedAccess = url.startAccessingSecurityScopedResource()
         do { return try await Task.detached(priority: .userInitiated) {
             guard let document = CGPDFDocument(url as CFURL) else { throw PDFReadError.unreadable }
@@ -96,15 +131,16 @@ public final class PDFSource: @unchecked Sendable {
                 // PDF coordinates are points; inherited page rotation affects the displayed trim size.
                 let size = Size((rotated ? trim.height : trim.width)*scale,
                                 (rotated ? trim.width : trim.height)*scale)
+                func canonical(_ v:Double) -> Double {preparedCells ? (v*10_000).rounded()/10_000:v}
                 let explicitBleed = hasBox("BleedBox", page: page)
                 let bleed = page.getBoxRect(.bleedBox).standardized.intersection(media)
                 let amount: Double? = explicitBleed && !bleed.isNull ? max(0,min(
                     trim.minX-bleed.minX, bleed.maxX-trim.maxX,
                     trim.minY-bleed.minY, bleed.maxY-trim.maxY))*scale : nil
-                pages.append(PDFPageInfo(number: number, trimSize: size, availableBleed: amount,
+                pages.append(PDFPageInfo(number: number, trimSize: Size(canonical(size.width),canonical(size.height)), availableBleed: amount.map(canonical),
                                          hasTrimBox: hasBox("TrimBox", page: page)))
             }
-            return PDFSource(url: url, pages: pages, scopedAccess: scopedAccess,preflight: PDFPreflight.inspect(document))
+            let result=PDFSource(url: url, pages: pages, scopedAccess: scopedAccess,preflight: PDFPreflight.inspect(document));result.usesCellMetadata=preparedCells;return result
         }.value
         } catch {
             if scopedAccess { url.stopAccessingSecurityScopedResource() }
@@ -116,7 +152,7 @@ public final class PDFSource: @unchecked Sendable {
         var array: CGPDFArrayRef?
         return CGPDFDictionaryGetArray(dictionary, key, &array)
     }
-    public func prepareGeneratedBleed(pages numbers: [Int]) async throws {
+    public func prepareGeneratedBleed(pages numbers: [Int],scaled:[(Int,ArtworkRescale)] = []) async throws {
         let request = RasterRequest()
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void,Error>) in
@@ -127,6 +163,11 @@ public final class PDFSource: @unchecked Sendable {
                             guard !request.isCancelled else { throw CancellationError() }
                             guard let page = rasterDocument?.page(at: number-1)?.pageRef else { throw PDFExportError.missingPage(number) }
                             _ = try edgeSamples.samples(for: page)
+                        }
+                        for (number,scale) in scaled where edgeSamples.cached(page:number,rescale:scale)==nil {
+                            guard !request.isCancelled else {throw CancellationError()}
+                            guard let page=rasterDocument?.page(at:number-1)?.pageRef else {throw PDFExportError.missingPage(number)}
+                            _ = try edgeSamples.samples(for:page,rescale:scale)
                         }
                         continuation.resume()
                     } catch { continuation.resume(throwing: error) }

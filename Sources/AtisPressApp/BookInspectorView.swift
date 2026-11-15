@@ -37,7 +37,7 @@ struct BookInspectorView: View {
                 Text("İlk iki / son iki sayfa otomatik kapaktır. Seçilen kapak yüzleri iç bloktan ayrılır ve bağımsız basılır.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
             }
             if model.project.coverMode == .separate {
-                Button("Kapak PDF yükle…",action:model.chooseCoverPDF).disabled(model.source == nil || model.loading)
+                if model.project.sourcePreparation?.split == nil {Button("Kapak PDF yükle…",action:model.chooseCoverPDF).disabled(model.source == nil || model.loading)}
                 if let id = model.bookSettings.coverSourceID,let asset = model.gangAssets.first(where:{ $0.saved.id==id }) {
                     Text(asset.saved.reference.fileName).font(.caption)
                 }

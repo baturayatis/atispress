@@ -12,6 +12,11 @@ final class Workspace: ObservableObject {
     private var uiSubscription: AnyCancellable?
     @Published private(set) var workflowRecommendation:WorkflowSheetRecommendation?
     private var workflowRecommendationTask:Task<Void,Never>?
+    @Published var pendingSourceTrim:(id:UUID,trim:Size,bleed:Double)?
+    @Published var showSplitAfterGuides=false
+    @Published var showingPageSplit = false
+    @Published var showingSourceGuides = false
+    @Published var preparingSource = false
     @Published var preparingExport = false
     @Published var scaleWindow: ScaleWindowRequest?
     @Published var rescalePrompt: RescalePrompt?
@@ -194,7 +199,7 @@ final class Workspace: ObservableObject {
         })
     }
     var canExportNow: Bool {
-        source != nil && plan.canExport && !plan.sheets.isEmpty && !planning && !loading && !autoArranging && !exporting && !samplingBleed && !bleedSamplingFailed
+        source != nil && plan.canExport && !plan.sheets.isEmpty && !preparingSource && !planning && !loading && !autoArranging && !exporting && !samplingBleed && !bleedSamplingFailed
     }
     private func warmGeneratedBleed() {
         bleedTask?.cancel()
@@ -206,8 +211,10 @@ final class Workspace: ObservableObject {
             bleedSampleSummary = plan.generatedBleed.color.components.count == 4 ? "Dolgu: CMYK" : "Dolgu: RGB — özgün CMYK kanalları korunmaz."
             return
         }
-        let numbers = Array(Set(side.slots.compactMap(\.sourcePageNumber)))
-        if numbers.allSatisfy({ source.edgeSamples.cached(page: $0) != nil }) {
+        let sampleSlots = project.sourcePreparation?.split != nil ? (currentSheet.map { $0.front.slots+$0.back.slots } ?? side.slots) : side.slots
+        let numbers = Array(Set(sampleSlots.compactMap(\.sourcePageNumber)))
+        let scaled:[(Int,ArtworkRescale)] = project.sourcePreparation?.split != nil ? sampleSlots.compactMap {slot in guard let n=slot.sourcePageNumber,let scale=slot.rescale else {return nil};return (n,scale)}:[]
+        if numbers.allSatisfy({ source.edgeSamples.cached(page: $0) != nil }) && scaled.allSatisfy({source.edgeSamples.cached(page:$0.0,rescale:$0.1) != nil}) {
             let native = numbers.filter { source.edgeSamples.cached(page: $0)?.usesCMYK == true }.count
             let rgb = numbers.count-native
             bleedSampleSummary = "Kenar örnekleri: \(native) CMYK · \(rgb) RGB"+(rgb > 0 ? " (özgün CMYK kanalları korunmaz)" : "")
@@ -216,7 +223,7 @@ final class Workspace: ObservableObject {
         samplingBleed = true
         bleedTask = Task {
             do {
-                try await source.prepareGeneratedBleed(pages: numbers)
+                try await source.prepareGeneratedBleed(pages: numbers,scaled:scaled)
                 guard !Task.isCancelled,bleedRevision == token else { return }
                 let native = numbers.filter { source.edgeSamples.cached(page: $0)?.usesCMYK == true }.count
                 let rgb = numbers.count-native
@@ -325,7 +332,7 @@ final class Workspace: ObservableObject {
             if next.gang == nil {
                 next.gang = GangSettings()
                 if let source {
-                    let id = UUID()
+                    let id = project.sourcePreparation?.sourceID ?? UUID()
                     if let reference = sourceReference {
                         gangAssets = [GangAsset(saved: GangSourceReference(id: id,reference: reference,pageCount: source.pages.count),source: source)]
                         sourceReference = nil
@@ -362,8 +369,8 @@ final class Workspace: ObservableObject {
         }
     }
     func open(_ url: URL,confirmChanges: Bool = true) {
-        if project.binding == .gang && url.pathExtension.lowercased() == "pdf" { addGangPDFs([url]); return }
-        guard !loading, !exporting, !autoArranging, (!confirmChanges || confirmDiscard()) else { return }
+        if project.binding == .gang && project.sourcePreparation?.split == nil && project.sourcePreparation?.hiddenGuideGroups.isEmpty != false && url.pathExtension.lowercased() == "pdf" { addGangPDFs([url]); return }
+        guard !preparingSource,!loading, !exporting, !autoArranging, (!confirmChanges || confirmDiscard()) else { return }
         if url.pathExtension.lowercased() == "atispress" {
             loading = true; error = nil
             importTask = Task {
@@ -384,7 +391,7 @@ final class Workspace: ObservableObject {
                 var baseline = project
                 var prepared: AutoLayoutResult
                 while true {
-                    var snapshot = baseline; snapshot.pages = source.pages.map(\.sourcePage); snapshot.gang = nil; snapshot.book?.coverSourceID = nil; snapshot.book?.coverPDFPages = []; snapshot.book?.auxiliaryPages = []; snapshot.book?.selection = CoverSelection()
+                    var snapshot = baseline; if baseline.sourcePreparation?.split != nil || baseline.sourcePreparation?.hiddenGuideGroups.isEmpty == false { snapshot.binding = .stepAndRepeat }; snapshot.pages = source.pages.map(\.sourcePage); snapshot.sourcePreparation = nil; snapshot.gang = nil; snapshot.book?.coverSourceID = nil; snapshot.book?.coverPDFPages = []; snapshot.book?.auxiliaryPages = []; snapshot.book?.selection = CoverSelection()
                     if snapshot.autoLayout == nil { snapshot.autoLayout = .legacy }
                     prepared = await Task.detached(priority: .userInitiated) { SmartAutoLayout.arrange(snapshot) }.value
                     guard !Task.isCancelled,importRevision == token else { return }
@@ -400,7 +407,7 @@ final class Workspace: ObservableObject {
                 planTask?.cancel(); revision = UUID()
                 clearRecovery(); projectIdentifier = UUID()
                 projectURL = nil; projectAccess = nil
-                sourceReference = try? ProjectSource.capture(source.url,createBookmark: bookmarkCreator)
+                sourceReference = try? ProjectSource.capture(source.preparationInput.url,createBookmark: bookmarkCreator)
                 self.source = source
                 gangAssets = []
                 order = source.pages.map(\.number); included = Set(order); selectedPages = []
@@ -509,7 +516,7 @@ extension Workspace {
         queueAutosave()
     }
     func createNewProject() {
-        guard !loading,!exporting,!autoArranging,confirmDiscard() else { return }
+        guard !preparingSource,!loading,!exporting,!autoArranging,confirmDiscard() else { return }
         importTask?.cancel(); autoTask?.cancel(); autoArranging = false; planTask?.cancel(); bleedTask?.cancel()
         clearRecovery()
         restoring = true; projectIdentifier = UUID()
@@ -534,7 +541,7 @@ extension Workspace {
         flushUndoEdits()
         let access = ProjectFileAccess(url)
         var snapshot = state
-        if let source,gangAssets.isEmpty { snapshot.source = try ProjectSource.capture(source.url,createBookmark: bookmarkCreator) }
+        if let source,gangAssets.isEmpty { snapshot.source = try ProjectSource.capture(source.preparationInput.url,createBookmark: bookmarkCreator) }
         try snapshot.validateSelection(pageCount: source?.pages.count ?? 0)
         try ProjectDocument(state: snapshot).encoded().write(to: url,options: .atomic)
         sourceReference = snapshot.source; projectURL = url; projectAccess = access
@@ -608,8 +615,9 @@ extension Workspace {
                     guard let replacement = relink(saved.reference) else { throw CancellationError() }
                     sourceURL = replacement; relinked = true
                 }
-                let loaded = try await PDFSource.open(sourceURL!)
+                var loaded = try await PDFSource.open(sourceURL!)
                 guard loaded.pages.count == saved.pageCount else { throw ProjectFileError.sourceMismatch }
+                if let preparation=snapshot.project.sourcePreparation,preparation.sourceID==saved.id { loaded = try await loaded.prepared(preparation) }
                 let reference = try ProjectSource.capture(sourceURL!,createBookmark: bookmarkCreator)
                 assets.append(GangAsset(saved: GangSourceReference(id: saved.id,reference: reference,pageCount: saved.pageCount),source: loaded))
             }
@@ -618,9 +626,9 @@ extension Workspace {
             guard snapshot.project.pages.allSatisfy({ loadedSource!.pages[$0.number-1].sourcePage == $0 }) else { throw ProjectFileError.sourceMismatch }
             for job in snapshot.project.gang?.jobs ?? [] {
                 guard let assetIndex = assets.firstIndex(where: { $0.saved.id==job.sourceID }) else { throw ProjectFileError.sourceMismatch }
-                let start = assets.prefix(assetIndex).reduce(0) { $0+$1.saved.pageCount }
+                let start = assets.prefix(assetIndex).reduce(0) { $0+$1.source.pages.count }
                 for page in [job.front,job.back].compactMap({ $0 }) {
-                    guard page.number>start,page.number<=start+assets[assetIndex].saved.pageCount,loadedSource!.pages[page.number-1].sourcePage==page else { throw ProjectFileError.sourceMismatch }
+                    guard page.number>start,page.number<=start+assets[assetIndex].source.pages.count,loadedSource!.pages[page.number-1].sourcePage==page else { throw ProjectFileError.sourceMismatch }
                 }
             }
             if let book = snapshot.project.book,let id = book.coverSourceID {
@@ -639,6 +647,7 @@ extension Workspace {
                 sourceURL = replacement; relinked = true
             }
             loadedSource = try await PDFSource.open(sourceURL!)
+            if let preparation=snapshot.project.sourcePreparation { loadedSource = try await loadedSource!.prepared(preparation) }
             try snapshot.validateSelection(pageCount: loadedSource!.pages.count)
             let actual = snapshot.project.pages.map { loadedSource!.pages[$0.number-1].sourcePage }
             guard actual == snapshot.project.pages else { throw ProjectFileError.sourceMismatch }
@@ -1082,7 +1091,7 @@ extension Workspace {
     }
     func gangSourcePages(_ id: UUID) -> [SourcePage] {
         guard let i = gangAssets.firstIndex(where: { $0.saved.id==id }) else { return [] }
-        let offset = gangAssets.prefix(i).reduce(0) { $0+$1.saved.pageCount }
+        let offset = gangAssets.prefix(i).reduce(0) { $0+$1.source.pages.count }
         return gangAssets[i].source.pages.map { page in var p = page.sourcePage; p.number += offset; return p }
     }
 }
@@ -1269,12 +1278,12 @@ extension Workspace {
     func endUndoGroup() { captureCurrentEdit(); journal.endGroup(); updateUndoAvailability() }
     func undoEdit() {
         NSApp?.keyWindow?.makeFirstResponder(nil)
-        guard !loading,!exporting,!autoArranging else { return }
+        guard !preparingSource,!loading,!exporting,!autoArranging else { return }
         flushUndoEdits(); if let snapshot = journal.undo() { restoreEdit(snapshot) }; updateUndoAvailability()
     }
     func redoEdit() {
         NSApp?.keyWindow?.makeFirstResponder(nil)
-        guard !loading,!exporting,!autoArranging else { return }
+        guard !preparingSource,!loading,!exporting,!autoArranging else { return }
         flushUndoEdits(); if let snapshot = journal.redo() { restoreEdit(snapshot) }; updateUndoAvailability()
     }
     private func restoreEdit(_ snapshot: EditSnapshot) {
@@ -1314,7 +1323,7 @@ extension Workspace {
         guard persistenceEnabled,!loading,!restoring else { return }
         guard isModified else { try recoveryStore.remove(projectIdentifier); return }
         var snapshot = state
-        if let source,gangAssets.isEmpty { snapshot.source = try ProjectSource.capture(source.url,createBookmark:bookmarkCreator) }
+        if let source,gangAssets.isEmpty { snapshot.source = try ProjectSource.capture(source.preparationInput.url,createBookmark:bookmarkCreator) }
         try snapshot.validateSelection(pageCount:source?.pages.count ?? 0)
         try recoveryStore.write(RecoveryRecord(id:projectIdentifier,originalProjectPath:projectURL?.path,document:ProjectDocument(state:snapshot)))
     }
@@ -1658,5 +1667,77 @@ extension Workspace {
             project.settings.generatedBleed.enabled = true
             if project.settings.bleed <= 0 { project.settings.bleed = 3 }
         }
+    }
+}
+
+
+extension Workspace {
+    func useLearnedSourceTrim(_ learned:PDFGuideAnalysis.Learned) {
+        guard let input=preparationInput,canSplitSource else {return}
+        pendingSourceTrim=(input.id,learned.trim,learned.bleed)
+        showSplitAfterGuides=true;showingSourceGuides=false
+    }
+    var preparationSourceID:UUID { project.sourcePreparation?.sourceID ?? gangAssets.first?.saved.id ?? UUID() }
+    var preparationInput:PDFSource? { source?.preparationInput }
+    var canSplitSource:Bool { preparationInput?.pages.count == 1 && gangAssets.count<=1 && !project.isBooklet && !project.isLeafBinding }
+    var canInspectSourceGuides:Bool { preparationInput != nil && gangAssets.count<=1 }
+    var suggestedPageSplit:PageSplitSettings? {
+        guard canSplitSource,project.sourcePreparation?.split == nil,project.sourcePreparation?.ignoreSplitSuggestion != true,let input=preparationInput else {return nil}
+        return input.guides.suggestion(size:input.pages[0].trimSize)
+    }
+    var hiddenSourceGuideCount:Int {
+        guard let input=preparationInput else {return 0}
+        return input.guides.strokes.filter { project.sourcePreparation?.hiddenGuideGroups.contains($0.groupID) == true }.count
+    }
+    func dismissPageSplitSuggestion() {
+        var settings=project.sourcePreparation ?? SourcePreparationSettings(sourceID:preparationSourceID)
+        settings.ignoreSplitSuggestion=true;project.sourcePreparation=settings
+    }
+    func applySourcePreparation(_ settings:SourcePreparationSettings) async throws {
+        guard let original=preparationInput,gangAssets.count<=1,!preparingSource else {throw SourcePreparationError.unsupportedSource}
+        if settings.split != nil && settings.split != project.sourcePreparation?.split && !canSplitSource {throw SourcePreparationError.unsupportedSource}
+        preparingSource=true;defer {preparingSource=false}
+        let prepared=try await original.prepared(settings)
+        try Task.checkCancellation()
+        let reference=try ProjectSource.capture(original.url,createBookmark:bookmarkCreator)
+        var next=project;next.sourcePreparation=settings
+        var assets=gangAssets
+        let changesGrid=settings.split != nil && settings.split != project.sourcePreparation?.split
+        if let split=settings.split,changesGrid {
+            var gang=GangSettings()
+            let products=PDFSourcePreparation.products(split)
+            for product in products {
+                let front=prepared.pages[product.front-1].sourcePage,back=product.back.map {prepared.pages[$0-1].sourcePage}
+                var job=project.gang?.jobs.first(where:{$0.splitProduct==product.number}) ?? GangJob(sourceID:settings.sourceID,name:"Ürün \(product.number)",front:front,back:back)
+                let existing=project.gang?.jobs.contains(where:{$0.id==job.id}) == true
+                job.sourceID=settings.sourceID;job.splitProduct=product.number;job.front=front;job.back=back
+                if !existing {
+                    job.quantity=project.stepAndRepeat.quantity ?? 1000;job.bleed=([front]+[back].compactMap{$0}).compactMap(\.availableBleed).min() ?? split.cellBleed
+                    job.generatedBleed=project.settings.generatedBleed
+                    job.generatedBleed.enabled=([front]+[back].compactMap{$0}).contains {($0.availableBleed ?? 0)+0.001<job.bleed}
+                    job.serialFields=project.serialFields.map {var f=$0;f.id=UUID();f.jobIndex=0;return f}
+                }
+                gang.jobs.append(job)
+            }
+            next.binding = .gang;next.gang=gang;next.book=nil;next.serialFields=[];next.scaling=nil;next.rescaleJobs=nil
+            // Independent products start with space for both bleeds and protected crop ticks.
+            if project.sourcePreparation?.split == nil {next.sheet.gutter=max(2*next.settings.bleed,2*(next.settings.cropMarkOffset+next.settings.cropMarkLength))}
+            assets=[GangAsset(saved:GangSourceReference(id:settings.sourceID,reference:reference,pageCount:original.pages.count),source:prepared)]
+        } else if !assets.isEmpty {
+            guard assets.count==1 else {throw SourcePreparationError.unsupportedSource}
+            assets[0]=GangAsset(saved:GangSourceReference(id:assets[0].saved.id,reference:reference,pageCount:original.pages.count),source:prepared)
+        }
+        if changesGrid {next.pages=prepared.pages.map(\.sourcePage)}
+        else {
+            guard project.pages.allSatisfy({prepared.pages.indices.contains($0.number-1)}) else {throw ProjectFileError.sourceMismatch}
+            next.pages=project.pages.map{prepared.pages[$0.number-1].sourcePage}
+        }
+        let selectedJob=selectedGangJobID
+        beginUndoGroup();restoring=true
+        source=prepared;gangAssets=assets;sourceReference=assets.isEmpty ? reference:nil
+        if changesGrid {order=next.pages.map(\.number);included=Set(order);selectedPages=[];sheetIndex=0;repetition=0}
+        project=next
+        selectedGangJobID=next.gang?.jobs.first(where:{$0.id==selectedJob})?.id ?? next.gang?.jobs.first?.id
+        restoring=false;refreshModified();schedulePlan();endUndoGroup()
     }
 }

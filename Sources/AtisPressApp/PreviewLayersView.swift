@@ -9,6 +9,7 @@ struct PreviewLayersView:View {
             Toggle("Kesim çizgisi",isOn:options.crop)
             Toggle("Katlama",isOn:options.fold)
             Toggle("Taşma",isOn:options.bleed)
+            Toggle("Üretilen taşma",isOn:Binding(get:{model.overlays.generatedBleedTint ?? false},set:{model.overlays.generatedBleedTint = $0}))
             Toggle("Güvenli alan",isOn:options.safeArea)
             Toggle("Sayfa numaraları",isOn:options.pageNumbers)
             Toggle("Tabaka sınırı",isOn:options.sheetBoundary)
