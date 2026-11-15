@@ -1,66 +1,112 @@
 import SwiftUI
+import AppKit
 import ImpositionCore
 
 struct InspectorView: View {
     @ObservedObject var model: Workspace
     @ObservedObject var prices:PricingStore
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var focusedField:AutoLayoutField?
-    private var bindingCardVisible:Bool { WorkflowPresentation.showsBindingCard(model.productKind) }
+    var only:InspectorPanel? = nil
     var body:some View {
-        ScrollViewReader { scroll in
-            ScrollView {
-                VStack(alignment:.leading,spacing:DesignSystem.Space.lg) {
-                    Text("Ayarlar").font(.title2.bold()).padding(.top,DesignSystem.Space.xs)
-                    WorkflowCard(1,"Ne basıyoruz?") { workflowProduct }.id(InspectorSection.product)
-                    WorkflowCard(2,"Hangi kâğıda basılacak?") { workflowPaper }.id(InspectorSection.sheet)
-                    if bindingCardVisible { WorkflowCard("Cilt ve kapak") { bindingSettings }.id(InspectorSection.binding) }
-                    WorkflowCard(3,"Kesim ve taşma") { workflowCut }.id(InspectorSection.marks)
-                    WorkflowCard("Eklemek istersen") {
-                        ForEach(WorkflowAddon.allCases.filter { ($0 != .scaling) && ($0 != .serial || model.project.binding == .stepAndRepeat || model.project.binding == .gang) }) { addon in
-                            addonRow(addon)
-                            if addon != WorkflowAddon.allCases.last { Divider() }
+        Group {
+            GeometryReader { viewport in
+                ScrollView {
+                    VStack(alignment:.leading,spacing:DesignSystem.Space.lg) {
+                        Text("Ayarlar").font(.title2.bold()).padding(.top,DesignSystem.Space.xs)
+                        ForEach(only.map{[$0]} ?? InspectorPanel.visible(for:model.project)) { panel in
+                            WorkflowCard(panel.number,panel.title,panel:panel) {sectionContent(panel)}
+                                .id(panel.rawValue)
+                                .background(InspectorScrollAnchor(jump:model.ui.panelJump,requested:only==nil && model.ui.navigatingPanel && model.ui.activePanel==panel))
+                                .background(GeometryReader { geometry in
+                                    Color.clear.preference(key:InspectorFramePreference.self,value:[panel:geometry.frame(in:.named("inspectorViewport"))])
+                                })
+                                .overlay(RoundedRectangle(cornerRadius:DesignSystem.Radius.card)
+                                    .stroke(model.ui.flashingPanel==panel ? DesignSystem.teal : .clear,lineWidth:2))
+                        }
+                        Text("\(model.manualSettingCount) ayar manuel").font(.caption).foregroundStyle(DesignSystem.muted)
+                        Button("Tüm ayarları otomatiğe döndür") {model.confirmResetAllSettings()}.disabled(model.project.pages.isEmpty)
+                    }.padding(DesignSystem.Space.lg)
+                }
+                .coordinateSpace(name:"inspectorViewport")
+                .onPreferenceChange(InspectorFramePreference.self) { frames in
+                    guard only==nil,!model.ui.navigatingPanel,let visible=InspectorRegistry.sectionInView(frames:frames,height:viewport.size.height) else {return}
+                    if model.ui.activePanel != visible {model.ui.activePanel=visible}
+                }
+                .task(id:model.ui.panelJump) {
+                    try? await Task.sleep(for:.milliseconds(450))
+                    guard !Task.isCancelled else {return}
+                    model.ui.flashingPanel=nil
+                    model.ui.navigatingPanel=false
+                }
+            }
+            .onChange(of:model.ui.revealedSection) {_,section in
+                guard let section else {return}
+                if section == .edges {model.ui.detailsExpanded=true}
+                if section == .serial {model.ui.expandedAddons.insert(.serial)}
+                if section == .price {model.ui.expandedAddons.insert(.pricing)}
+                model.ui.collapsedCards=[]
+                model.ui.jump(InspectorPanel.legacy(section))
+                model.ui.revealedSection=nil
+            }
+        }.background(DesignSystem.workspace).environmentObject(model).tint(DesignSystem.teal)
+            .disabled(model.loading || model.autoArranging)
+            .onChange(of:focusedField) {_,field in model.ui.focusedArea=field.flatMap(WorkflowPresentation.focus)}
+            .task {model.refreshWorkflowRecommendation()}
+            .onChange(of:model.project) {_,_ in model.refreshWorkflowRecommendation()}
+    }
+    @ViewBuilder private func sectionContent(_ panel:InspectorPanel) -> some View {
+        switch panel {
+        case .job:
+            workflowProduct
+            methodControls
+            if model.project.binding == .gang {GangInspectorView(model:model)}
+            if model.project.binding == .stepAndRepeat {
+                GroupBox("İşlere göre ön / arka") {
+                    VStack {
+                        ForEach(Array(model.project.repeatJobs.enumerated()),id:\.offset) {index,job in
+                            Picker("İş \(index+1) yüzleri",selection:Binding(get:{model.jobPageLayout(frontPage:job.front.number)},set:{model.setJobPageLayout(frontPage:job.front.number,mode:$0)})) {
+                                Text("Genel ayar").tag(PageLayout.automatic);Text("Tek yüz").tag(PageLayout.simplex);Text("Çift yüz").tag(PageLayout.duplex)
+                            }
                         }
                     }
-                    WorkflowCard(nil,"Ayrıntılar") {
-                        DisclosureGroup("Kenar payı, maşa ve diğer ayrıntılar",isExpanded:Binding(get:{ model.ui.detailsExpanded },set:{ model.ui.detailsExpanded = $0 })) {
-                            workflowDetails.padding(.top,DesignSystem.Space.md)
-                        }.font(.headline)
-                    }.id(InspectorSection.edges)
-                    Text("\(model.manualSettingCount) ayar manuel").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
-                    Button("Tüm ayarları otomatiğe döndür") { model.confirmResetAllSettings() }.disabled(model.project.pages.isEmpty)
-                }.padding(DesignSystem.Space.lg)
-                    .animation(reduceMotion ? nil : .easeInOut(duration:0.16),value:model.ui.expandedAddons)
-                    .animation(reduceMotion ? nil : .easeInOut(duration:0.16),value:model.ui.detailsExpanded)
-            }.background(DesignSystem.workspace)
-                .onChange(of:model.ui.revealedSection) { _,section in
-                    guard let section else { return }
-                    let target:InspectorSection
-                    switch section {
-                    case .serial: model.ui.expandedAddons.insert(.serial); target = .serial
-                    case .price: model.ui.expandedAddons.insert(.pricing); target = .price
-                    case .binding: if !bindingCardVisible { model.ui.detailsExpanded = true }; target = bindingCardVisible ? .binding : .edges
-                    case .edges: model.ui.detailsExpanded = true; target = .edges
-                    default: target = section
-                    }
-                    let card:String
-                    switch target { case .product:card = "Ne basıyoruz?"; case .sheet:card = "Hangi kâğıda basılacak?"; case .marks:card = "Kesim ve taşma"; case .binding:card = "Cilt ve kapak"; case .serial,.price:card = "Eklemek istersen"; case .edges:card = "Ayrıntılar" }
-                    model.ui.collapsedCards.remove(card)
-                    if reduceMotion { scroll.scrollTo(target,anchor:.top) }
-                    else { withAnimation(.easeInOut(duration:0.16)) { scroll.scrollTo(target,anchor:.top) } }
-                    model.ui.revealedSection = nil
                 }
-        }.environmentObject(model).tint(DesignSystem.teal).disabled(model.loading || model.autoArranging)
-            .onChange(of:focusedField) { _,field in model.ui.focusedArea = field.flatMap(WorkflowPresentation.focus) }
-            .task { model.refreshWorkflowRecommendation() }
-            .onChange(of:model.project) { _,_ in model.refreshWorkflowRecommendation() }
+                Toggle("Adet hesapla (her iş için)",isOn:model.optionalCountBinding($model.project.stepAndRepeat.quantity,name:"quantity",defaultValue:1000))
+            }
+            FireControlsView(model:model)
+            PresetInspectorView(model:model)
+        case .sheet:
+            workflowPaper
+            sheetControls
+            edgeControls
+            Picker("Hizalama",selection:model.autoBinding($model.project.blockAlignment,.alignment)) {
+                Text("Ortala").tag(BlockAlignment.center);Text("Maşaya yasla").tag(BlockAlignment.gripper)
+            }.pickerStyle(.segmented).automaticReset(model,.alignment)
+            if model.project.binding == .stepAndRepeat {repeatControls}
+        case .bleed:
+            workflowBleed
+            generatedBleedControls
+        case .marks:
+            markControls
+            ExportMarksView(model:model,inline:true,scope:.printed)
+            overlayControls
+        case .serial: SerialInspectorView(model:model)
+        case .scaling:
+            RescaleInspectorView(model:model)
+            SourcePageTools(model:model)
+            if let prompt=model.rescalePrompt {ScalingSuggestionBanner(model:model,prompt:prompt)}
+        case .binding: bindingSettings
+        case .price:
+            CostingView(model:model,store:prices,inline:true)
+            DisclosureGroup("Fiyat kitaplığı") {PricingView(store:prices,inline:true)}
+        case .output:
+            ExportMarksView(model:model,inline:true,scope:.output)
+            PreflightView(model:model)
+            Button("PDF’i Hazırla") {model.preparingExport=true}.disabled(!model.canExportNow)
+        }
     }
     private var workflowProduct:some View {
         VStack(alignment:.leading,spacing:DesignSystem.Space.md) {
             Text(model.workflowProductSummary).font(.callout.weight(.medium)).fixedSize(horizontal:false,vertical:true)
-            SourcePageTools(model:model)
-            RescaleInspectorView(model:model)
-            if let prompt = model.rescalePrompt { ScalingSuggestionBanner(model:model,prompt:prompt) }
             Picker("Ürün tipi",selection:Binding(get:{ model.productKind },set:model.setProductKind)) {
                 ForEach(ProductKind.allCases,id:\.self) { Text($0.rawValue).tag($0) }
             }
@@ -125,7 +171,7 @@ struct InspectorView: View {
 
         }
     }
-    private var workflowCut:some View {
+    private var workflowBleed:some View {
         VStack(alignment:.leading,spacing:DesignSystem.Space.md) {
             HStack(spacing:8) {
                 Text("Taşma payı").frame(maxWidth:.infinity,alignment:.leading)
@@ -140,14 +186,7 @@ struct InspectorView: View {
                     Button("Taşmayı aç") { model.enableMissingBleed() }
                 }.padding(8).background(DesignSystem.warning.opacity(0.12),in:RoundedRectangle(cornerRadius:8))
             }
-            Toggle("Kesim işaretleri (çıktıya basılır)",isOn:model.autoBinding($model.project.exportMarks.crop,.exportCrop)).automaticReset(model,.exportCrop)
-            if !model.project.isBooklet {
-                Picker("Dizilim",selection:Binding(get:{ model.repeatArrangement },set:model.setRepeatArrangement)) {
-                    Text("Bitişik").tag(RepeatArrangement.adjacent); Text("Aralıklı").tag(RepeatArrangement.spaced)
-                    if model.repeatArrangement == .custom { Text("Özel").tag(RepeatArrangement.custom) }
-                }.pickerStyle(.segmented)
-            }
-            Text(model.project.isBooklet ? "Kitap katlarında ara boşluk 0 mm kalır." : model.repeatArrangement == .adjacent ? "Bitişik dizilimde taşma yoktur, kesim çizgisinde kırpılır" : model.repeatArrangement == .spaced ? "Ara boşluk, taşma payının iki katıdır." : "Özel ara boşluk ayrıntılarda ayarlanır.").font(.caption2).foregroundStyle(DesignSystem.muted).lineLimit(1)
+
         }
     }
     private var bindingSettings:some View {
@@ -156,68 +195,6 @@ struct InspectorView: View {
             if model.project.isLeafBinding { LeafInspectorView(model:model) }
             if model.project.isBooklet { BookInspectorView(model:model); BlankPlacementInspector(model:model) }
         }
-    }
-    private func addonRow(_ addon:WorkflowAddon) -> some View {
-        VStack(alignment:.leading,spacing:DesignSystem.Space.md) {
-            Toggle(isOn:Binding(get:{ model.ui.expandedAddons.contains(addon) },set:{ open in if open { model.ui.expandedAddons.insert(addon) } else { model.ui.expandedAddons.remove(addon) } })) {
-                VStack(alignment:.leading,spacing:DesignSystem.Space.xs) {
-                    Text(addon.rawValue).font(.callout.weight(.medium))
-                    if let summary = model.workflowAddonSummary(addon) { Text(summary).font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1) }
-                }
-            }.toggleStyle(.switch).accessibilityLabel(addon.rawValue+" ayarlarını göster")
-            if addon == .serial { Text("Numarayı önizlemede sürükleyerek taşıyabilirsiniz").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1) }
-            if model.ui.expandedAddons.contains(addon) {
-                switch addon {
-                case .serial: SerialInspectorView(model:model)
-                case .scaling: RescaleInspectorView(model:model)
-                case .color:
-                    Toggle("Renk skalası (çıktıya basılır)",isOn:model.autoBinding($model.project.exportMarks.colorBar,.exportColorBar)).automaticReset(model,.exportColorBar)
-                    Toggle("Diz işaretleri (çıktıya basılır)",isOn:model.autoBinding($model.project.exportMarks.registrationTargets,.exportTargets)).automaticReset(model,.exportTargets)
-                    ColorControlSizeView(model:model)
-                case .info: SheetInfoInspectorView(model:model)
-                case .pricing:
-                    CostingView(model:model,store:prices,inline:true)
-                    DisclosureGroup("Fiyat kitaplığı") { PricingView(store:prices,inline:true) }
-                }
-
-            }
-        }.id(addon == .serial ? AnyHashable(InspectorSection.serial) : addon == .pricing ? AnyHashable(InspectorSection.price) : AnyHashable(addon))
-    }
-    private var workflowDetails:some View {
-        VStack(alignment:.leading,spacing:DesignSystem.Space.lg) {
-            if !bindingCardVisible { methodControls; if model.project.isBooklet { BookInspectorView(model:model); BlankPlacementInspector(model:model) } }
-            Text("Diğer").font(.headline)
-            sheetControls
-            Text("Kenarlar").font(.headline)
-            edgeControls
-            Picker("Hizalama",selection:model.autoBinding($model.project.blockAlignment,.alignment)) {
-                Text("Ortala").tag(BlockAlignment.center); Text("Maşaya yasla").tag(BlockAlignment.gripper)
-            }.pickerStyle(.segmented).automaticReset(model,.alignment)
-            Text("Kesim ve katlama işaretleri").font(.headline)
-            markControls
-            Text("Taşma ayrıntıları").font(.headline)
-            generatedBleedControls
-            if model.project.binding == .stepAndRepeat { repeatControls }
-            if model.project.binding == .gang { GangInspectorView(model:model) }
-            if model.project.binding == .stepAndRepeat {
-                GroupBox("İşlere göre ön / arka") {
-                    VStack {
-                        ForEach(Array(model.project.repeatJobs.enumerated()),id:\.offset) { index,job in
-                            Picker("İş \(index+1) yüzleri",selection:Binding(get:{ model.jobPageLayout(frontPage:job.front.number) },set:{ model.setJobPageLayout(frontPage:job.front.number,mode:$0) })) {
-                                Text("Genel ayar").tag(PageLayout.automatic); Text("Tek yüz").tag(PageLayout.simplex); Text("Çift yüz").tag(PageLayout.duplex)
-                            }
-                        }
-                    }
-                }
-            }
-            Text("Çıktı işaretleri").font(.headline)
-            ExportMarksView(model:model,inline:true)
-            Text("Renk kontrol").font(.headline)
-            overlayControls
-            PresetInspectorView(model:model)
-            PreflightView(model:model)
-
-        }.font(.body)
     }
     private var methodControls: some View {
         GroupBox("Yerleşim Yöntemi") {
@@ -372,15 +349,6 @@ struct InspectorView: View {
                              automatic: model.currentSheet?.repeatLayout?.columns ?? 1,field: .columns)
                 gridOverride("Satır",value: $model.project.stepAndRepeat.rows,
                              automatic: model.currentSheet?.repeatLayout?.rows ?? 1,field: .rows)
-                Toggle("Adet hesapla (her iş için)",isOn: model.optionalCountBinding($model.project.stepAndRepeat.quantity,name:"quantity",defaultValue:1000)).inspectorSetting(model,"Adet hesapla (her iş için)",SettingGuidance.detail("Adet hesapla (her iş için)"))
-                if model.project.stepAndRepeat.quantity != nil {
-                    HStack {
-                        Text("Adet")
-                        Spacer()
-                        IntegerInput(title:"Adet",value:Binding(get:{ model.project.stepAndRepeat.quantity ?? 1000 },set:{ model.project.stepAndRepeat.quantity = $0 }))
-                    }
-                }
-                FireControlsView(model: model)
                 if let sheet = model.currentSheet, let layout = sheet.repeatLayout {
                     Text("\(layout.columns) × \(layout.rows) = \(layout.copiesPerSheet) adet/tabaka").fontWeight(.medium)
                     if model.project.autoLayout?.automaticFields.contains(.allowRotation) == true {
@@ -427,5 +395,36 @@ struct PreviewScopePicker:View {
         Picker("Görünüm",selection:Binding(get:{ model.project.allSheetsPreview ?? model.showsAllSides },set:{ model.showsAllSides = $0 })) {
             Text("Tüm yüzler").tag(true); Text("Tek yüz").tag(false)
         }.pickerStyle(.segmented).frame(maxWidth:240)
+    }
+}
+
+struct InspectorFramePreference:PreferenceKey {
+    static var defaultValue:[InspectorPanel:CGRect] = [:]
+    static func reduce(value:inout [InspectorPanel:CGRect],nextValue:()->[InspectorPanel:CGRect]) {value.merge(nextValue(),uniquingKeysWith:{$1})}
+}
+
+/// An AppKit anchor keeps section jumps aligned after disclosure-card layout.
+/// It uses the existing SwiftUI scroll view and stores only a handled UI event.
+private struct InspectorScrollAnchor:NSViewRepresentable {
+    let jump:UUID
+    let requested:Bool
+    final class Coordinator {var handled:UUID?}
+    func makeCoordinator() -> Coordinator {Coordinator()}
+    final class AnchorView:NSView {
+        override func hitTest(_ point:NSPoint) -> NSView? {nil}
+    }
+    func makeNSView(context:Context) -> NSView {AnchorView()}
+    func updateNSView(_ view:NSView,context:Context) {
+        guard requested,context.coordinator.handled != jump else {return}
+        context.coordinator.handled=jump
+        DispatchQueue.main.async {
+            guard let scroll=view.enclosingScrollView,let document=scroll.documentView else {return}
+            document.layoutSubtreeIfNeeded()
+            let rect=view.convert(view.bounds,to:document)
+            let top=document.isFlipped ? rect.minY : rect.maxY-scroll.contentView.bounds.height
+            let maximum=max(0,document.bounds.height-scroll.contentView.bounds.height)
+            scroll.contentView.scroll(to:NSPoint(x:scroll.contentView.bounds.minX,y:min(maximum,max(0,top))))
+            scroll.reflectScrolledClipView(scroll.contentView)
+        }
     }
 }

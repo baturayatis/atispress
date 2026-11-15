@@ -12,12 +12,22 @@ struct WorkspaceView: View {
     @State private var lineLegend = false
     @Environment(\.openWindow) private var openWindow
     var body: some View {
-        HSplitView {
-            sidebar.frame(minWidth:210,idealWidth:230,maxWidth:270)
-            center.frame(minWidth:500,maxWidth: .infinity,maxHeight: .infinity)
-            InspectorView(model:model,prices:prices).frame(minWidth:370,idealWidth:DesignSystem.inspectorWidth,maxWidth:440)
+        GeometryReader { geometry in
+            VStack(spacing:0) {
+                ContextBar(model:model)
+                Divider()
+                HSplitView {
+                    sidebar.frame(minWidth:210,idealWidth:230,maxWidth:270)
+                    center.frame(minWidth:500,maxWidth:.infinity,maxHeight:.infinity)
+                    InspectorDock(model:model,prices:prices)
+                        .frame(minWidth:model.ui.inspectorCollapsed ? 56 : (model.ui.railVisible ? 426 : 370),
+                               idealWidth:model.ui.inspectorCollapsed ? 56 : DesignSystem.inspectorWidth+56,
+                               maxWidth:model.ui.inspectorCollapsed ? 56 : 496)
+                }.frame(height:max(0,geometry.size.height-37))
+            }
         }
         .background(DesignSystem.workspace)
+        .onChange(of:model.selectedPages) {_,_ in model.selectedSerialID=nil}
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.refreshRecentFiles() }
         .overlay { if dropTarget { RoundedRectangle(cornerRadius: 10).stroke(DesignSystem.teal,lineWidth: 4).padding(5).allowsHitTesting(false) } }
         .onDrop(of: [.fileURL],isTargeted: $dropTarget,perform: model.acceptDrop)

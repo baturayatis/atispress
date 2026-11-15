@@ -41,6 +41,8 @@ struct PageSplitView:View {
     @ObservedObject var model:Workspace
     let input:PDFSource
     @State var settings:PageSplitSettings
+    @State private var selectedCell:Int?
+    @State private var cellMemory:[Int:SplitCell]=[:]
     @State private var useTrim=false
     @State private var trim=Size(90,50)
     @State private var image:NSImage?
@@ -66,6 +68,28 @@ struct PageSplitView:View {
         VStack(alignment:.leading,spacing:12) {
             Text("Sayfayı böl").font(.title2.bold())
             Text("Hücreler yeni vektör sayfalara kırpılır. Ürünlerin Ön ve Arka yüzleri birlikte eşlenir; onay vermeden kaynak değişmez.").font(.caption)
+            if let index=selectedCell,settings.cells.indices.contains(index) {
+                HStack(spacing:12) {
+                    Text("Hücre \(index+1)").font(.caption)
+                    Menu("Ata") {
+                        Button("Boş (kullanma)") {settings.cells[index].product=nil}
+                        ForEach(1...max(2,settings.cells.count),id:\.self) {n in
+                            Button("Ürün \(n) · Ön") {settings.cells[index]=SplitCell(product:n)}
+                            Button("Ürün \(n) · Arka") {settings.cells[index]=SplitCell(product:n,side:.back)}
+                        }
+                    }.help("Seçili hücreye ürün ve yüz ata")
+                    Menu("Böl") {
+                        Button("Bir sütun ekle") {selectedCell=nil;resize(columns:settings.columns+1,rows:settings.rows)}.disabled(settings.columns>=12)
+                        Button("Bir satır ekle") {selectedCell=nil;resize(columns:settings.columns,rows:settings.rows+1)}.disabled(settings.rows>=12)
+                    }
+                    Button(settings.cells[index].product==nil ? "Göster" : "Gizle") {
+                        if settings.cells[index].product==nil {settings.cells[index]=cellMemory[index] ?? SplitCell(product:1)}
+                        else {cellMemory[index]=settings.cells[index];settings.cells[index].product=nil}
+                    }.help("Boş hücre baskıda kullanılmaz")
+                    Spacer()
+                }.controlSize(.small).padding(6).background(DesignSystem.card).accessibilityIdentifier("context.splitSelection")
+            }
+
             HStack(alignment:.top,spacing:16) {
                 GeometryReader { g in
                     let scale=min(g.size.width/size.width,g.size.height/size.height),w=size.width*scale,h=size.height*scale
@@ -74,7 +98,10 @@ struct PageSplitView:View {
                         else {Rectangle().fill(.white).frame(width:w,height:h)}
                         ForEach(Array(settings.rectangles(size:size).enumerated()),id:\.offset) { i,cell in
                             let t=settings.trim(in:cell)
-                            Rectangle().stroke(DesignSystem.warning,style:StrokeStyle(lineWidth:1,dash:[4,3])).frame(width:max(0,t.size.width*scale),height:max(0,t.size.height*scale)).offset(x:t.origin.x*scale,y:(size.height-t.origin.y-t.size.height)*scale)
+                            Rectangle().stroke(selectedCell==i ? DesignSystem.teal : DesignSystem.warning,style:StrokeStyle(lineWidth:1,dash:[4,3])).frame(width:max(0,t.size.width*scale),height:max(0,t.size.height*scale)).offset(x:t.origin.x*scale,y:(size.height-t.origin.y-t.size.height)*scale)
+                                .contentShape(Rectangle()).onTapGesture {selectedCell=i}
+                                .focusable().onKeyPress(.return) {selectedCell=i;return .handled}
+                                .accessibilityLabel("Hücre \(i+1), \(cellTitle(i))")
                             Menu {
                                 Button("Boş (kullanma)") {settings.cells[i].product=nil}
                                 ForEach(1...max(2,settings.cells.count),id:\.self) {n in
@@ -82,6 +109,7 @@ struct PageSplitView:View {
                                     Button("Ürün \(n) · Arka") {settings.cells[i]=SplitCell(product:n,side:.back)}
                                 }
                             } label: {Text(cellTitle(i)).font(.caption).padding(4).background(.regularMaterial,in:RoundedRectangle(cornerRadius:4))}
+                                .simultaneousGesture(TapGesture().onEnded {selectedCell=i})
                                 .fixedSize().position(x:(cell.origin.x+cell.size.width/2)*scale,y:(size.height-cell.origin.y-cell.size.height/2)*scale)
                         }
                         ForEach(settings.verticalCuts.indices,id:\.self) {i in
@@ -133,6 +161,7 @@ struct PageSplitView:View {
     }
     private func cellTitle(_ i:Int) -> String {settings.cells[i].product.map {"Ürün \($0) · \(settings.cells[i].side == .front ? "Ön":"Arka")"} ?? "Boş (kullanma)"}
     private func resize(columns:Int,rows:Int) {
+        selectedCell=nil;cellMemory=[:]
         var next=PageSplitSettings(columns:columns,rows:rows,size:size);next.cellBleed=settings.cellBleed;next.explicitTrim=settings.explicitTrim;next.assign(settings.matchingPreset ?? .row);settings=next
     }
     private func apply() {
@@ -176,6 +205,28 @@ struct SourceGuidesView:View {
     var body:some View {
         VStack(alignment:.leading,spacing:12) {
             Text("Kılavuz çizgileri").font(.title2.bold())
+            if !selected.isEmpty {
+                HStack(spacing:12) {
+                    Text("\(selected.count) grup seçili").font(.caption)
+                    Menu("Grup") {
+                        ForEach(input.guides.groups) {group in
+                            Button("\(group.role) · \(group.count) çizgi") {selected=[group.id]}
+                        }
+                    }.help("Çizgi grubunu seç")
+                    if model.canSplitSource {
+                        Button("Böl") {
+                            if let learned=input.guides.learned.first {model.useLearnedSourceTrim(learned)}
+                            else {model.showSplitAfterGuides=true;model.showingSourceGuides=false}
+                        }
+                    }
+                    if selected.allSatisfy({id in input.guides.groups.contains{$0.id==id && $0.canHide}}) {
+                        Button("Gizle") {apply(hidden.union(selected))}.disabled(model.preparingSource)
+                        Button("Göster") {apply(hidden.subtracting(selected))}.disabled(hidden.intersection(selected).isEmpty || model.preparingSource)
+                    }
+                    Spacer()
+                }.controlSize(.small).padding(6).background(DesignSystem.card).accessibilityIdentifier("context.guideSelection")
+            }
+
             Text("Çizgi seç: bir çizgiye tıklayın; ⇧ ile gruba ekleyin. İşaretli kutu = gizli. Gizleme yalnız seçilen ince vektör çizgilerinde doğrulanır.").font(.caption)
             HStack(alignment:.top) {
                 VStack {

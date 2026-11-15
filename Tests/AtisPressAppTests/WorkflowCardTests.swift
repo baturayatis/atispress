@@ -14,7 +14,7 @@ final class WorkflowCardTests:XCTestCase {
         addTeardownBlock { defaults.removePersistentDomain(forName:name) }; return defaults
     }
     func testEveryPreRedesignSettingBindingAndEditorRemainsReachable() throws {
-        let editors = WorkflowSettingsBefore.byEditor.keys
+        let editors = InspectorRegistry.settingsByEditor.keys
         let sources = try editors.map(source)
         let combined = sources.joined(separator:"\n")
         let regex = try NSRegularExpression(pattern:#"\b(?:project|field|paper|book|settings|waste|selection|entry)\.(?:wrappedValue\.)?([A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)*)"#)

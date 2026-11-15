@@ -17,6 +17,25 @@ In an environment that prevents nested `sandbox-exec` (including the current
 agent environment), use `swift build --disable-sandbox` and
 `swift test --disable-sandbox`. Xcode can also open `Package.swift` directly.
 
+## Ayarlara erişim
+
+Sağdaki simge çubuğu İş, Tabaka, Taşma, İşaretler, Seri No, Ölçek ve Böl,
+Cilt ve Kitap, Fiyat ve Çıktı bölümlerine gider. Cilt ve Kitap, kitap/spiral
+işlerinde görünür. ⌘1–⌘9 aynı bölümleri açar. Kaydırırken görünür bölüm seçilir;
+nokta, manuel ayarı veya uyarıyı gösterir.
+
+Çubuğun altından bölümler topluca açılıp daraltılabilir. **Tek bölüm göster**
+varsayılan kapalıdır. Başlığa çift tıklama denetçiyi simge çubuğuna daraltır;
+simgeye basmak o bölümü açılır panelde gösterir. Görünüm menüsündeki
+**Simge çubuğunu göster** ve **Denetçiyi daralt** klavyeden de kullanılabilir.
+Bu görünüm tercihleri uygulamada hatırlanır.
+
+Üstteki bağlam satırı seçili işin veya numara/QR alanının ayarlarını gösterir.
+Alan seçimini kaldırınca iş türünün ayarlarına döner. Dar pencerede kalan
+kontroller **…** altında bulunur. Denetçi ve bağlam satırı aynı ayarları kullanır;
+birindeki değişiklik diğerine yansır ve tek geri alma adımıdır. Sayfa bölme ve
+kılavuz seçiminin bağlam kontrolleri kendi pencerelerinde görünür.
+
 ## Kurulum
 
 Güncel uygulama sürümü **0.3.0 (build 5)**. Sürüm kaynağı

@@ -83,6 +83,17 @@ struct AtisPressApp: App {
                 Button("Yinele") { workspace.redoEdit() }.keyboardShortcut("z",modifiers:[.command,.shift]).disabled(!workspace.canRedo || workspace.loading || workspace.autoArranging || workspace.exporting)
             }
             CommandGroup(after:.toolbar) {
+                Toggle("Simge çubuğunu göster",isOn:Binding(get:{workspace.ui.railVisible},set:{workspace.ui.railVisible=$0}))
+                Toggle("Denetçiyi daralt",isOn:Binding(get:{workspace.ui.inspectorCollapsed},set:{workspace.ui.inspectorCollapsed=$0}))
+                Menu("Ayarlar bölümüne git") {
+                    ForEach(InspectorPanel.allCases) {panel in
+                        Button(panel.title) {workspace.ui.jump(panel)}
+                            .keyboardShortcut(KeyEquivalent(Character(String(panel.number))),modifiers:.command)
+                            .disabled(!InspectorPanel.visible(for:workspace.project).contains(panel))
+                    }
+                }
+                Divider()
+
                 Picker("Görünüm",selection:Binding(get:{ workspace.showsAllSides },set:{ workspace.showsAllSides = $0 })) {
                     Text("Tüm yüzler").tag(true); Text("Tek yüz").tag(false)
                 }

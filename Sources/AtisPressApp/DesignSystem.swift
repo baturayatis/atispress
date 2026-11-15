@@ -45,26 +45,28 @@ enum DesignSystem {
 struct WorkflowCard<Content:View>: View {
     let number:Int?
     let title:String
+    let panel:InspectorPanel?
     @EnvironmentObject private var model:Workspace
     @ViewBuilder var content:Content
-    init(_ number:Int? = nil,_ title:String,@ViewBuilder content:()->Content) { self.number = number; self.title = title; self.content = content() }
-    init(_ title:String,@ViewBuilder content:()->Content) { self.number = nil; self.title = title; self.content = content() }
+    init(_ number:Int? = nil,_ title:String,panel:InspectorPanel? = nil,@ViewBuilder content:()->Content) { self.number = number; self.title = title; self.panel=panel; self.content = content() }
+    init(_ title:String,@ViewBuilder content:()->Content) { self.number = nil; self.title = title; self.panel=nil; self.content = content() }
+    private var collapsed:Bool {panel.map{!model.ui.expandedPanels.contains($0)} ?? model.ui.collapsedCards.contains(title)}
     var body:some View {
         VStack(alignment:.leading,spacing:DesignSystem.Space.lg) {
-            Button { if model.ui.collapsedCards.contains(title) { model.ui.collapsedCards.remove(title) } else { model.ui.collapsedCards.insert(title) } } label: {
+            Button { if let panel {model.ui.setPanel(panel,open:collapsed)} else if collapsed { model.ui.collapsedCards.remove(title) } else { model.ui.collapsedCards.insert(title) } } label: {
             HStack(spacing:DesignSystem.Space.sm) {
                 if let number { Text(String(number)).font(.headline).foregroundStyle(DesignSystem.selectedText).frame(width:28,height:28).background(DesignSystem.selected,in:RoundedRectangle(cornerRadius:DesignSystem.Radius.control)) }
                 Text(title).font(.headline).foregroundStyle(DesignSystem.text)
                 Spacer(minLength:0)
-                Image(systemName:model.ui.collapsedCards.contains(title) ? "chevron.right" : "chevron.down").font(.caption)
+                Image(systemName:collapsed ? "chevron.right" : "chevron.down").font(.caption)
             }
-            }.buttonStyle(.plain).accessibilityLabel(title+" kartını aç veya kapat")
-            let fields = WorkflowPresentation.cardFields(title).filter { model.isManual($0) || model.project.autoLayout?.presetFields?.contains($0) == true }
+            }.buttonStyle(.plain).accessibilityLabel(title+" kartını aç veya kapat").accessibilityValue(collapsed ? "Daraltılmış" : "Açık")
+            let fields = (panel.map(InspectorRegistry.fields) ?? WorkflowPresentation.cardFields(title)).filter { model.isManual($0) || model.project.autoLayout?.presetFields?.contains($0) == true }
             if !fields.isEmpty {
                 Button("\(fields.count) ayar manuel · Otomatiğe döndür") { model.returnToAutomatic(fields) }
                     .font(.caption).buttonStyle(.borderless).foregroundStyle(DesignSystem.teal)
             }
-            if model.ui.collapsedCards.contains(title) {
+            if collapsed {
                 Text(model.cardSummary(title)).font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
             } else { content }
         }.padding(DesignSystem.Space.lg).frame(maxWidth:.infinity,alignment:.leading)
