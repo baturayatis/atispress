@@ -44,3 +44,5 @@ geometrisini denetler. Önceki envanter ve testler değiştirilmemiştir.
 **Otomatik sığdır** veya **%N** gösterir. Düğmeler ve Görünüm menüsü aynı
 `zoomAction` / `zoomFactor` eylemlerini kullanır; Sığdır / ⌘0 otomatik durumu
 yeniden açar. Bu pencere durumu üretim ayarı veya proje şeması değildir.
+
+15 Kasım: 257 semantik erişim korunur. `target`/en/boy `ScaleWindowView` içine, kök `model.overlays` `PreviewLayersView` içine, ortak `settings` bağı `InspectorControls` içine taşındı. Yaprak kenarı/davranışı/delik erişimleri ortak `leafSettingBinding` key-path’lerine eşlenir. Güncel kaynak eşlemesi `WorkflowSettingsBefore.swift` ve `WorkflowCardTests` içindedir. [Dönüş denetimi](UI_ROUND_TRIP_AUDIT.md).

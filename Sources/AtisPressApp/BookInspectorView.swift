@@ -28,10 +28,7 @@ struct BookInspectorView: View {
     }
     private var coverControls: some View {
         VStack(alignment:.leading,spacing:8) {
-            Picker("Kapak modu",selection:Binding(get:{ model.project.coverMode },set:{ value in
-                if (value == .separate) != (model.project.coverMode == .separate) { model.bookSettings.selection = CoverSelection() }
-                model.project.coverMode = value
-            })) {
+            Picker("Kapak modu",selection:Binding(get:{ model.project.coverMode },set:model.setCoverMode)) {
                 Text("Dahil").tag(CoverMode.included)
                 Text("Ayrı bas").tag(CoverMode.excluded)
                 Text("Ayrı PDF").tag(CoverMode.separate)

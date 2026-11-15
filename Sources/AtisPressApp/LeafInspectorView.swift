@@ -7,21 +7,21 @@ struct LeafInspectorView: View {
     var body: some View {
         GroupBox("Yaprak cilt: katlama yok") {
             VStack(alignment:.leading,spacing:9) {
-                Picker("Cilt kenarı",selection:Binding(get:{ model.project.leafSettings.edge },set:{ model.project.leafSettings.edge = $0; model.overlays.pressGuides = true; model.overlays.safeArea = true })) {
+                Picker("Cilt kenarı",selection:model.leafSettingBinding(\.edge)) {
                     Text("Sol").tag(LeafBindingSettings.BindingEdge.left)
                     Text("Üst").tag(LeafBindingSettings.BindingEdge.top)
                     Text("Sağ").tag(LeafBindingSettings.BindingEdge.right)
                 }.inspectorSetting(model,"Cilt kenarı",SettingGuidance.detail("Cilt kenarı"))
                 Toggle("90° döndürmeye izin ver",isOn:model.autoBinding($model.project.stepAndRepeat.allowRotation,.allowRotation)).automaticReset(model,.allowRotation)
                 input("Cilt payı (mm)",settings.allowance)
-                Picker("Cilt payı davranışı",selection:Binding(get:{ model.project.leafSettings.behavior },set:{ model.project.leafSettings.behavior = $0; model.overlays.pressGuides = true; model.overlays.safeArea = true })) {
+                Picker("Cilt payı davranışı",selection:model.leafSettingBinding(\.behavior)) {
                     Text("Koru").tag(BindingAllowanceBehavior.preserve)
                     Text("Küçült").tag(BindingAllowanceBehavior.shrink)
                     Text("Kaydır").tag(BindingAllowanceBehavior.shift)
                 }.pickerStyle(.segmented).inspectorSetting(model,"Cilt payı davranışı",SettingGuidance.detail("Cilt payı davranışı"))
                 if (model.project.leafSettings.allowance ?? 0)==0 { Text("Cilt payı girilmedi; makinenizin gerektirdiği payı girin.").foregroundStyle(DesignSystem.warning) }
                 Text("Kesim ölçüsü korunur. Koru: baskı içeriği değişmez. Küçült: güvenli alana orantılı sığdırır. Kaydır: cilt kenarından uzaklaştırır; taşan baskı içeriği kırpılmaz.").font(.caption)
-                Toggle("Delik işaretlerini çıktıya ekle",isOn:Binding(get:{ model.project.leafSettings.holes },set:{ model.project.leafSettings.holes = $0; model.overlays.punch = true })).inspectorSetting(model,"Delik işaretlerini çıktıya ekle",SettingGuidance.detail("Delik işaretlerini çıktıya ekle"))
+                Toggle("Delik işaretleri (çıktıya basılır)",isOn:model.leafSettingBinding(\.holes)).inspectorSetting(model,"Delik işaretlerini çıktıya ekle",SettingGuidance.detail("Delik işaretlerini çıktıya ekle"))
                 if model.project.leafSettings.holes {
                     input("Delik aralığı (mm)",settings.pitch)
                     input("Delik çapı (mm)",settings.diameter)
@@ -44,7 +44,7 @@ struct LeafInspectorView: View {
         }
     }
     private func input(_ title: String,_ value: Binding<Double?>) -> some View {
-        HStack { Text(title).frame(maxWidth:.infinity,alignment:.leading); DimensionInput(title,value:Binding(get:{ value.wrappedValue ?? 0 },set:{ value.wrappedValue = $0; model.overlays.pressGuides = true; model.overlays.safeArea = true; model.overlays.punch = true }),range:0...1000) }.inspectorSetting(model,title,SettingGuidance.detail(title))
+        HStack { Text(title).frame(maxWidth:.infinity,alignment:.leading); DimensionInput(title,value:Binding(get:{ value.wrappedValue ?? 0 },set:{ value.wrappedValue = $0 }),range:0...1000) }.inspectorSetting(model,title,SettingGuidance.detail(title))
     }
     private func coverPicker(_ title: String,_ key: WritableKeyPath<CoverSelection,Int?>) -> some View {
         Picker(title,selection:Binding(get:{ model.bookSettings.selection[keyPath:key] ?? -1 },set:{ model.bookSettings.selection[keyPath:key] = $0<0 ? nil : $0 })) {

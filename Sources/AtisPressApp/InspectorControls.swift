@@ -35,7 +35,7 @@ extension Workspace {
         case "Hangi kâğıda basılacak?":return "\(selectedWorkflowChip) · \(project.sheet.orientation == .landscape ? "Yatay" : project.sheet.orientation == .portrait ? "Dikey" : "Otomatik") · \(project.autoLayout?.production == .offset ? "Ofset" : "Dijital")"
         case "Kesim ve taşma":return "Taşma payı \(TRFormat.dimension(workflowBleed)) mm · \(project.exportMarks.crop ? "Kesim işareti açık" : "Kesim işareti kapalı")"
         case "Cilt ve kapak":return productKind.rawValue
-        case "Eklemek istersen":return WorkflowAddon.allCases.compactMap(workflowAddonSummary).joined(separator:" · ")
+        case "Eklemek istersen":return WorkflowAddon.allCases.filter { $0 != .scaling }.compactMap(workflowAddonSummary).joined(separator:" · ")
         default:return "Kenarlar, maşa ve üretim ayrıntıları"
         }
     }
@@ -85,5 +85,15 @@ struct OptionalIntegerInput:View {
             Text(unit).font(.caption)
             Stepper(title,onIncrement:{ value = (value ?? 0)+1 },onDecrement:{ value = max(0,(value ?? 0)-1) }).labelsHidden().fixedSize()
         }
+    }
+}
+
+
+extension Workspace {
+    func guideDimensionBinding(_ key:WritableKeyPath<ImpositionSettings,Double>,field:AutoLayoutField) -> Binding<Double> {
+        Binding(get:{ self.project.settings[keyPath:key] },set:{ self.markManual(field); self.project.settings[keyPath:key] = $0 })
+    }
+    func leafSettingBinding<T>(_ key:WritableKeyPath<LeafBindingSettings,T>) -> Binding<T> {
+        Binding(get:{ self.project.leafSettings[keyPath:key] },set:{ self.project.leafSettings[keyPath:key] = $0 })
     }
 }

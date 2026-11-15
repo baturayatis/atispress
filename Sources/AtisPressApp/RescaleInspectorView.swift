@@ -1,34 +1,6 @@
 import SwiftUI
 import ImpositionCore
 
-struct RescaleEditor: View {
-    @Binding var settings: RescaleSettings
-    let sourceSize: Size
-    var showSummary = true
-    @State private var customTarget = false
-    private var target: Binding<Int> { Binding(get:{ customTarget ? -1 : RescaleSettings.targets.firstIndex { $0.1 == settings.target } ?? -1 },set:{ customTarget = $0 == -1; if $0 >= 0 { settings.target = RescaleSettings.targets[$0].1 } }) }
-    var body: some View {
-        VStack(alignment:.leading,spacing:8) {
-            Picker("Hedef ebat",selection:target) {
-                ForEach(RescaleSettings.targets.indices,id:\.self) { index in Text(RescaleSettings.targets[index].0).tag(index) }
-                Text("Özel (mm)").tag(-1)
-            }.settingHint("Hedef ebat",SettingGuidance.detail("Hedef ebat"))
-            if target.wrappedValue == -1 {
-                VStack(alignment:.leading) {
-                    LabeledContent("En (mm)") { DimensionInput("En",value:$settings.target.width,range:1...3000) }
-                    LabeledContent("Boy (mm)") { DimensionInput("Boy",value:$settings.target.height,range:1...3000) }
-                }.textFieldStyle(.roundedBorder)
-            }
-            Picker("Mod",selection:$settings.mode) { ForEach(RescaleMode.allCases,id:\.self) { Text($0.title).tag($0) } }.pickerStyle(.segmented).settingHint("Mod","Sığdır küçük oranla içeriği korur; Doldur büyük oranla hedefi doldurup kırpar; Esnet iki ekseni ayrı ölçekler. Örnek: 100×60 → 90×50 için Doldur %90’dır.")
-            if settings.isValid {
-                let scale = ArtworkRescale(source:sourceSize,settings:settings)
-                if showSummary { Text(TRFormat.presentation(scale.summary)).font(.caption) }
-                if scale.aspectWarning { Text("En/boy oranı %2’den fazla değişiyor.").font(.caption).foregroundStyle(DesignSystem.warning) }
-            } else { Text("Geçerli bir hedef ebat girin.").foregroundStyle(DesignSystem.error) }
-        }
-    }
-}
-
 struct ScalingRow: Identifiable {
     var indices: [Int]
     var pages: [Int]
@@ -94,53 +66,8 @@ extension Workspace {
     }
 }
 struct RescaleInspectorView: View {
-    @ObservedObject var model: Workspace
-    @State private var expanded = false
-    @State private var showAll = false
-    var body: some View {
-        GroupBox("Ölçeklendir") {
-            VStack(alignment:.leading,spacing:8) {
-                Toggle("Hedef ebada ölçeklendir",isOn:Binding(get:{ model.project.scaling?.enabled ?? false },set:{ enabled in model.updateScaling { $0.enabled = enabled } })).settingHint("Hedef ebada ölçeklendir",SettingGuidance.detail("Hedef ebada ölçeklendir"))
-                RescaleEditor(settings:Binding(get:{ model.project.scaling?.defaults ?? RescaleSettings() },set:{ settings in model.updateScaling { $0.defaults = settings } }),sourceSize:model.scalingRows.first?.size ?? Size(90,50),showSummary:false)
-                Text(model.scalingSummary).font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
-                DisclosureGroup("İşlere göre ayarla (\(model.scalingRows.count))",isExpanded:$expanded) {
-                    let groups = model.groupedScalingRows
-                    ForEach(Array((showAll ? groups : Array(groups.prefix(3))))) { group in
-                        VStack(alignment:.leading,spacing:4) {
-                            Text(group.title).font(.caption)
-                            Picker("Ölçekleme",selection:Binding(get:{ overrideKind(group) },set:{ kind in apply(group,kind:kind) })) {
-                                Text("Genel ayar").tag(0)
-                                Text("Ölçekleme yok").tag(1)
-                                Text("Özel hedef / mod").tag(2)
-                            }.settingHint("Ölçekleme",SettingGuidance.detail("Ölçekleme"))
-                            if overrideKind(group) == 2 {
-                                RescaleEditor(settings:Binding(get:{ group.settings ?? RescaleSettings() },set:{ settings in apply(group,settings:settings) }),sourceSize:group.size)
-                            }
-                        }.padding(.vertical,4)
-                    }
-                    if groups.count > 3 { Button(showAll ? "Daha az göster" : "Tümünü göster") { showAll.toggle() } }
-                }
-            }.padding(5)
-        }
-    }
-    private func overrideKind(_ row:ScalingRow) -> Int {
-        let first = model.scalingRows[row.indices[0]]
-        if let value = model.project.scaling?.overrides.last(where:{ $0.gangID == first.gangID && ($0.jobIndex == nil || $0.jobIndex == first.jobIndex) && first.pages.first.map($0.pages.contains) == true }) { return value.settings == nil ? 1 : 2 }
-        return model.project.scaling == nil && row.settings != nil ? 2 : 0
-    }
-    private func apply(_ row:ScalingRow,kind:Int = 2,settings:RescaleSettings? = nil) {
-        let jobs = row.indices.map { model.scalingRows[$0] }
-        model.updateScaling { value in
-            for job in jobs {
-                value.overrides = value.overrides.compactMap { override in
-                    var next = override
-                    if next.gangID == job.gangID && next.jobIndex == job.jobIndex { next.pages.removeAll { job.pages.contains($0) } }
-                    return next.pages.isEmpty ? nil : next
-                }
-                if kind != 0 { value.overrides.append(ScalingOverride(pages:job.pages,jobIndex:job.jobIndex,gangID:job.gangID,settings:kind == 1 ? nil : settings ?? row.settings ?? value.defaults)) }
-            }
-        }
-    }
+    @ObservedObject var model:Workspace
+    var body:some View { ScalingSizeRow(model:model) }
 }
 
 struct RescalePrompt: Identifiable {
@@ -151,23 +78,6 @@ struct RescalePrompt: Identifiable {
     var size: Size
     var settings: RescaleSettings
     var arrangeAfter = false
-}
-struct RescalePromptView: View {
-    @ObservedObject var model: Workspace
-    let prompt: RescalePrompt
-    @State private var settings: RescaleSettings
-    init(model:Workspace,prompt:RescalePrompt) { self.model = model; self.prompt = prompt; _settings = State(initialValue:prompt.settings) }
-    var body: some View {
-        VStack(alignment:.leading,spacing:16) {
-            Text("Ürün ebadı \(TRFormat.dimension(prompt.size.width)) × \(TRFormat.dimension(prompt.size.height)). Hedef ebada ölçeklensin mi?").font(.headline)
-            RescaleEditor(settings:$settings,sourceSize:prompt.size)
-            HStack {
-                Button("Özgün ebadı koru") { model.finishScalePrompt(prompt,settings:nil) }
-                Spacer()
-                Button("Ölçeklendir") { model.finishScalePrompt(prompt,settings:settings) }.disabled(!settings.isValid).keyboardShortcut(.defaultAction)
-            }
-        }.padding(24).frame(width:500)
-    }
 }
 
 extension Workspace {

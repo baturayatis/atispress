@@ -300,7 +300,8 @@ with the trackpad/wheel, drag the canvas to pan, or use **− / Sığdır / +**.
 | Güvenli alan | Green inset guides. |
 | Katmanlar | Show/hide only the corresponding plan marks or the sheet border; never alter layout. |
 
-Changing mark geometry automatically enables its overlay so the change is visible.
+Mark geometry and preview layer visibility are independent; editing production
+settings does not turn preview guides on.
 Page labels and rotation/mirroring badges follow the page-number preview overlay;
 and gray crossed slots identify blanks. Validation issues with slot references
 outline those slots in red; clicking a referenced issue jumps to its sheet/face.
@@ -2535,3 +2536,62 @@ bu değişiklik için yeniden paketlenmedi. Çalışma çevrimdışıdır; push 
 Son taşma doğrulaması: **333 XCTest, sıfır hata** (124 çekirdek, 60 PDF,
 149 uygulama); ayrıca 74 hedefli test geçti. Açık tema başlangıç ekranında
 anahtarın açık ve miktarın 3 mm olduğu kontrol edildi.
+
+## Çıktı işaretleri, kılavuzlar ve tek ebat penceresi
+
+Kartlardaki **(çıktıya basılır)** kontroller PDF’de basılacak işaretleri seçer.
+**Katmanlar (çıktıya basılmaz)** yalnız ekran kılavuzlarını seçer; iki yön de
+bağımsızdır. Herhangi bir kılavuz açıkken Katmanlar düğmesinde nokta vardır.
+**Çizgiler** açılımı çizgi örneklerini, renklerini, basılı/kılavuz ayrımını ve
+güvenli alanın mm değerini açıklar. Baskı işaretleri önizlemede PDF çıktısıyla
+aynı `PDFExportMarkRenderer` üzerinden çizilir.
+
+Tel dikiş (12 A4 sayfa, 3 tabaka) regresyonu önce başarısız AppKit piksel testiyle
+yakalandı. Kesim anahtarının odak/tıklama yolu `.marks` odağını kalıcı tutuyordu;
+tuval bu odakta Katmanlar’dan bağımsız kesim **ve güvenli alan** çiziyordu.
+Plan eski haline dönmüş olsa da turkuaz iç dikdörtgen kalıyordu. Kalıcı odak
+çizimi kaldırıldı; kılavuzları kendiliğinden açan alan/cilt/üretim bağlantıları
+ayrıldı. Tüm yüzler önbelleği bilgi şeridi ve taşma durumunu da izler.
+
+**Ne basıyoruz? → Ebat → Ebadı değiştir…** tek penceredir: yeni ebat çipleri veya
+özel mm, **Tamamı görünsün / Alan dolsun / Ebada esnet**, tüm işler veya seçili iş,
+canlı önce/sonra ve gerçek motor oranı. Kitapçıkta A5/A6/özel seçenekleri ve
+sayfa sayısının değişmeyeceği açıklanır. Yalnız Uygula üretim ayarlarını değiştirir;
+Vazgeç değiştirmez. Ölçeklemeyi kaldır ve seçili iş için Genel ayarı kullan
+korunur. Standart dışı ebat önerisi otomatik pencere açmak yerine kartta kalır;
+Ölçekle aynı pencereyi önerilen en yakın standartla açar, Olduğu gibi bas
+kaynağı değiştirmez. Eski projeler etkin hedef/modlarını aynı satırda gösterir.
+
+Minyatürün Sonra görüntüsü aynı vektör/kenar dolgu motorundan alınır. Son PDF
+vektör kalır. DPI yalnız kaynak ön kontrolde ölçülmüşse sayısal gösterilir;
+ölçüm yoksa açıkça belirtilir. Daralma uyarısı gerçek ölçek oranını kullanır.
+100×70 → 90×50 için Tamamı görünsün %71,4, Alan dolsun %90’dır.
+
+[Kontrol dönüş denetimi ve bulunan bütün bağlantı/değer kayıpları](docs/UI_ROUND_TRIP_AUDIT.md).
+`SettingsRoundTripTests`, erişim envanterinden türeyen somut alanlarda dört iş
+ailesi için değiştir/geri al, kart içi anahtar çiftleri, kılavuz çiftleri ve gerçek
+UI bağlarının yan etkilerini denetler. Alan raporu `.build/settings-round-trips.csv`.
+Kontrollerin geçici kapatılmış değerleri yalnız pencere belleğinde hatırlanır;
+proje şeması **18**, planlayıcı ve PDF motoru dosyaları değişmez.
+
+```sh
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+swift test --disable-sandbox --filter 'LineStateTests|SettingsRoundTripTests|ScaleWindowTests|WorkflowCardTests'
+```
+
+Bilinen sınırlar: dönüş taraması temsilî geçerli projelerde bir alternatif değer
+kullanır; her olası sayı/değer birleşiminin kanıtı değildir. Plan ve önizleme
+geometrisi ile PDF raster snapshot’ları karşılaştırılır; PDF dosyasının tarih/
+nesne sırası gibi baytları karşılaştırılmaz. DPI tarayıcısı bütün PDF içerikleri
+ve yüksek çözünürlüklü görüntüler için sayısal ölçüm sağlamaz. Fiziksel fare,
+klavye ve VoiceOver ayrıca denenmedi. Açık/koyu ebat penceresi görüntüleri
+`.build/WorkflowQA/scale-window-light.png` ve `scale-window-dark.png` içinde.
+Uygulama/DMG yeniden paketlenmedi. Ağ kullanılmadı, push yapılmaz.
+
+Son doğrulama: **353 XCTest, sıfır hata** (124 çekirdek, 60 PDF, 169 uygulama).
+Son etiket/seri bellek düzeltmelerinden sonra **38 hedefli test** de geçti.
+Alan matrisi dört türde **174 × 4 = 696** dönüşü raporlar; kart/kılavuz anahtar
+çiftleri ve türetilmiş kontrol geçişleri ayrıca sınanır. Minimum ana ekran ve
+iki temalı ebat penceresi görselleri incelendi. Yeni dosyalar dahil çalışma
+çevrimdışı tamamlandı; push yapılmadı.

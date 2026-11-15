@@ -9,6 +9,7 @@ struct WorkspaceView: View {
     @State private var dropTarget = false
     @State private var pageHelp = false
     @State private var layers = false
+    @State private var lineLegend = false
     @Environment(\.openWindow) private var openWindow
     var body: some View {
         HSplitView {
@@ -24,7 +25,7 @@ struct WorkspaceView: View {
             Button("Tamam") { model.error = nil }
         } message: { Text(TRFormat.presentation(model.error ?? "")) }
         .sheet(isPresented:$model.preparingExport) { ExportPreparationView(model:model) }
-        .sheet(item:$model.rescalePrompt) { RescalePromptView(model:model,prompt:$0) }
+        .sheet(item:$model.scaleWindow) { ScaleWindowView(model:model,request:$0) }
         .toolbar {
             Button(action:model.choosePDF) { HStack { Image(systemName:"doc.badge.plus"); Text("PDF Seç") } }.help("PDF seç · ⌘O")
             Spacer()
@@ -85,6 +86,7 @@ struct WorkspaceView: View {
                                         .font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
                                 }
                             }
+                            if !model.scalingStatus.isEmpty { Text(model.scalingStatus).font(.caption).foregroundStyle(DesignSystem.muted) }
                             if !sheet.blankPositions.isEmpty { Text("Boş konumlar: "+sheet.blankPositions.map(String.init).joined(separator:", ")).font(.caption).foregroundStyle(DesignSystem.warning) }
                             if let serials = sheet.serialPlan {
                                 ForEach(serials.fields) { field in
@@ -135,7 +137,6 @@ struct WorkspaceView: View {
         VStack(spacing: 0) {
             VStack(spacing:8) {
                 HStack {
-                    Button("Katmanlar") { layers.toggle() }.popover(isPresented:$layers) { PreviewLayersView(model:model) }
                     Text("Görünüm:").font(.caption)
                     PreviewScopePicker(model:model).labelsHidden()
                     Spacer(minLength:4)
@@ -145,16 +146,21 @@ struct WorkspaceView: View {
                     }.pickerStyle(.segmented).frame(width:150)
                 }
                 HStack {
+                    Button { layers.toggle() } label: { HStack(spacing:4) { Text("Katmanlar"); if model.hasPreviewGuides { Circle().fill(DesignSystem.teal).frame(width:5,height:5) } } }.fixedSize().popover(isPresented:$layers) { PreviewLayersView(model:model) }
+                    Button("Çizgiler") { lineLegend.toggle() }.fixedSize().popover(isPresented:$lineLegend) { PreviewLineLegendView(model:model) }
+                    Spacer()
+                    Text(model.zoomStateLabel).font(.caption2).foregroundStyle(DesignSystem.muted).accessibilityLabel(model.zoomStateLabel)
+                    Button { model.zoomFactor = 1/1.25; model.zoomAction += 1 } label: { Image(systemName:"minus.magnifyingglass") }.help("Uzaklaştır").accessibilityLabel("Uzaklaştır")
+                    Button("Sığdır") { model.zoomFactor = 0; model.zoomAction += 1 }
+                    Button { model.zoomFactor = 1.25; model.zoomAction += 1 } label: { Image(systemName:"plus.magnifyingglass") }.help("Yakınlaştır").accessibilityLabel("Yakınlaştır")
+                }
+                HStack {
                     if !model.showsAllSides,!model.displaySheets.isEmpty {
                         Button { model.movePreviewSheet(-1) } label: { Image(systemName:"chevron.left") }.accessibilityLabel("Önceki tabaka")
                         Text(model.previewSheetPosition).font(.caption).monospacedDigit()
                         Button { model.movePreviewSheet(1) } label: { Image(systemName:"chevron.right") }.accessibilityLabel("Sonraki tabaka")
                     }
                     Spacer()
-                    Text(model.zoomStateLabel).font(.caption2).foregroundStyle(DesignSystem.muted).accessibilityLabel(model.zoomStateLabel)
-                    Button { model.zoomFactor = 1/1.25; model.zoomAction += 1 } label: { Image(systemName:"minus.magnifyingglass") }.help("Uzaklaştır").accessibilityLabel("Uzaklaştır")
-                    Button("Sığdır") { model.zoomFactor = 0; model.zoomAction += 1 }
-                    Button { model.zoomFactor = 1.25; model.zoomAction += 1 } label: { Image(systemName:"plus.magnifyingglass") }.help("Yakınlaştır").accessibilityLabel("Yakınlaştır")
                 }
             }.padding(10)
             if model.showsAllSides, !model.displaySheets.isEmpty {
@@ -163,7 +169,7 @@ struct WorkspaceView: View {
                 ContentUnavailableView("Arka yüz yok",systemImage: "doc",description: Text("Bu işin arka yüzünde içerik yok."))
                     .frame(maxWidth: .infinity,maxHeight: .infinity)
             } else if let sheet = model.currentSheet, let side = model.currentSide {
-                PreviewCanvas(sheet: sheet,side: side,sheetIndex: model.sheetIndex,sideKind: model.side,source: model.source,overlays: model.overlays,generatedBleed: model.plan.generatedBleed,bleedAmount:model.project.settings.bleed,
+                PreviewCanvas(sheet: sheet,side: side,sheetIndex: model.sheetIndex,sideKind: model.side,source: model.source,overlays: model.overlays,printedInfo:model.sheetInfoText(sheet:sheet,number:model.plan.sheets.prefix(model.sheetIndex).reduce(0) { $0+$1.repeatCount }+model.repetition+1,kind:model.side),generatedBleed: model.plan.generatedBleed,bleedAmount:model.project.settings.bleed,
                               highlighted: model.highlightedSlots,zoomAction: model.zoomAction,zoomFactor:model.zoomFactor,zoomModel:model,focusArea:model.ui.focusedArea,moveSheet:model.movePreviewSheet,
                               repetition: model.repetition,selectedSerial: model.selectedSerialID,
                               selectSerial: model.selectSerial,moveSerial: { model.moveSerialField($0,to: $1,snap:false) },controlMarks: model.project.exportMarks,moveGangBlock: { model.moveGangBlock($0,to:$1) },beginEdit:model.beginUndoGroup,endEdit:model.endUndoGroup)

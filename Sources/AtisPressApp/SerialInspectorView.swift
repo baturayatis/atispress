@@ -66,7 +66,7 @@ struct SerialInspectorView: View {
                     model.serialInputErrors[snapshot.id] = nil; model.selectedSerialID = nil
                 }
             }
-            Picker("Tür",selection: field.kind) {
+            Picker("Tür",selection: model.serialKindBinding(snapshot.id)) {
                 Text("Metin").tag(SerialCodeSettings.Kind.text)
                 Text("QR kod").tag(SerialCodeSettings.Kind.qr)
                 Text("Barkod").tag(SerialCodeSettings.Kind.code128)
@@ -102,7 +102,7 @@ struct SerialInspectorView: View {
                     }
                     if let error = model.serialInputErrors[field.wrappedValue.id] { Text(error).font(.caption).foregroundStyle(DesignSystem.warning) }
                 }
-                Toggle("Basamağı elle sabitle",isOn: field.digitsAreManual).toggleStyle(.switch).inspectorSetting(model,"Basamağı elle sabitle",SettingGuidance.detail("Basamağı elle sabitle"))
+                Toggle("Basamağı elle sabitle",isOn: Binding(get:{ field.wrappedValue.digitsAreManual },set:{ model.serialManualDigitsBinding(snapshot.id).wrappedValue = $0 })).toggleStyle(.switch).inspectorSetting(model,"Basamağı elle sabitle",SettingGuidance.detail("Basamağı elle sabitle"))
                 Stepper("Basamak: \(field.wrappedValue.digits)",value: Binding(get: { field.wrappedValue.digits },
                     set: { model.setSerialDigits($0,id: field.wrappedValue.id) }),in: 0...32)
                 if let note = field.wrappedValue.digitNote(quantity: model.serialNumberedQuantity(job: job)) {

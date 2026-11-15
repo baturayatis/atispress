@@ -13,6 +13,7 @@ final class Workspace: ObservableObject {
     @Published private(set) var workflowRecommendation:WorkflowSheetRecommendation?
     private var workflowRecommendationTask:Task<Void,Never>?
     @Published var preparingExport = false
+    @Published var scaleWindow: ScaleWindowRequest?
     @Published var rescalePrompt: RescalePrompt?
     var pendingScalePrompts: [RescalePrompt] = []
     static let automaticSheetTitle = "Otomatik (ürüne göre)"
@@ -108,6 +109,8 @@ final class Workspace: ObservableObject {
     private var sourceReference: ProjectSource?
     private var savedState: ProjectState?
     private var projectIdentifier = UUID()
+    var inspectorMemory = InspectorEditMemory()
+    var inspectorMemoryKey:String { projectIdentifier.uuidString+project.binding.rawValue }
     private let journal = WorkspaceJournal()
     @Published private(set) var canUndo = false
     @Published private(set) var canRedo = false
@@ -334,7 +337,7 @@ final class Workspace: ObservableObject {
             selectedGangJobID = next.gang?.jobs.first?.id
         }
         project = next
-        overlays.pageNumbers = next.isBooklet
+
     }
     // ⌘O, home buttons and the toolbar differ only in their picker filter.
     func openPanel() { chooseFile(.any) }
@@ -722,8 +725,8 @@ extension Workspace {
         }
         next.autoLayout = state
         applyingAutomatic = true; project = next; applyingAutomatic = false
-        if overlays.manualColorBar != true { overlays.colorBar = production == .offset }
-        if overlays.manualTargets != true { overlays.registrationTargets = production == .offset }
+
+
         if !project.pages.isEmpty { autoArrange(resetOverrides: false) }
         else if state.sheetSelection == .automatic {
             applyingAutomatic = true
@@ -736,7 +739,7 @@ extension Workspace {
     func autoArrange(resetOverrides: Bool = true,askRescale: Bool = true) {
         guard !loading,!exporting,!autoArranging,!project.pages.isEmpty else { return }
         NSApp?.keyWindow?.makeFirstResponder(nil)
-        if resetOverrides && askRescale && offerRescaling(arrangeAfter:true) { return }
+        if resetOverrides && askRescale { _ = offerRescaling(arrangeAfter:true) }
         let snapshot = project
         autoArranging = true
         autoTask = Task {
@@ -844,11 +847,13 @@ extension Workspace {
         project.stepAndRepeat.arrangement ?? (project.sheet.gutter == 0 ? .adjacent : .custom)
     }
     func setRepeatArrangement(_ arrangement: RepeatArrangement) {
+        if repeatArrangement == .custom { inspectorMemory.customGutters[inspectorMemoryKey] = project.sheet.gutter }
         var next = project
         next.stepAndRepeat.arrangement = arrangement
         var state = next.autoLayout ?? .legacy
         state.summary = nil
         if arrangement == .custom {
+            if let value = inspectorMemory.customGutters[inspectorMemoryKey] { next.sheet.gutter = value }
             state.manualFields.insert(.gutter); state.automaticFields.remove(.gutter)
         } else {
             state.manualFields.remove(.gutter); state.automaticFields.insert(.gutter)
@@ -900,6 +905,14 @@ extension Workspace {
         applyPageLayout(next)
     }
     private func applyPageLayout(_ next: Project) {
+        func key(_ p:Project) -> String {
+            let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+            let data = (try? encoder.encode(p.stepAndRepeat.pageLayout ?? PageLayoutSettings())) ?? Data()
+            return inspectorMemoryKey+String(reflecting:p.pages)+data.base64EncodedString()
+        }
+        if let expected = inspectorMemory.lastMappedSerials,expected != project.serialFields { inspectorMemory.layoutSerials = [:] }
+        inspectorMemory.layoutSerials[key(project)] = project.serialFields
+        let remembered = inspectorMemory.layoutSerials[key(next)]
         var next = next
         let oldJobs = project.repeatJobs,newJobs = next.repeatJobs
         next.serialFields = project.serialFields.flatMap { original -> [SerialField] in
@@ -928,8 +941,10 @@ extension Workspace {
             }
             return fields.isEmpty ? [original] : fields
         }
+        if let remembered { next.serialFields = remembered }
         next.autoLayout?.summary = nil
         project = next
+        inspectorMemory.lastMappedSerials = project.serialFields
     }
     func sheetInfoBinding<T>(_ key: WritableKeyPath<SheetInfoSettings,T>) -> Binding<T> {
         Binding(get: { (self.project.sheetInfo ?? SheetInfoSettings())[keyPath: key] },set: { value in
@@ -1063,7 +1078,7 @@ extension Workspace {
 extension Workspace {
     var editableGeneratedBleed: GeneratedBleedSettings {
         get { selectedGangJob?.generatedBleed ?? project.settings.generatedBleed }
-        set { if let id = selectedGangJob?.id { editGangJob(id) { $0.generatedBleed = newValue } } else { project.settings.generatedBleed = newValue } }
+        set { inspectorMemory.bleedOrigins = [:]; if let id = selectedGangJob?.id { editGangJob(id) { $0.generatedBleed = newValue } } else { project.settings.generatedBleed = newValue } }
     }
     func gangSourcePages(_ id: UUID) -> [SourcePage] {
         guard let i = gangAssets.firstIndex(where: { $0.saved.id==id }) else { return [] }
@@ -1467,15 +1482,16 @@ extension Workspace {
         return section.fields.contains(where: { isManual($0) || project.autoLayout?.presetFields?.contains($0) == true }) ? "Manuel" : "Otomatik"
     }
     var statusSummary:String {
+        let scaleSuffix = scalingStatus.isEmpty ? "" : " · "+scalingStatus
         let copies = currentSheet?.repeatLayout?.copiesPerSheet ?? currentSheet?.front.slots.filter { $0.sourcePageNumber != nil }.count ?? 0
         if project.isBooklet || project.isLeafBinding {
             let label = project.isLeafBinding ? "yaprak/tabaka" : "sayfa/yüz"
             let count = currentSheet?.leafInfo.map { $0.copiesPerSheet*$0.setsPerSheet } ?? copies
-            return "\(plan.totalPressSheets) tabaka · \(count) \(label) · Yayın adedi \(basicQuantity.map(String.init) ?? "girilmedi")"
+            return "\(plan.totalPressSheets) tabaka · \(count) \(label) · Yayın adedi \(basicQuantity.map(String.init) ?? "girilmedi")"+scaleSuffix
         }
-        if project.binding == .gang { return "\(plan.totalPressSheets) tabaka · \(copies) adet/tabaka · İş adedi \(basicQuantity.map(String.init) ?? "—")" }
+        if project.binding == .gang { return "\(plan.totalPressSheets) tabaka · \(copies) adet/tabaka · İş adedi \(basicQuantity.map(String.init) ?? "—")"+scaleSuffix }
         let quantity = currentSheet?.producedQuantityDescription ?? "—"
-        return "\(plan.totalPressSheets) tabaka · \(copies) adet/tabaka · Üretim \(quantity) adet"
+        return "\(plan.totalPressSheets) tabaka · \(copies) adet/tabaka · Üretim \(quantity) adet"+scaleSuffix
     }
 }
 
@@ -1577,9 +1593,16 @@ extension Workspace {
     var workflowBleed:Double {
         get { selectedGangJob?.bleed ?? project.settings.bleed }
         set {
-            if let job = selectedGangJob { editGangJob(job.id) { $0.bleed = newValue; $0.generatedBleed.enabled = true } }
-            else { project.settings.bleed = newValue; project.settings.generatedBleed.enabled = true }
-            overlays.bleed = true
+            let key = inspectorMemoryKey+(selectedGangJob?.id.uuidString ?? "global")
+            let remembered = inspectorMemory.bleedOrigins[key]
+            let original = remembered ?? (amount:workflowBleed,enabled:editableGeneratedBleed.enabled)
+            if remembered == nil,newValue != original.amount { inspectorMemory.bleedOrigins[key] = original }
+            let returning = remembered != nil && newValue == original.amount
+            let enabled = returning ? original.enabled : true
+            if let job = selectedGangJob { editGangJob(job.id) { $0.bleed = newValue; $0.generatedBleed.enabled = enabled } }
+            else { project.settings.bleed = newValue; project.settings.generatedBleed.enabled = enabled }
+            if returning { inspectorMemory.bleedOrigins.removeValue(forKey:key) }
+
         }
     }
 }

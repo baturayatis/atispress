@@ -35,7 +35,7 @@ final class ColorControlWorkspaceTests: XCTestCase {
         workspace.setPreviewColorBar(false)
         workspace.setProduction(.offset)
         XCTAssertTrue(workspace.project.exportMarks.colorBar); XCTAssertTrue(workspace.project.exportMarks.registrationTargets)
-        XCTAssertFalse(workspace.overlays.colorBar); XCTAssertTrue(workspace.overlays.registrationTargets)
+        XCTAssertFalse(workspace.overlays.colorBar); XCTAssertFalse(workspace.overlays.registrationTargets)
         XCTAssertEqual(workspace.autoLabel("Renk skalası",.exportColorBar),"Renk skalası · Otomatik")
         workspace.project.exportMarks.colorBar = false
         workspace.setProduction(.digital); workspace.setProduction(.offset)

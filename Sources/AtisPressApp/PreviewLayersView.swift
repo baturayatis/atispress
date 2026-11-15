@@ -4,14 +4,15 @@ struct PreviewLayersView:View {
     @ObservedObject var model:Workspace
     var body:some View {
         VStack(alignment:.leading,spacing:12) {
-            Text("Katmanlar").font(.headline)
-            Toggle("Kesim",isOn:$model.overlays.crop)
-            Toggle("Katlama",isOn:$model.overlays.fold)
-            Toggle("Taşma",isOn:$model.overlays.bleed)
-            Toggle("Güvenli alan",isOn:$model.overlays.safeArea)
-            Toggle("Sayfa numaraları",isOn:$model.overlays.pageNumbers)
-            Toggle("Tabaka sınırı",isOn:$model.overlays.sheetBoundary)
-            Text("Yalnız önizlemeyi değiştirir.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
+            let options = $model.overlays
+            Text("Katmanlar (çıktıya basılmaz)").font(.headline)
+            Toggle("Kesim çizgisi",isOn:options.crop)
+            Toggle("Katlama",isOn:options.fold)
+            Toggle("Taşma",isOn:options.bleed)
+            Toggle("Güvenli alan",isOn:options.safeArea)
+            Toggle("Sayfa numaraları",isOn:options.pageNumbers)
+            Toggle("Tabaka sınırı",isOn:options.sheetBoundary)
+            Text("Kılavuzlar çıktıya basılmaz. Kartlar çıktı işaretlerini yönetir.").font(.caption).foregroundStyle(DesignSystem.muted)
         }.padding(16).frame(width:230)
     }
 }

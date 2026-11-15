@@ -34,7 +34,7 @@ enum WorkflowPresentation {
 struct WorkflowSheetRecommendation:Equatable,Sendable { var name:String; var copies:Int }
 
 extension WorkflowPresentation {
-    static let overlayNames = ["Kesim", "Katlama", "Taşma", "Güvenli alan", "Sayfa numaraları", "Tabaka sınırı"]
+    static let overlayNames = ["Kesim çizgisi", "Katlama", "Taşma", "Güvenli alan", "Sayfa numaraları", "Tabaka sınırı"]
     static func cardFields(_ title:String) -> [AutoLayoutField] {
         let paper:[AutoLayoutField] = [.sheetSize,.orientation]
         let cut:[AutoLayoutField] = [.bleed,.generatedEnabled,.exportCrop]

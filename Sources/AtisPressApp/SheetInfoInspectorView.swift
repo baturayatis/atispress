@@ -6,7 +6,7 @@ struct SheetInfoInspectorView:View {
     @ObservedObject var model:Workspace
     var body:some View {
         VStack(alignment:.leading,spacing:DesignSystem.Space.md) {
-            Toggle("Bilgi şeridini çıktıya ekle",isOn:model.autoBinding($model.project.exportMarks.sheetInfo,.exportSheetInfo)).automaticReset(model,.exportSheetInfo)
+            Toggle("Bilgi şeridi (çıktıya basılır)",isOn:model.autoBinding($model.project.exportMarks.sheetInfo,.exportSheetInfo)).automaticReset(model,.exportSheetInfo)
             if model.project.exportMarks.sheetInfo {
 
                 LabeledContent("İş adı") { TextField("İş adı",text: Binding(get: { model.infoJobName },set: { model.infoJobName = $0 })).textFieldStyle(.roundedBorder) }

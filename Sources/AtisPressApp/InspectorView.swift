@@ -17,7 +17,7 @@ struct InspectorView: View {
                     if bindingCardVisible { WorkflowCard("Cilt ve kapak") { bindingSettings }.id(InspectorSection.binding) }
                     WorkflowCard(3,"Kesim ve taşma") { workflowCut }.id(InspectorSection.marks)
                     WorkflowCard("Eklemek istersen") {
-                        ForEach(WorkflowAddon.allCases.filter { $0 != .serial || model.project.binding == .stepAndRepeat || model.project.binding == .gang }) { addon in
+                        ForEach(WorkflowAddon.allCases.filter { ($0 != .scaling) && ($0 != .serial || model.project.binding == .stepAndRepeat || model.project.binding == .gang) }) { addon in
                             addonRow(addon)
                             if addon != WorkflowAddon.allCases.last { Divider() }
                         }
@@ -58,6 +58,8 @@ struct InspectorView: View {
     private var workflowProduct:some View {
         VStack(alignment:.leading,spacing:DesignSystem.Space.md) {
             Text(model.workflowProductSummary).font(.callout.weight(.medium)).fixedSize(horizontal:false,vertical:true)
+            RescaleInspectorView(model:model)
+            if let prompt = model.rescalePrompt { ScalingSuggestionBanner(model:model,prompt:prompt) }
             Picker("Ürün tipi",selection:Binding(get:{ model.productKind },set:model.setProductKind)) {
                 ForEach(ProductKind.allCases,id:\.self) { Text($0.rawValue).tag($0) }
             }
@@ -71,10 +73,10 @@ struct InspectorView: View {
             if model.project.isBooklet || model.project.isLeafBinding { Text("Yayın adedi maliyet hesabı içindir; PDF tek yayın planını korur.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1) }
             HStack(spacing:DesignSystem.Space.sm) {
                 Text("Fire").help("Ek üretim payı").frame(maxWidth:.infinity,alignment:.leading)
-                TextField("0",value:Binding(get:{ model.workflowWaste.percent },set:{ value in var waste = model.workflowWaste; waste.percent = value; waste.mode = .percent; model.workflowWaste = waste }),format:.number.locale(TRFormat.locale))
+                TextField("0",value:Binding(get:{ model.workflowWastePercent },set:{ model.workflowWastePercent = $0 }),format:.number.locale(TRFormat.locale))
                     .textFieldStyle(.roundedBorder).accessibilityLabel("Fire yüzdesi").accessibilityIdentifier("setting.waste.percent").frame(width:72)
                 Text("%").font(.caption).foregroundStyle(DesignSystem.muted).frame(width:24,alignment:.leading)
-                Stepper("Fire",value:Binding(get:{ model.workflowWaste.percent },set:{ value in var waste = model.workflowWaste; waste.percent = value; model.workflowWaste = waste }),in:0...100).labelsHidden().fixedSize()
+                Stepper("Fire",value:Binding(get:{ model.workflowWastePercent },set:{ model.workflowWastePercent = $0 }),in:0...100).labelsHidden().fixedSize()
             }
             Text(model.workflowWaste.mode == .fixed ? "Sabit fire ayrıntılarda korunuyor." : "Fire: ek üretim payı.").font(.caption).foregroundStyle(DesignSystem.muted).lineLimit(1)
         }
@@ -128,7 +130,7 @@ struct InspectorView: View {
                 Text("Taşma payı").frame(maxWidth:.infinity,alignment:.leading)
                 Toggle("Eksik taşmayı üret",isOn:model.autoBinding($model.editableGeneratedBleed.enabled,.generatedEnabled)).labelsHidden().toggleStyle(.switch).help("Eksik taşma payını üretir.")
                 let value = model.project.binding == .gang ? Binding(get:{ model.workflowBleed },set:{ model.workflowBleed = $0 }) : guide(\.bleed,field:.bleed,overlay:\.bleed)
-                DimensionInput("Taşma payı",value:Binding(get:{ value.wrappedValue },set:{ model.editableGeneratedBleed.enabled = true; value.wrappedValue = $0 }),range:0...30,enabled:model.editableGeneratedBleed.enabled)
+                DimensionInput("Taşma payı",value:Binding(get:{ value.wrappedValue },set:{ model.markManual(.bleed); model.workflowBleed = $0 }),range:0...30,enabled:model.editableGeneratedBleed.enabled)
             }
             if model.showsMissingBleedWarning {
                 HStack {
@@ -136,7 +138,7 @@ struct InspectorView: View {
                     Button("Taşmayı aç") { model.enableMissingBleed() }
                 }.padding(8).background(DesignSystem.warning.opacity(0.12),in:RoundedRectangle(cornerRadius:8))
             }
-            Toggle("Kesim işaretleri",isOn:model.autoBinding($model.project.exportMarks.crop,.exportCrop)).automaticReset(model,.exportCrop)
+            Toggle("Kesim işaretleri (çıktıya basılır)",isOn:model.autoBinding($model.project.exportMarks.crop,.exportCrop)).automaticReset(model,.exportCrop)
             if !model.project.isBooklet {
                 Picker("Dizilim",selection:Binding(get:{ model.repeatArrangement },set:model.setRepeatArrangement)) {
                     Text("Bitişik").tag(RepeatArrangement.adjacent); Text("Aralıklı").tag(RepeatArrangement.spaced)
@@ -167,8 +169,8 @@ struct InspectorView: View {
                 case .serial: SerialInspectorView(model:model)
                 case .scaling: RescaleInspectorView(model:model)
                 case .color:
-                    Toggle("Renk skalası",isOn:model.autoBinding($model.project.exportMarks.colorBar,.exportColorBar)).automaticReset(model,.exportColorBar)
-                    Toggle("Diz işaretleri",isOn:model.autoBinding($model.project.exportMarks.registrationTargets,.exportTargets)).automaticReset(model,.exportTargets)
+                    Toggle("Renk skalası (çıktıya basılır)",isOn:model.autoBinding($model.project.exportMarks.colorBar,.exportColorBar)).automaticReset(model,.exportColorBar)
+                    Toggle("Diz işaretleri (çıktıya basılır)",isOn:model.autoBinding($model.project.exportMarks.registrationTargets,.exportTargets)).automaticReset(model,.exportTargets)
                     ColorControlSizeView(model:model)
                 case .info: SheetInfoInspectorView(model:model)
                 case .pricing:
@@ -288,26 +290,22 @@ struct InspectorView: View {
     private var overlayControls: some View {
         GroupBox("Önizleme Katmanları") {
                     VStack(alignment: .leading,spacing: 8) {
-                        Toggle("Kesim işaretleri",isOn: $model.overlays.crop).inspectorSetting(model,"Kesim işaretleri",SettingGuidance.detail("Kesim işaretleri"))
-                        if model.project.isLeafBinding { Toggle("Delik kılavuzları",isOn:$model.overlays.punch).inspectorSetting(model,"Delik kılavuzları",SettingGuidance.detail("Delik kılavuzları")) }
-                        if model.project.binding != .stepAndRepeat && model.project.binding != .gang { Toggle("Katlama çizgileri",isOn: $model.overlays.fold).inspectorSetting(model,"Katlama çizgileri",SettingGuidance.detail("Katlama çizgileri")) }
-                        Toggle("Taşma çizgileri",isOn: $model.overlays.bleed).inspectorSetting(model,"Taşma çizgileri",SettingGuidance.detail("Taşma çizgileri"))
-                        Toggle("Güvenli alan",isOn: $model.overlays.safeArea).inspectorSetting(model,"Güvenli alan",SettingGuidance.detail("Güvenli alan"))
-                        Toggle("Sayfa numaraları",isOn: $model.overlays.pageNumbers).inspectorSetting(model,"Sayfa numaraları",SettingGuidance.detail("Sayfa numaraları"))
-                        Toggle("Tabaka sınırı",isOn: $model.overlays.sheetBoundary).inspectorSetting(model,"Tabaka sınırı",SettingGuidance.detail("Tabaka sınırı"))
-                        Toggle("Kenar payı / maşa",isOn: $model.overlays.pressGuides).inspectorSetting(model,"Kenar payı / maşa",SettingGuidance.detail("Kenar payı / maşa"))
-                        Toggle("Renk skalası",isOn: Binding(get: { model.overlays.colorBar },set: model.setPreviewColorBar)).inspectorSetting(model,"Renk skalası",SettingGuidance.detail("Renk skalası"))
-                        Toggle("Diz işaretleri",isOn: Binding(get: { model.overlays.registrationTargets },set: model.setPreviewTargets)).inspectorSetting(model,"Diz işaretleri",SettingGuidance.detail("Diz işaretleri"))
+                        Toggle("Kesim çizgisi (çıktıya basılmaz)",isOn: $model.overlays.crop).inspectorSetting(model,"Kesim işaretleri",SettingGuidance.detail("Kesim işaretleri"))
+                        if model.project.isLeafBinding { Toggle("Delik kılavuzları (çıktıya basılmaz)",isOn:$model.overlays.punch).inspectorSetting(model,"Delik kılavuzları",SettingGuidance.detail("Delik kılavuzları")) }
+                        if model.project.binding != .stepAndRepeat && model.project.binding != .gang { Toggle("Katlama kılavuzu (çıktıya basılmaz)",isOn: $model.overlays.fold).inspectorSetting(model,"Katlama çizgileri",SettingGuidance.detail("Katlama çizgileri")) }
+                        Toggle("Taşma kılavuzu (çıktıya basılmaz)",isOn: $model.overlays.bleed).inspectorSetting(model,"Taşma çizgileri",SettingGuidance.detail("Taşma çizgileri"))
+                        Toggle("Güvenli alan (çıktıya basılmaz)",isOn: $model.overlays.safeArea).inspectorSetting(model,"Güvenli alan",SettingGuidance.detail("Güvenli alan"))
+                        Toggle("Sayfa numaraları (çıktıya basılmaz)",isOn: $model.overlays.pageNumbers).inspectorSetting(model,"Sayfa numaraları",SettingGuidance.detail("Sayfa numaraları"))
+                        Toggle("Tabaka sınırı (çıktıya basılmaz)",isOn: $model.overlays.sheetBoundary).inspectorSetting(model,"Tabaka sınırı",SettingGuidance.detail("Tabaka sınırı"))
+                        Toggle("Kenar payı / maşa (çıktıya basılmaz)",isOn: $model.overlays.pressGuides).inspectorSetting(model,"Kenar payı / maşa",SettingGuidance.detail("Kenar payı / maşa"))
+                        Toggle("Renk skalası kılavuzu (çıktıya basılmaz)",isOn: Binding(get: { model.overlays.colorBar },set: model.setPreviewColorBar)).inspectorSetting(model,"Renk skalası",SettingGuidance.detail("Renk skalası"))
+                        Toggle("Diz kılavuzları (çıktıya basılmaz)",isOn: Binding(get: { model.overlays.registrationTargets },set: model.setPreviewTargets)).inspectorSetting(model,"Diz işaretleri",SettingGuidance.detail("Diz işaretleri"))
                         if model.overlays.colorBar || model.overlays.registrationTargets { ColorControlSizeView(model: model) }
                     }.toggleStyle(.switch).frame(maxWidth: .infinity,alignment: .leading).padding(5)
                 }
     }
     private func guide(_ key: WritableKeyPath<ImpositionSettings,Double>,field: AutoLayoutField,overlay: WritableKeyPath<PreviewOverlays,Bool>) -> Binding<Double> {
-        Binding(get: { model.project.settings[keyPath: key] },set: {
-            model.markManual(field)
-            model.project.settings[keyPath: key] = $0
-            model.overlays[keyPath: overlay] = true
-        })
+        model.guideDimensionBinding(key,field:field)
     }
     private var generatedBleedControls: some View {
         GroupBox("Üretilmiş Taşma") {
@@ -372,9 +370,7 @@ struct InspectorView: View {
                              automatic: model.currentSheet?.repeatLayout?.columns ?? 1,field: .columns)
                 gridOverride("Satır",value: $model.project.stepAndRepeat.rows,
                              automatic: model.currentSheet?.repeatLayout?.rows ?? 1,field: .rows)
-                Toggle("Adet hesapla (her iş için)",isOn: Binding(
-                    get: { model.project.stepAndRepeat.quantity != nil },
-                    set: { model.project.stepAndRepeat.quantity = $0 ? 1000 : nil })).inspectorSetting(model,"Adet hesapla (her iş için)",SettingGuidance.detail("Adet hesapla (her iş için)"))
+                Toggle("Adet hesapla (her iş için)",isOn: model.optionalCountBinding($model.project.stepAndRepeat.quantity,name:"quantity",defaultValue:1000)).inspectorSetting(model,"Adet hesapla (her iş için)",SettingGuidance.detail("Adet hesapla (her iş için)"))
                 if model.project.stepAndRepeat.quantity != nil {
                     HStack {
                         Text("Adet")
@@ -402,8 +398,7 @@ struct InspectorView: View {
     }
     private func gridOverride(_ title: String,value: Binding<Int?>,automatic: Int,field: AutoLayoutField) -> some View {
         VStack(alignment: .leading,spacing: 5) {
-            Toggle("\(title) sayısını belirle",isOn: Binding(get: { value.wrappedValue != nil },
-                set: { model.markManual(field); value.wrappedValue = $0 ? min(200,automatic) : nil })).automaticReset(model,field)
+            Toggle("\(title) sayısını belirle",isOn: model.optionalCountBinding(value,name:field.rawValue,defaultValue:min(200,automatic),field:field)).automaticReset(model,field)
             if value.wrappedValue != nil {
                 Stepper("\(title): \(value.wrappedValue ?? 1)",value: Binding(get: { value.wrappedValue ?? 1 },
                     set: { model.markManual(field); value.wrappedValue = $0 }),in: 1...200)

@@ -20,15 +20,15 @@ struct ExportMarksView: View {
                 Divider()
             }
             Text("Çıktı İşaretleri").font(.headline)
-            Toggle("Renk skalası",isOn: model.autoBinding($model.project.exportMarks.colorBar,.exportColorBar)).automaticReset(model,.exportColorBar)
-            Toggle("Diz işaretleri",isOn: model.autoBinding($model.project.exportMarks.registrationTargets,.exportTargets)).automaticReset(model,.exportTargets)
+            Toggle("Renk skalası (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.colorBar,.exportColorBar)).automaticReset(model,.exportColorBar)
+            Toggle("Diz işaretleri (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.registrationTargets,.exportTargets)).automaticReset(model,.exportTargets)
             ColorControlSizeView(model: model)
-            Toggle("Kesim işaretleri",isOn: model.autoBinding($model.project.exportMarks.crop,.exportCrop)).automaticReset(model,.exportCrop)
-            if model.project.isBooklet { Toggle("Katlama işaretleri",isOn: model.autoBinding($model.project.exportMarks.fold,.exportFold)).automaticReset(model,.exportFold) }
-            Toggle("Taşma çizgisi",isOn: model.autoBinding($model.project.exportMarks.bleed,.exportBleed)).automaticReset(model,.exportBleed)
-            Toggle("Güvenli alan",isOn: model.autoBinding($model.project.exportMarks.safeArea,.exportSafeArea)).automaticReset(model,.exportSafeArea)
-            Toggle("Sayfa numaraları / yuva etiketleri",isOn: model.autoBinding($model.project.exportMarks.pageNumbers,.exportPageNumbers)).automaticReset(model,.exportPageNumbers)
-            Toggle("Tabaka bilgi şeridi (iş adı, tabaka no, ön/arka)",isOn: model.autoBinding($model.project.exportMarks.sheetInfo,.exportSheetInfo)).automaticReset(model,.exportSheetInfo)
+            Toggle("Kesim işaretleri (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.crop,.exportCrop)).automaticReset(model,.exportCrop)
+            if model.project.isBooklet { Toggle("Katlama işaretleri (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.fold,.exportFold)).automaticReset(model,.exportFold) }
+            Toggle("Taşma çizgisi (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.bleed,.exportBleed)).automaticReset(model,.exportBleed)
+            Toggle("Güvenli alan (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.safeArea,.exportSafeArea)).automaticReset(model,.exportSafeArea)
+            Toggle("Sayfa numaraları / yuva etiketleri (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.pageNumbers,.exportPageNumbers)).automaticReset(model,.exportPageNumbers)
+            Toggle("Tabaka bilgi şeridi (iş adı, tabaka no, ön/arka) (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.sheetInfo,.exportSheetInfo)).automaticReset(model,.exportSheetInfo)
             if model.project.exportMarks.sheetInfo {
                 LabeledContent("İş adı") { TextField("İş adı",text: Binding(get: { model.infoJobName },set: { model.infoJobName = $0 })).textFieldStyle(.roundedBorder) }
                 VStack(alignment:.leading) {
@@ -49,7 +49,7 @@ struct ExportMarksView: View {
                     }
                 }
             }
-            Toggle("Ürün üzerinde tam kesim çizgisi",isOn: model.autoBinding($model.project.exportMarks.fullCut,.exportFullCut)).automaticReset(model,.exportFullCut)
+            Toggle("Ürün üzerinde tam kesim çizgisi (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.fullCut,.exportFullCut)).automaticReset(model,.exportFullCut)
             VStack(alignment:.leading,spacing:DesignSystem.Space.sm) {
                 Picker("Çizgi rengi",selection:model.autoBinding($model.project.exportMarks.color,.exportColor)) {
                     Text("Siyah").tag(ExportMarks.Color.black)

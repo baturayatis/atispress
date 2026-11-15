@@ -1,4 +1,4 @@
-# Denetçi ayar denetimi — 14 Kasım 2026
+# Denetçi ayar denetimi — 15 Kasım 2026
 
 Kapsam: düz/tekrarlı, karışık iş, kitapçık ve yaprak cilt; Dijital/Ofset.
 Üretim anahtarları silinmedi; eski projelerdeki görünmeyen değerler korunur.
@@ -127,11 +127,11 @@ zorunlu olmayan yerlerde araç ipucuna taşınmıştır; `—` ek metin gerekmed
 | Kod boş kenarı | Seri · kod | Tarama boşluğu | Tam sayı + adımlayıcı | Birim: kod modülü |
 | Kod alt yazısı | Seri · kod | Altına okunabilir metin yaz | Anahtar | — |
 | Baskı tekrarı | Seri; sol panel | Baskı tabakası | Adımlayıcı | Fiziksel tabaka sayısı |
-| Genel ölçekleme | Eklemek istersen · Ölçeklendir | Hedef ebada ölçeklendir | Anahtar | Değerleri gizlemek silmez |
-| Ölçek hedefi | Ölçeklendir | Hedef ebat | Açılır liste | Standart ürün hedefleri / Özel |
-| Ölçek özel en/boy | Ölçeklendir | En / Boy | İki sayı + mm + adımlayıcı | Yalnız Özel |
-| Ölçek davranışı | Ölçeklendir | Mod | Parçalı seçim | Sığdır / Doldur / Esnet |
-| İş ölçekleme istisnası | Ölçeklendir · İşlere göre ayarla | Ölçekleme | Açılır menü + aynı editör | Genel / kapalı / özel hedef |
+| Ebat akışı | 1 · Ne basıyoruz? | Ebat / Ebadı değiştir… | Tek pencere düğmesi | Açmak üretimi değiştirmez |
+| Ölçek hedefi | Ebat penceresi · 1 | Yeni ebat | Standart çipleri / Özel ölçü | Mevcut ebat Şu an ile işaretlenir |
+| Ölçek özel en/boy | Ebat penceresi · 1 | Genişlik × Yükseklik | İki sayı + mm + adımlayıcı | Özel ölçü |
+| Ölçek davranışı | Ebat penceresi · 2 | Nasıl sığsın? | Açıklamalı üç çizim kartı | Tamamı görünsün / Alan dolsun / Ebada esnet |
+| İş ölçekleme istisnası | Ebat penceresi · 3 | Hangi işlere? | Tüm işler / Sadece seçili iş | Çok işte liste; Genel ayarı kullan ve Ölçeklemeyi kaldır |
 | Renk skalası | Eklemek istersen; Çıktı işaretleri | Renk skalası | Anahtar | Baskı rengini kontrol eder |
 | Diz işareti | Aynı | Diz işaretleri | Anahtar | Baskı kalıplarını hizalar |
 | Diz ölçüsü | Renk kontrol | Diz boyutu | Sayı + mm + adımlayıcı | Çıktı/önizleme dizleri açıkken |
@@ -171,3 +171,5 @@ zorunlu olmayan yerlerde araç ipucuna taşınmıştır; `—` ek metin gerekmed
 Yerleştirilemeyen üretim ayarı: **yok**. Tam sayılardaki geçici hatalı girişler,
 isteğe bağlı fiyat/kalınlık ve seri bitiş numarası özel editörlerini korur;
 bunlar boş değerleri kaybetmemek için ortak mm alanına zorlanmadı.
+
+15 Kasım güncellemesi: çıktı kontrolleri **(çıktıya basılır)**, Katmanlar **(çıktıya basılmaz)** olarak etiketlenir. Çizgiler açılımı bütün türleri ve güvenli alan ölçüsünü açıklar. [Dönüş denetimi](UI_ROUND_TRIP_AUDIT.md).

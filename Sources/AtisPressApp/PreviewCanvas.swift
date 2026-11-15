@@ -9,6 +9,7 @@ struct PreviewCanvas: NSViewRepresentable {
     let sideKind: SideKind
     let source: PDFSource?
     let overlays: PreviewOverlays
+    var printedInfo: String = ""
     let generatedBleed: GeneratedBleedSettings
     var bleedAmount: Double = 3
     let highlighted: Set<Int>
@@ -60,7 +61,7 @@ struct PreviewCanvas: NSViewRepresentable {
         canvas.focusArea = focusArea
         canvas.repetition = repetition; canvas.selectedSerial = selectedSerial
         canvas.selectSerial = selectSerial; canvas.moveSerial = moveSerial; canvas.moveGangBlock = moveGangBlock; canvas.beginEdit = beginEdit; canvas.endEdit = endEdit
-        canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed,controlMarks: controlMarks,bleedAmount:bleedAmount)
+        canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed,controlMarks: controlMarks,bleedAmount:bleedAmount,info:printedInfo)
     }
 }
 
@@ -93,6 +94,8 @@ final class SheetCanvasView: NSView {
     var source: PDFSource?
     var overlays = PreviewOverlays()
     var bleedGuideEnabled = false
+    var printedMarks = ExportMarks.none
+    var printedInfo = ""
     var highlighted = Set<Int>()
     var zoomAction = 0
     var sheetIndex = 0
@@ -131,13 +134,15 @@ final class SheetCanvasView: NSView {
     @objc private func magnificationEnded() { needsDisplay = true }
     override var isOpaque: Bool { true }
     override var acceptsFirstResponder: Bool { true }
-    func configure(sheet: Sheet,side: Side,source: PDFSource?,overlays: PreviewOverlays,highlighted: Set<Int>,sheetIndex: Int = 0,kind: SideKind = .front,generatedBleed: GeneratedBleedSettings = GeneratedBleedSettings(),controlMarks: ExportMarks = .none,bleedAmount: Double = 3) {
+    func configure(sheet: Sheet,side: Side,source: PDFSource?,overlays: PreviewOverlays,highlighted: Set<Int>,sheetIndex: Int = 0,kind: SideKind = .front,generatedBleed: GeneratedBleedSettings = GeneratedBleedSettings(),controlMarks: ExportMarks = .none,bleedAmount: Double = 3,info:String = "") {
         let edgesChanged = self.source !== source || self.side.slots != side.slots || self.generatedOverlay?.settings != generatedBleed
         if self.source !== source {
             self.source = source; loading = []; failedRasters = []
             vectorDocument = source.flatMap { CGPDFDocument($0.url as CFURL) }
         }
         generatedOverlay = (generatedBleed.enabled || sheet.generatedBleedByJob.values.contains { $0.enabled }) ? source.map { GeneratedBleedOverlay(settings: generatedBleed,cache: $0.edgeSamples,jobSettings: sheet.generatedBleedByJob) } : nil
+        printedInfo = info
+        printedMarks = controlMarks
         var previewMarks = controlMarks
         previewMarks.colorBar = overlays.colorBar; previewMarks.registrationTargets = overlays.registrationTargets
         colorControls = overlays.colorBar || overlays.registrationTargets ? PDFColorControlRenderer.geometry(sheet: sheet,settings: previewMarks,kind: kind) : nil
@@ -235,30 +240,11 @@ final class SheetCanvasView: NSView {
             }
             context.setStrokeColor((highlighted.contains(index) ? DesignSystem.errorNS : DesignSystem.guideNS).cgColor)
             context.setLineWidth((highlighted.contains(index) ? 2.5 : 0.5)/pointsPerMM/scale)
-            context.stroke(rect)
+            if overlays.crop || highlighted.contains(index) { context.stroke(rect) }
             if overlays.pageNumbers && (slot.rotation != 0 || slot.mirrored || slot.sourcePageNumber == nil) {
                 let text = slot.bookRegion ?? (slot.sourcePageNumber == nil ? "BOŞ" : [slot.rotation != 0 ? "↻ \(slot.rotation)°" : nil,slot.mirrored ? "AYNALI" : nil].compactMap{$0}.joined(separator: " · "))
                 label(text,at: CGPoint(x: rect.midX,y: rect.minY+min(5,rect.height/5)),size: 3,color:DesignSystem.purpleNS)
             }
-        }
-        if let focusArea {
-            context.saveGState()
-            context.setStrokeColor(DesignSystem.focusNS.cgColor); context.setLineWidth(2/pointsPerMM/scale)
-            for mark in visibleGuideMarks {
-                let show:Bool
-                switch focusArea {
-                case .margins: show = mark.kind == .margin
-                case .gripper: show = mark.kind == .gripper
-                case .bleed: show = mark.kind == .bleed
-                case .marks: show = mark.kind == .crop || mark.kind == .safeArea
-                case .gutter: show = mark.kind == .sharedCut
-                }
-                if show { context.move(to:CGPoint(x:mark.start.x,y:mark.start.y)); context.addLine(to:CGPoint(x:mark.end.x,y:mark.end.y)); context.strokePath() }
-            }
-            if focusArea == .gutter {
-                for slot in side.slots { context.stroke(CGRect(x:slot.x,y:slot.y,width:slot.size.width,height:slot.size.height)) }
-            }
-            context.restoreGState()
         }
         if let selectedSerial {
             context.setStrokeColor(DesignSystem.focusNS.cgColor); context.setLineWidth(1/pointsPerMM/scale)
@@ -291,6 +277,7 @@ final class SheetCanvasView: NSView {
         }
         PDFPlanRenderer.drawMarks(guides,sheetSize: sheet.size,in: context,options: overlays,displayScale: scale)
         context.restoreGState()
+        PDFExportMarkRenderer.draw(side:side,sheet:sheet,in:context,settings:printedMarks,info:printedInfo,kind:sideKind)
         if overlays.punch { PDFPlanRenderer.drawPunchMarks(side.punchMarks,in:context) }
         if let colorControls { PDFColorControlRenderer.draw(colorControls,in: context) }
         context.restoreGState()

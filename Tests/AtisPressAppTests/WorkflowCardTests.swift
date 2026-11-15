@@ -34,6 +34,9 @@ final class WorkflowCardTests:XCTestCase {
             let code = try source(current)
             for editor in editors where !reachable.contains(editor) && code.contains(editor+"(") { reachable.insert(editor); pending.append(editor) }
         }
+        if try source("InspectorView").contains("DimensionInput(") { reachable.insert("InspectorControls") }
+        if try source("RescaleInspectorView").contains("ScalingSizeRow(") { reachable.insert("ScaleWindowView") }
+        if try source("WorkspaceView").contains("PreviewLayersView(") { reachable.insert("PreviewLayersView") }
         // BlankPlacementView.swift contains the public BlankPlacementInspector type.
         if try source("InspectorView").contains("BlankPlacementInspector(") { reachable.insert("BlankPlacementView") }
         XCTAssertEqual(Set(editors).subtracting(reachable),[])
@@ -92,7 +95,7 @@ final class WorkflowCardTests:XCTestCase {
     }
     func testDefaultPageLabelsAndSavedExplicitOverlayArePreserved() throws {
         let model = Workspace(uiDefaults:preferences()); XCTAssertFalse(model.overlays.pageNumbers)
-        model.setMode(.perfectBound); XCTAssertTrue(model.overlays.pageNumbers)
+        model.setMode(.perfectBound); XCTAssertFalse(model.overlays.pageNumbers)
         model.overlays.pageNumbers = false
         XCTAssertEqual(try ProjectDocument.decode(ProjectDocument(state:model.state).encoded()).state.overlays.pageNumbers,false)
     }
