@@ -309,3 +309,22 @@ extension UpdaterTests {
         }
     }
 }
+
+
+extension UpdaterTests {
+    func testManifestHTTPFailuresShowStatusAndPublicationGuidance() throws {
+        let url=UpdateClient.manifestURL
+        for code in [200,401,403,404,429,500,503,302,204] {
+            let response=try XCTUnwrap(HTTPURLResponse(url:url,statusCode:code,httpVersion:"HTTP/1.1",headerFields:nil))
+            if code==200 {
+                XCTAssertNoThrow(try UpdateHTTPTransport.validateManifestResponse(response))
+            } else {
+                XCTAssertThrowsError(try UpdateHTTPTransport.validateManifestResponse(response)) {error in
+                    XCTAssertTrue(error.localizedDescription.contains("HTTP \(code)"))
+                    if code==404 {XCTAssertTrue(error.localizedDescription.contains("update.json"))}
+                }
+            }
+        }
+        XCTAssertThrowsError(try UpdateHTTPTransport.validateManifestResponse(URLResponse(url:url,mimeType:nil,expectedContentLength:0,textEncodingName:nil)))
+    }
+}

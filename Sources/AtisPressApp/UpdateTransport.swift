@@ -21,10 +21,29 @@ class UpdateHTTPTransport:NSObject,UpdateTransport,URLSessionTaskDelegate {
         var request=URLRequest(url:url); request.httpMethod="GET"; request.setValue("application/json",forHTTPHeaderField:"Accept")
         // Stream and cap the manifest before allocating the complete body.
         let (bytes,response)=try await session.bytes(for:request)
-        guard let http=response as? HTTPURLResponse,http.statusCode==200 else { throw UpdateFailure("Güncelleme bilgisi alınamadı (sunucu yanıtı geçersiz).") }
+        try Self.validateManifestResponse(response)
         var data=Data()
         for try await byte in bytes { guard data.count<512_000 else { throw UpdateFailure("Güncelleme bilgisi çok büyük.") }; data.append(byte) }
         return data
+    }
+    static func validateManifestResponse(_ response:URLResponse) throws {
+        guard let http=response as? HTTPURLResponse else {
+            throw UpdateFailure("Güncelleme sunucusundan geçerli bir HTTP yanıtı alınamadı.")
+        }
+        switch http.statusCode {
+        case 200:
+            return
+        case 404:
+            throw UpdateFailure("Güncelleme dosyası bulunamadı (HTTP 404). GitHub’daki son sürüme update.json dosyası eklenmeli.")
+        case 401,403:
+            throw UpdateFailure("Güncelleme dosyasına erişim engellendi (HTTP \(http.statusCode)). GitHub sürümünün herkese açık olduğunu kontrol edin.")
+        case 429:
+            throw UpdateFailure("Güncelleme sunucusunun istek sınırına ulaşıldı (HTTP 429). Daha sonra yeniden deneyin.")
+        case 500...599:
+            throw UpdateFailure("Güncelleme sunucusu geçici bir hata verdi (HTTP \(http.statusCode)). Daha sonra yeniden deneyin.")
+        default:
+            throw UpdateFailure("Güncelleme bilgisi alınamadı (HTTP \(http.statusCode)).")
+        }
     }
     func archive(from url:URL,to destination:URL,progress:@escaping @Sendable (Double)->Void) async throws {
         guard Self.allowed(url) else { throw UpdateFailure("İndirme adresi güvenilir değil.") }
