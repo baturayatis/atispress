@@ -22,7 +22,10 @@ do {
     let args=CommandLine.arguments
     guard args.count>=3 else { fail("Kullanım: release-tool keygen|check|sign <repo> [version zip output]") }
     let mode=args[1],root=URL(fileURLWithPath:args[2]), info=root.appendingPathComponent("packaging/Info.plist")
-    if mode=="verify" {
+    if mode=="inspect" {
+        guard args.count==3 else {fail("Kullanım: release-tool inspect <zip>")}
+        print(try UpdateArchiveAudit.inspect(URL(fileURLWithPath:args[2])).report)
+    } else if mode=="verify" {
         guard args.count==5 else {fail("Kullanım: release-tool verify <zip> <update.json> <Info.plist>")}
         let zip=URL(fileURLWithPath:args[2]),manifest=try JSONDecoder().decode(UpdateManifest.self,from:Data(contentsOf:URL(fileURLWithPath:args[3])))
         let p=try plist(args[4])

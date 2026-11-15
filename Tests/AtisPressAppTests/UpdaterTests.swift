@@ -219,7 +219,7 @@ extension UpdaterTests {
     func testCurrentReleaseAndDocumentFormatsAndReleaseVerificationGate() throws {
         let root=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let folder=try directory(),tool=folder.appendingPathComponent("release-tool")
-        let sources=["UpdateManifest.swift","UpdateArchive.swift","UpdateInstaller.swift"].map{root.appendingPathComponent("Sources/AtisPressApp/"+$0).path}
+        let sources=["UpdateManifest.swift","UpdateArchive.swift","UpdateArchiveAudit.swift","UpdateInstaller.swift"].map{root.appendingPathComponent("Sources/AtisPressApp/"+$0).path}
         try UpdateInstaller.run("/usr/bin/xcrun",["swiftc"]+sources+[root.appendingPathComponent("scripts/ReleaseTool/main.swift").path,"-o",tool.path])
         let flags=["-c","-k","--norsrc","--noextattr","--noacl","--noqtn","--keepParent"]
         let key=Curve25519.Signing.PrivateKey(),info=folder.appendingPathComponent("public.plist")
@@ -246,7 +246,8 @@ extension UpdaterTests {
         XCTAssertTrue(try String(contentsOf:folder.appendingPathComponent("install.log")).contains("Other.app/"))
         let release=try String(contentsOf:root.appendingPathComponent("scripts/make_release.sh")),doc=try String(contentsOf:root.appendingPathComponent("docs/UPDATER.md"))
         let format="ditto "+flags.joined(separator:" ")
-        XCTAssertTrue(release.contains(format));XCTAssertTrue(doc.contains(format))
+        let packager=try String(contentsOf:root.appendingPathComponent("scripts/package_update_zip.sh"))
+        XCTAssertTrue(packager.contains(format));XCTAssertTrue(release.contains("./scripts/package_update_zip.sh"));XCTAssertTrue(doc.contains("./scripts/package_update_zip.sh"))
         let verification=try XCTUnwrap(release.range(of:"\"$bin_dir/release-tool\" verify")),upload=try XCTUnwrap(release.range(of:"gh release create"))
         XCTAssertLessThan(verification.lowerBound,upload.lowerBound);XCTAssertTrue(release.contains("set -euo pipefail"))
     }
@@ -274,5 +275,37 @@ extension UpdaterTests {
         XCTAssertFalse(FileManager.default.fileExists(atPath:log.deletingLastPathComponent().appendingPathComponent("update.zip").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath:log.deletingLastPathComponent().appendingPathComponent("unpacked").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath:target.path))
+    }
+}
+
+extension UpdaterTests {
+    func testPackagedAtisPressExecutableMatchesDeclaredUnzipAndDecodedBytes() throws {
+        let root=URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        // Use the actual app product built by swift test, not /usr/bin/true or
+        // data compressed by the same library as our decoder.
+        let binary=Bundle(for:UpdaterTests.self).bundleURL.deletingLastPathComponent().appendingPathComponent("AtisPressApp")
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath:binary.path),binary.path)
+        let key=Curve25519.Signing.PrivateKey()
+        for form in ["NFC","NFD"] {
+            let folder=try directory(),name=form=="NFC" ? "AtışPress".precomposedStringWithCanonicalMapping : "AtışPress".decomposedStringWithCanonicalMapping
+            let source=try app(in:folder,name:name,version:"0.3.0",build:4),contents=source.appendingPathComponent("Contents")
+            try FileManager.default.removeItem(at:contents.appendingPathComponent("MacOS/TestApp"))
+            try FileManager.default.copyItem(at:binary,to:contents.appendingPathComponent("MacOS/AtisPressApp"))
+            var info=try PropertyListSerialization.propertyList(from:Data(contentsOf:contents.appendingPathComponent("Info.plist")),format:nil) as! [String:Any]
+            info["CFBundleExecutable"]="AtisPressApp"
+            try PropertyListSerialization.data(fromPropertyList:info,format:.xml,options:0).write(to:contents.appendingPathComponent("Info.plist"))
+            try UpdateInstaller.run("/usr/bin/codesign",["--force","--deep","--sign","-",source.path])
+            let zip=folder.appendingPathComponent("update.zip")
+            try UpdateInstaller.run("/bin/bash",[root.appendingPathComponent("scripts/package_update_zip.sh").path,source.path,zip.path])
+            let m=try signed(key,bytes:Data(contentsOf:zip));try m.verifyArchive(zip,publicKey:key.publicKey.rawRepresentation)
+            let audit=try UpdateArchiveAudit.inspect(zip)
+            XCTAssertEqual(audit.declared,audit.unzip);XCTAssertEqual(audit.unzip,audit.decoded)
+            XCTAssertGreaterThan(audit.calls,1,"Fixture must exercise the final-output drain: \(audit.report)")
+            XCTAssertLessThan(audit.firstCall,audit.decoded)
+            let archive=try UpdateArchive(url:zip),entry=try XCTUnwrap(archive.entries.first{$0.path=="AtışPress.app/Contents/MacOS/AtisPressApp"})
+            // Re-signing may change signature bytes, so compare with the packaged source.
+            XCTAssertEqual(try archive.contents(entry),try Data(contentsOf:contents.appendingPathComponent("MacOS/AtisPressApp")))
+            _ = try UpdateInstaller.unpack(zip,in:folder.appendingPathComponent("unpacked"),manifest:m,currentVersion:"0.2.1",currentBuild:3)
+        }
     }
 }

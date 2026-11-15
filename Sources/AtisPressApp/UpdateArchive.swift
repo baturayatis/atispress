@@ -160,7 +160,13 @@ struct UpdateArchive {
             try require(resolved.first==Self.root,path,"bağlantı uygulama dışına çıkıyor")
         }
     }
-    func contents(_ entry:Entry) throws -> Data {
+    struct DecodeProgress {
+        let call:Int
+        let produced:Int
+        let remainingInput:Int
+        let status:Int32
+    }
+    func contents(_ entry:Entry,progress:((DecodeProgress)->Void)? = nil) throws -> Data {
         let output:Data
         if entry.method==0 {
             guard entry.bytes.count==entry.size else {throw Self.failure(entry.path,"saklanan veri boyutu uyuşmuyor")}
@@ -173,13 +179,18 @@ struct UpdateArchive {
             defer {stream.deallocate()}
             guard compression_stream_init(stream,COMPRESSION_STREAM_DECODE,COMPRESSION_ZLIB)==COMPRESSION_STATUS_OK else {throw Self.failure(entry.path,"açıcı başlatılamadı")}
             defer {compression_stream_destroy(stream)}
+            var last:DecodeProgress?
             let count:Int?=buffer.withUnsafeMutableBufferPointer { destination in
                 data.withUnsafeBytes { source in
                     stream.pointee.dst_ptr=destination.baseAddress!; stream.pointee.dst_size=destination.count
                     stream.pointee.src_ptr=source.bindMemory(to:UInt8.self).baseAddress!.advanced(by:entry.bytes.lowerBound); stream.pointee.src_size=entry.bytes.count
+                    var calls=0
                     while true {
                         let beforeSource=stream.pointee.src_size,beforeDestination=stream.pointee.dst_size
                         let status=compression_stream_process(stream,Int32(COMPRESSION_STREAM_FINALIZE.rawValue))
+                        calls+=1
+                        let step=DecodeProgress(call:calls,produced:destination.count-stream.pointee.dst_size,remainingInput:stream.pointee.src_size,status:status.rawValue)
+                        last=step; progress?(step)
                         if status==COMPRESSION_STATUS_END {
                             return stream.pointee.src_size==0 ? destination.count-stream.pointee.dst_size : nil
                         }
@@ -190,7 +201,9 @@ struct UpdateArchive {
                     }
                 }
             }
-            guard let count,count==entry.size else {throw Self.failure(entry.path,"açılan veri beyan edilen boyuta uymuyor")}
+            guard let count,count==entry.size else {
+                throw Self.failure(entry.path,"açılan veri beyan edilen boyuta uymuyor (bildirilen: \(entry.size), hesaplanan: \(last?.produced ?? 0), kalan sıkıştırılmış veri: \(last?.remainingInput ?? entry.bytes.count), açıcı durumu: \(last?.status ?? -1))")
+            }
             output=Data(buffer.prefix(count))
         }
         guard output.count==entry.size,Self.crc32(output)==entry.crc else {throw Self.failure(entry.path,"boyut/CRC doğrulaması başarısız")}

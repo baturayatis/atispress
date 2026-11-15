@@ -2691,3 +2691,8 @@ arşivlerindeki AppleDouble kayıtları açılmaz. Yeni release ve yerel test ay
 metadata’sız `ditto` biçimini kullanır. Yayın komutu basılmadan önce ortak arşiv,
 imza ve codesign doğrulaması zorunludur. Sınırlar, negatif testler ve ilk sorunlu
 yolu içeren `install.log` ayrıntıları [UPDATER.md](docs/UPDATER.md) içindedir.
+
+Güncelleme ZIP’inin yürütülebilir boyutunu macOS `unzip` ve uygulama açıcısıyla
+karşılaştırmak için `./scripts/verify_update_archive.sh` çalıştırın. Uygulamayı
+ve yayınla aynı ZIP biçimini yeniden üretir; özel anahtar veya ağ kullanmaz.
+Ayrıntılı eski/güncel boyut ölçümleri [UPDATER.md](docs/UPDATER.md) içindedir.

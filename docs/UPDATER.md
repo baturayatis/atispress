@@ -131,8 +131,8 @@ ditto 'dist/AtışPress.app' "$update_test_dir/AtışPress.app"
 codesign --force --deep --sign - "$update_test_dir/AtışPress.app"
 cp "$update_test_dir/AtışPress.app/Contents/Info.plist" "$update_test_dir/release/packaging/Info.plist"
 printf 'Yerel güncelleme denemesi\n' > "$update_test_dir/release/RELEASE_NOTES.md"
-ditto -c -k --norsrc --noextattr --noacl --noqtn --keepParent "$update_test_dir/AtışPress.app" "$update_test_dir/AtisPress-0.3.0.zip"
-xcrun swiftc Sources/AtisPressApp/UpdateManifest.swift Sources/AtisPressApp/UpdateArchive.swift Sources/AtisPressApp/UpdateInstaller.swift scripts/ReleaseTool/main.swift -o "$update_test_dir/release-tool"
+./scripts/package_update_zip.sh "$update_test_dir/AtışPress.app" "$update_test_dir/AtisPress-0.3.0.zip"
+xcrun swiftc Sources/AtisPressApp/UpdateManifest.swift Sources/AtisPressApp/UpdateArchive.swift Sources/AtisPressApp/UpdateArchiveAudit.swift Sources/AtisPressApp/UpdateInstaller.swift scripts/ReleaseTool/main.swift -o "$update_test_dir/release-tool"
 "$update_test_dir/release-tool" sign-local "$update_test_dir/release" 0.3.0 "$update_test_dir/AtisPress-0.3.0.zip" "$update_test_dir/update.json"
 "$update_test_dir/release-tool" verify "$update_test_dir/AtisPress-0.3.0.zip" "$update_test_dir/update.json" "$update_test_dir/release/packaging/Info.plist"
 ATISPRESS_LOCAL_UPDATE="file://$update_test_dir/update.json" "$update_test_dir/Applications/AtışPress.app/Contents/MacOS/AtisPressApp"
@@ -290,3 +290,51 @@ Universal arm64/x86_64 uygulama yeniden derlendi; strict ad-hoc imza doğruland�
 İlk regresyon eski kodda hata verdi; NFC/NFD ve eski/yeni biçimler düzeltilmiş
 kodda geçti. LaunchServices kaydı sandbox’ta engellendi; paket oluşturuldu.
 Ağ, Keychain anahtar üretimi, DMG oluşturma ve yayın/push yapılmadı.
+
+## Üç boyutun karşılaştırılması ve gerçek paket regresyonu
+
+Üç hata satırının bulunduğu `atis-native-zip-proof-…/NFC/install.log`, önceki
+tek çağrılı açıcı tanısına aittir (14:54:58, 14:56:12, 14:56:41 UTC). Aynı
+`legacy.zip` ve `AtışPress.app/Contents/MacOS/AtisPressApp` girdisi yeniden ölçüldü:
+
+| Ölçüm | Bayt |
+| --- | ---: |
+| ZIP merkez/yerel başlıklarının açılmış boyutu | 19.302.336 |
+| macOS `/usr/bin/unzip -p` gerçek çıktısı | 19.302.336 |
+| Güncel uygulama açıcısının toplam çıktısı | 19.302.336 |
+| Eski tek çağrıda elde edilen kısmi çıktı | 19.005.440 |
+
+İlk çağrıdan sonra **296.896 bayt** beklemekteydi. `COMPRESSION_STATUS_OK`, giriş
+bitmiş olsa bile çıktı tamponunun tamamen boşaltıldığı anlamına gelmez. Bu dosya
+`END` için toplam **6 çağrı** gerektiriyor. Daldaki döngü düzeltmesi zaten bu
+farkı gideriyordu; üç eski günlük satırı yeni bir boyut bozukluğunun kanıtı değildi.
+Güncel açıcı ve macOS çıktısının SHA-256 içerikleri de birebir eşit bulundu.
+
+Paketleme komutu şimdi `scripts/package_update_zip.sh` içinde ortaklaştırıldı;
+`make_release.sh`, yerel test ve yeni gerçek yürütülebilir regresyonu aynı betiği
+kullanır. Regresyon `/usr/bin/true` yerine derlenmiş **AtisPressApp** ürününü
+paketler, hem NFC hem NFD için üç boyutu ve içerikleri karşılaştırır, ilk çağrının
+yetersiz kaldığını sınar; imza, CRC ve codesign kontrollerini de çalıştırır.
+Boyut uyuşmazlığı hatası bundan sonra beklenen/hesaplanan baytları ve açıcı durumunu
+yazar. Limit, tam giriş tüketimi, `END`, birebir boyut ve CRC şartları değişmez.
+
+Mac’inizde repo kökünden **tek doğrulama komutu**:
+
+```sh
+./scripts/verify_update_archive.sh
+```
+
+Bu komut güncel universal uygulamayı yeniden derler, yayınla aynı betikten ZIP
+üretir ve üç boyut ile içerik SHA-256 eşitliğini denetler. Özel anahtar/Keychain,
+ağ, imzalama sırrı veya kurulum gerekmez; tanı aracı her seferinde güncel kaynaktan
+derlenir. Belirli eski ZIP’i ölçmek için isteğe bağlı ZIP yolu verilebilir.
+Yeni derlemede boyut sayısı değişebilir; üç ölçümün eşitliği esastır. Gerçek
+uygulama içi testten önce eski test uygulamasını kapatıp yeni kopyayı çalıştırın.
+Bu tanı, güncelleyicideki zorunlu Ed25519/metadata/hash/kimlik/kurulum kontrollerinin
+yerine geçmez ve hiçbir uygulamayı otomatik kurmaz.
+
+Bu ek doğrulamanın sonucu: **388 test, sıfır hata** (124 çekirdek, 70 PDF,
+194 uygulama). Tek komut uçtan uca çalıştırıldı; yeni universal pakette ZIP,
+macOS unzip ve uygulama ölçümleri **19.431.888 bayt** çıktı, SHA-256’lar eşitti
+(ilk çağrı 19.136.512 bayt, toplam 6 çağrı). arm64/x86_64 ve strict ad-hoc imza
+korundu. Özel anahtara erişilmedi; ağ, kurulum ve push yapılmadı.
