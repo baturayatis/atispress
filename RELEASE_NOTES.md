@@ -1,12 +1,9 @@
-# AtışPress 0.3.0 · build 5
+# AtışPress 0.4.0 · build 6
 
-- Uygulama içinden imzalı güncelleme denetimi ve kurulum.
-- ZIP dosyası ve sürüm bilgileri SHA-256 ve Ed25519 ile doğrulanır.
-- NFC/NFD dosya adları ve büyük ZIP girdileri için güvenli açma düzeltmeleri.
-- Kurulum hatasında önceki uygulamayı geri yükleme.
-- Açılışta günlük güncelleme denetimi, kullanıcı tercihine bağlı ve varsayılan kapalı.
-- Sayfayı bölme, ürünlerin ön/arka eşleşmesi ve kaynak kılavuzlarını seçerek gizleme.
+- Yeni simgeli panellerle ayarlara doğrudan erişin. Her simge yalnız kendi panelini açar; seçiminiz hatırlanır.
+- Daha büyük yazılar ve geniş alanlarla yenilenen üst ayar satırı, seçili işe veya seri/QR alanına göre değişir. Sığmayan kontroller … altında bulunur.
+- Panel ve üst satırdaki ayarlar anında eşzamanlanır. Bölüm kısayolları, daraltılabilir panel sütunu ve açılır paneller eklendi.
+- Yoğun ayarlar alt gruplara ayrıldı; kenarlar, taşma, işaretler, cilt ve çıktı seçenekleri daha kolay bulunur.
+- PDF yüklenmeden görünen geçersiz ölçü hatası düzeltildi. Boş durumda artık “PDF seçin” gösterilir.
 
 macOS 14 veya üzeri gerekir. Intel ve Apple Silicon aynı universal paketi kullanır.
-Yerel denemedeki 0.3.0 build 4 kullanıcıları build 5’e güncelleyebilir.
-Güncelleyici eklenmeden önce dağıtılmış sürümleri kullananlar bu sürümü bir kez elle kurmalıdır.

@@ -156,16 +156,16 @@ extension PresentationReviewTests {
 }
 
 extension PresentationReviewTests {
-    func testRelease030MetadataAndUpdateComparisonStayAligned() throws {
+    func testRelease040MetadataAndUpdateComparisonStayAligned() throws {
         let root = URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let data = try Data(contentsOf:root.appendingPathComponent("packaging/Info.plist"))
         let plist = try XCTUnwrap(PropertyListSerialization.propertyList(from:data,format:nil) as? [String:Any])
-        XCTAssertEqual(plist["CFBundleShortVersionString"] as? String,"0.3.0")
-        XCTAssertEqual(plist["CFBundleVersion"] as? String,"5")
-        XCTAssertEqual(AppHelp.version,"0.3.0"); XCTAssertEqual(AppHelp.buildNumber,"5")
-        XCTAssertFalse(try AppHelp.updateAvailable(data:Data(#"{"tag_name":"v0.3.0"}"#.utf8)))
+        XCTAssertEqual(plist["CFBundleShortVersionString"] as? String,"0.4.0")
+        XCTAssertEqual(plist["CFBundleVersion"] as? String,"6")
+        XCTAssertEqual(AppHelp.version,"0.4.0"); XCTAssertEqual(AppHelp.buildNumber,"6")
+        XCTAssertFalse(try AppHelp.updateAvailable(data:Data(#"{"tag_name":"v0.4.0"}"#.utf8)))
         XCTAssertFalse(try AppHelp.updateAvailable(data:Data(#"{"tag_name":"v0.1.0"}"#.utf8)))
-        XCTAssertTrue(try AppHelp.updateAvailable(data:Data(#"{"tag_name":"v0.3.1"}"#.utf8)))
+        XCTAssertTrue(try AppHelp.updateAvailable(data:Data(#"{"tag_name":"v0.4.1"}"#.utf8)))
         for name in ["build_app.sh","make_dmg.sh"] {
             let script = try String(contentsOf:root.appendingPathComponent("scripts/"+name),encoding:.utf8)
             XCTAssertTrue(script.contains("packaging/Info.plist"))
