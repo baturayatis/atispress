@@ -33,9 +33,10 @@ release betiği kontrol eder. Yedeğin erişilebilirliğini yayınlamadan önce 
 Anahtar rotasyonu eski güven anahtarını kendiliğinden değiştirmez; mevcut anahtarla
 imzalı geçiş sürümü veya elle yeniden kurulum gerekir.
 
-Depodaki açık anahtar başlangıçta **boştur**: bu oturumda üretim sırrı oluşturulmaz.
-Kurulum yapılana kadar uygulama Türkçe açıklama ve GitHub bağlantısı gösterir,
-indirme/kurma düğmesi sunmaz. Test anahtarları üretim anahtarı olarak gömülmez.
+Bu projede açık anahtar geliştirici tarafından ayarlanmıştır. Yayın betiği
+Keychain kaydının bu açık anahtarla eşleşmesini denetler. Yeni bir anahtar
+oluşturmak mevcut kullanıcıların güven anahtarını değiştirir. Test anahtarları
+üretim anahtarı olarak gömülmez.
 
 ## Sürüm yayınlama
 
@@ -48,11 +49,11 @@ indirme/kurma düğmesi sunmaz. Test anahtarları üretim anahtarı olarak göm�
 
 ```sh
 swift test --disable-sandbox
-./scripts/make_release.sh 0.2.1
+./scripts/make_release.sh 0.3.0
 ```
 
 Betik önce Keychain/açık anahtar eşleşmesini denetler; universal uygulama ve DMG
-oluşturur, `ditto` ile `dist/AtisPress-0.2.1.zip` üretir. ZIP baytlarının SHA-256
+oluşturur, `ditto` ile `dist/AtisPress-0.3.0.zip` üretir. ZIP baytlarının SHA-256
 özeti ve Ed25519 imzası `dist/update.json` içindedir. JSON’un bütün anlamlı alanları
 ayrıca `metadataSignature` ile imzalanır. Alanlar: `version`, sayısal `build`,
 `minimumOS`, `url`, `sha256`, base64 `signature`, `notes`, ISO8601 `publishedAt`,
@@ -64,7 +65,7 @@ Betik **hiçbir şey yüklemez/push etmez**; ağ/noter kimliklerini DMG alt işl
 çıkarır. Ekrana çalıştırılabilir tam komutu yazar:
 
 ```sh
-gh release create 'v0.2.1' 'dist/AtisPress-0.2.1.dmg' 'dist/AtisPress-0.2.1.zip' 'dist/update.json' --title 'AtışPress 0.2.1' --notes-file 'RELEASE_NOTES.md'
+gh release create 'v0.3.0' 'dist/AtisPress-0.3.0.dmg' 'dist/AtisPress-0.3.0.zip' 'dist/update.json' --title 'AtışPress 0.3.0' --notes-file 'RELEASE_NOTES.md'
 ```
 
 Bunu yalnız hazır olduğunuzda ağ erişimli Terminal’de kendiniz çalıştırın.
@@ -338,3 +339,7 @@ Bu ek doğrulamanın sonucu: **388 test, sıfır hata** (124 çekirdek, 70 PDF,
 macOS unzip ve uygulama ölçümleri **19.431.888 bayt** çıktı, SHA-256’lar eşitti
 (ilk çağrı 19.136.512 bayt, toplam 6 çağrı). arm64/x86_64 ve strict ad-hoc imza
 korundu. Özel anahtara erişilmedi; ağ, kurulum ve push yapılmadı.
+
+0.3.0 yayın hazırlığında build **5** kullanılır. Böylece yerel testteki 0.3.0
+build 4 de güncellemeyi alır. Sürüm/build metadata kontrolleri ve tam takım
+**389 testle**, sıfır hatayla geçti.

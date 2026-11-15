@@ -127,7 +127,7 @@ final class UpdaterTests:XCTestCase {
         defer {defaults.removePersistentDomain(forName:suite)}
         let key=Curve25519.Signing.PrivateKey(),m=try signed(key)
         let client=UpdateClient(transport:MockUpdateTransport(try JSONEncoder().encode(m)),publicKey:key.publicKey.rawRepresentation)
-        let blocked=UpdateChecker(client:client,defaults:defaults,target:URL(fileURLWithPath:"/Volumes/Test/AtışPress.app"))
+        let blocked=UpdateChecker(client:client,defaults:defaults,target:URL(fileURLWithPath:"/Volumes/Test/AtışPress.app"),currentVersion:"0.2.1",currentBuild:3)
         await blocked.checkNow(); XCTAssertTrue(blocked.available); XCTAssertEqual(blocked.installBlocked,"Önce uygulamayı Uygulamalar klasörüne taşıyın")
         let current=UpdateChecker(client:client,defaults:defaults,currentVersion:"0.3.0",currentBuild:4)
         await current.checkNow(); XCTAssertEqual(current.text,"Güncelsiniz"); XCTAssertFalse(current.available)
@@ -163,7 +163,7 @@ final class UpdaterTests:XCTestCase {
         let key=Curve25519.Signing.PrivateKey(),m=try signed(key),transport=MockUpdateTransport(try JSONEncoder().encode(m))
         let folder=try directory(),target=folder.appendingPathComponent("AtışPress.app")
         try FileManager.default.createDirectory(at:target,withIntermediateDirectories:false)
-        let checker=UpdateChecker(client:UpdateClient(transport:transport,publicKey:key.publicKey.rawRepresentation),defaults:defaults,target:target)
+        let checker=UpdateChecker(client:UpdateClient(transport:transport,publicKey:key.publicKey.rawRepresentation),defaults:defaults,target:target,currentVersion:"0.2.1",currentBuild:3)
         await checker.checkOnLaunch(); let zero=await transport.count(); XCTAssertEqual(zero,0)
         defaults.set(true,forKey:UpdateChecker.automaticKey)
         await checker.checkOnLaunch(); await checker.checkOnLaunch()
@@ -263,7 +263,7 @@ extension UpdaterTests {
         let target=folder.appendingPathComponent("AtışPress.app");try FileManager.default.createDirectory(at:target,withIntermediateDirectories:false)
         let suite="AtisPressArchiveFailure-"+UUID().uuidString,defaults=UserDefaults(suiteName:suite)!
         defer{defaults.removePersistentDomain(forName:suite)}
-        let checker=UpdateChecker(client:UpdateClient(transport:LocalUpdateTransport(),publicKey:key.publicKey.rawRepresentation),manifestURL:json,defaults:defaults,target:target)
+        let checker=UpdateChecker(client:UpdateClient(transport:LocalUpdateTransport(),publicKey:key.publicKey.rawRepresentation),manifestURL:json,defaults:defaults,target:target,currentVersion:"0.2.1",currentBuild:3)
         await checker.checkNow();XCTAssertTrue(checker.available);XCTAssertNil(checker.installBlocked)
         checker.install(model:Workspace(uiDefaults:defaults))
         for _ in 0..<1000 {if !checker.busy {break};try await Task.sleep(for:.milliseconds(10))}

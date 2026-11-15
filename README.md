@@ -19,9 +19,9 @@ agent environment), use `swift build --disable-sandbox` and
 
 ## Kurulum
 
-Güncel uygulama sürümü **0.2.1 (build 3)**. Sürüm kaynağı
+Güncel uygulama sürümü **0.3.0 (build 5)**. Sürüm kaynağı
 `packaging/Info.plist`; Hakkında, tanı bilgisi ve güncelleme karşılaştırması
-aynı paket sürümünü kullanır. `swift run` için de 0.2.1 / 3 yedeği bulunur.
+aynı paket sürümünü kullanır. `swift run` için de 0.3.0 / 5 yedeği bulunur.
 Proje dosyası şeması bağımsızdır ve **19**’dur; eski projeler açılır.
 
 **macOS 14 veya üzeri** gerekir. Intel ve Apple Silicon Mac’ler aynı universal
@@ -73,7 +73,7 @@ mimari, yapılandırma ve ürün seçeneklerini değiştirmeyin.
 
 `make_dmg.sh`, uygulamayı ve `/Applications` hedefli sembolik bağlantıyı **AtışPress**
 adlı HFS+ birimine koyar. `UDZO` sıkıştırmalı dosya adı ASCII’dir:
-`dist/AtisPress-0.2.1.dmg`. Sürüm, uygulamanın `Info.plist` dosyasındaki
+`dist/AtisPress-0.3.0.dmg`. Sürüm, uygulamanın `Info.plist` dosyasındaki
 `CFBundleShortVersionString` değeridir; kaynağı `packaging/Info.plist` içindedir.
 Buradaki pazarlama sürümü ve build numarası `.atispress` proje şemasından bağımsızdır.
 Betik `hdiutil create` ile HFS+/UDZO görüntüsünü oluşturur, `hdiutil verify`
@@ -85,12 +85,12 @@ Elle kontrol:
 
 ```sh
 lipo -info "dist/AtışPress.app/Contents/MacOS/AtisPressApp"
-hdiutil verify dist/AtisPress-0.2.1.dmg
-hdiutil attach -readonly -nobrowse dist/AtisPress-0.2.1.dmg
+hdiutil verify dist/AtisPress-0.3.0.dmg
+hdiutil attach -readonly -nobrowse dist/AtisPress-0.3.0.dmg
 ls -ld "/Volumes/AtışPress/AtışPress.app" "/Volumes/AtışPress/Applications"
 readlink "/Volumes/AtışPress/Applications"
 hdiutil detach "/Volumes/AtışPress"
-shasum -a 256 dist/AtisPress-0.2.1.dmg
+shasum -a 256 dist/AtisPress-0.3.0.dmg
 ```
 
 Disk aygıtlarına erişimi olmayan sandbox’larda `hdiutil` oluşturma/bağlama
@@ -2648,21 +2648,21 @@ ayrı ayrı doğrular. İlk kurulumda geliştiricinin Mac’inde bir kez:
 ```
 
 Özel anahtar yalnız macOS Keychain’de tutulur; **çevrimdışı şifreli yedeğini alın**.
-Betik yalnız açık anahtarı `packaging/Info.plist` içine yazar. Depodaki anahtar
-başlangıçta boştur; bu kurulum yapılmadan uygulama içi yükleme etkinleşmez.
+Betik yalnız açık anahtarı `packaging/Info.plist` içine yazar. Bu projede açık anahtar ayarlanmıştır. Yayın betiği Keychain’deki anahtarla
+eşleşmesini denetler.
 Açık anahtarı commit edip uygulamayı yeniden derleyin. Sürüm/build ve
 `RELEASE_NOTES.md` güncellendikten sonra:
 
 ```sh
 swift test --disable-sandbox
-./scripts/make_release.sh 0.2.1
+./scripts/make_release.sh 0.3.0
 ```
 
-Betik universal uygulama, DMG, `AtisPress-0.2.1.zip` ve imzalı `update.json`
+Betik universal uygulama, DMG, `AtisPress-0.3.0.zip` ve imzalı `update.json`
 hazırlar; yükleme/push yapmaz. Sonunda tam `gh release create` komutunu basar:
 
 ```sh
-gh release create 'v0.2.1' 'dist/AtisPress-0.2.1.dmg' 'dist/AtisPress-0.2.1.zip' 'dist/update.json' --title 'AtışPress 0.2.1' --notes-file 'RELEASE_NOTES.md'
+gh release create 'v0.3.0' 'dist/AtisPress-0.3.0.dmg' 'dist/AtisPress-0.3.0.zip' 'dist/update.json' --title 'AtışPress 0.3.0' --notes-file 'RELEASE_NOTES.md'
 ```
 
 Kullanıcı Yardım → **Güncellemeleri denetle…** ile notları görüp güncellemeyi
