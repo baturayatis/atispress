@@ -240,8 +240,8 @@ LaunchServices kaydı sandbox'ta engellendi; paket masaüstü aracıyla açıld�
   vardır. Tam çift seçiliyse normal Çoğalt doğrudan çalışır.
 - Sil, tek bağımsız sayfada doğrudan çalışır. Çoklu seçimde onay; çiftin tek
   yüzünde çift/yalnız seçili yüz seçimi vardır. Baskıya dahil ayrı geçici
-  seçimdir. Tek yüz silme ve tek satır sürükleme okuma sırasını yeniden eşler;
-  çiftin birlikte taşınması için iki satır birlikte seçilmelidir.
+  seçimdir. Ön/Arka bilgisi ve çift kimliği sıralamadan bağımsızdır. Tek yüz
+  silme diğer yüzün rolünü değiştirmez.
 - Boşlar komşu ölçüsündedir, kesik çerçeveli küçük görselle gösterilir ve forma
   içeriğinde yer tutar. Tamamen boş bir arka yüz de kasıtlı eklenmişse çıktıya
   alınır. Kitap sayfa sayısı, listedeki boşlar ve otomatik eklenecek boşlar
@@ -253,7 +253,7 @@ LaunchServices kaydı sandbox'ta engellendi; paket masaüstü aracıyla açıld�
 - Sıra değişiminde seri alanları ve işe özel ölçekler ürün sırasına taşınır;
   çift çoğaltırken alan kimlikleri yenilenir. Kılavuz hazırlama, sonradan PDF
   ekleme ve ayrı kapak bağlama da liste kimliklerini korur.
-- Şema **20**; şema 1–19 açılır. Açılışta kimlikler, sıra/baskı seçimi,
+- Şema **21**; şema 1–20 açılır. Açılışta kimlikler, sıra/baskı seçimi,
   kaynak sayfa sınırları ve kaynak ölçüleri denetlenir. Undo/redo aynı
   ProjectState ve kaynak erişimini saklar. Güncelleyici değiştirilmedi.
 
@@ -265,7 +265,7 @@ swift test --disable-sandbox
 swift run --disable-sandbox AtisPressApp
 ```
 
-Son tam koşu **409 test, 0 hata** (70 PDFEngine, 124 ImpositionCore,
+Önceki sayfa listesi koşusu **409 test, 0 hata** (70 PDFEngine, 124 ImpositionCore,
 215 AtisPressApp). Yeni PageListActionTests çoğaltma/99 kopya, çift kaynakları,
 tek yüz, silme/dahil etme ayrımı, çoklu seçim, boş/sıra, kitap forma sayısı,
 undo/redo, şema 19 göçü ve 20 kaydet/aç, seri/ölçek taşıma, ek PDF/kapak,
@@ -282,8 +282,87 @@ kaydı sandbox'ta engellenebilir.
 
 - Bu işlemler klasik Sayfalar listesi içindir. Karışık işin mevcut ürün
   listesi kendi ürün işlemlerini kullanır.
-- Tek yüz silme/yeniden sıralama kalan okuma sırasından Ön/Arka eşlemesini
-  yeniden oluşturur. Kitapta elle belirlenmiş otomatik boş konumları yeni
-  sayıya uymuyorsa mevcut ön kontrol uyarısını gidermek gerekir.
+- Kitapta elle belirlenmiş otomatik boş konumları yeni sayıya uymuyorsa
+  mevcut ön kontrol uyarısını gidermek gerekir.
 - Uzun gerçek belgelerde sürükleyerek çoklu sıralama ve VoiceOver sesli
   gezinme ayrıca denenmelidir.
+
+## Sayfalara başka PDF ekleme — sayfa-listesi, şema 21
+
+### Çalışanlar
+
+- Sayfalar araçlarında **PDF ekle…**, satırın …/sağ tık menüsünde
+  **Buraya PDF ekle…** ve listeye/satıra birden fazla PDF bırakma bulunur.
+  Seçim penceresinde küçük görseller, kutular, Tümü/Hiçbiri, `1-4, 7`
+  aralıkları, dosya sırası ve üstüne/altına/başa/sona konumu vardır.
+  Arka plandaki ekleme çizgisi konumu gösterir. Ekle onayı öncesi proje değişmez.
+- Ön/Arka/Tek yüz ve çift UUID’si her satırda saklanır. İlk liste düzenlemesi
+  eski projenin mevcut eşlemesini sabitler. İki sayfalık kartın Ön/Arka rolleri
+  boş ekleme, çoğaltma, silme, dahil etme ve sıralama sırasında korunur.
+  Ön silinip Arka tutulursa boş Ön eklenir. Arka silinirse Ön olarak kalır.
+- Çiftin ortasına ekleme, iç içe sıralanmış çiftler dahil, çift sınırına taşınır
+  ve seçim penceresi bunu açıklar. Çift yüzlü işte çift sayıda yeni sayfanın
+  çift olarak eklenmesi varsayılandır. Tek sayıda sayfada boş arkalı önler,
+  sıralı çiftler (son arka boş), ayrı tek yüzlü ürünler ve Vazgeç seçenekleri vardır.
+  Sayfa eklemek işin genel yüz modunu değiştirmez. Kullanıcı İş panelinde
+  veya satırın Yüz menüsünde yüz tercihini değiştirebilir.
+- Gerçek arka yüzü bulunan iş artık arka yüz içermiyorsa önizlemede Geri al /
+  Çift yüz yap uyarısı; durum ve çıktı özetinde **Arka yüz yok** görünür.
+  Çıktı açık onay ister. Kitap sayısı ve otomatik forma boşları yeniden hesaplanır.
+- Satırlar yerel kaynak sayfa numarasını ve kısaltılmış dosya adını gösterir.
+  Kaynaklar dosya adı, sayısı ve yolu ile Değiştir…/Kaldır sunar. Kaldırma
+  sayfalarıyla silme veya sayfaları tutup yeniden bağlama sorar. Son kaynak
+  kaldırılırken boşların da temizleneceği açıklanır. Eksik kaynak açılışta
+  yeniden bağlanır. Şifreli PDF için parola istenir ve projeye yazılmaz.
+- Kaynaklar tek referansla paylaşılır. Geçici birleşik PDF, PDFKit sayfa
+  kopyalarıyla vektör olarak oluşturulur. Ortak plan hem global çizim numarasını
+  hem kaynak UUID’sini/yerel sayfasını taşır. Önizleme, seri alanları ve çıktı
+  aynı çözümlemeyi kullanır. Kaynak dosyaların içeriği değiştirilmez.
+- Farklı ebatta PDF için karışık işe dönüştürme veya mevcut Ebadı değiştir
+  penceresi sunulur. Kitapta ölçekleme/Vazgeç vardır. Ölçek penceresi yalnız
+  yeni sayfaları kapsar; Vazgeç tüm eklemeyi geri alır. Ekleme, ölçekleme,
+  kaynak değiştirme ve kaldırma birer geri alma adımıdır.
+- Şema 21 kaynak UUID/yerel sayfa, açık yüz/çift ve arka yüz geçmişini saklar.
+  Şema 1–20 açılır. Açılışta kaynak kimliği, yerel/global sayfa tutarlılığı,
+  sayfa ölçüleri ve kaynak sınırları denetlenir.
+
+### Testler ve çalıştırma
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+swift test --disable-sandbox
+./scripts/build_app.sh
+open dist/AtışPress.app
+```
+
+Son tam koşu **421 test, 0 hata** (70 PDFEngine, 124 ImpositionCore,
+227 AtisPressApp). Universal arm64/x86_64 release paketi ve strict ad-hoc
+imzası doğrulandı. LaunchServices kaydı sandbox nedeniyle engellendi;
+paket `dist/AtışPress.app` altında hazırdır.
+
+PDFInsertionTests konumları, çift sınırlarını, tek/çift sayıları ve iptali,
+çoklu kaynak sırasını, eski kartın yüzlerini, arka kaybı uyarı modelini,
+undo/redo, farklı ebat seçeneklerini, ölçekleme iptalini, kitap boşlarını,
+kaynak paylaşımını, kaynak kaldırma/yeniden bağlama, taşınmış kaynak açılışını,
+yanlış/doğru parola ve iptalini, şifrenin kaydedilmemesini, çok kaynaklı
+kaydet/aç ve karışık ebatlı karışık işin çıktısını kapsar. Tek kaynaklı plan
+ve çıktı pikselleri geri alma sonrasında eşit karşılaştırılır; test çıktısında
+raster görsel nesnesi oluşmadığı denetlenir. Mevcut reachability, round-trip,
+snapshot ve güncelleyici testleri tam koşuya dahildir.
+
+### Bilinen sınırlar ve elle kontrol
+
+- Yeni seçim penceresi klasik Sayfalar listesindedir. Karışık işe geçildikten
+  sonra mevcut ürün/kaynak araçları kullanılır.
+- Kaynak değiştirirken kullanılan sayfaların kesim ölçüleri aynı olmalıdır.
+  Farklı ölçüyle yeniden bağlama açık hata verir. Farklı ebatta içerik eklemek
+  için PDF ekle… içindeki ölçekleme/karışık iş seçimi kullanılır.
+- Kaynak kılavuzlarını seçerek gizleme ve Sayfayı böl araçları mevcut tek
+  kaynak sınırını korur. Çok kaynak eklendikten sonra bunları dosya başına
+  düzenleyen yeni bir arayüz eklenmedi.
+- Parolası açılan PDF’nin geçici vektör kopyası oturum boyunca tutulur ve
+  kaynak nesnesi bırakılınca silinir. Yeniden açılışta parola tekrar sorulur.
+- Gerçek Finder çoklu PDF bırakma, ekleme çizgisinin görünürlüğü, parola/
+  yeniden bağlama pencerelerinin odak sırası ve VoiceOver sesli kullanımı
+  masaüstünde ayrıca doğrulanmalıdır. Bu değişiklikte fiziksel UI denemesi
+  yapılmadı.

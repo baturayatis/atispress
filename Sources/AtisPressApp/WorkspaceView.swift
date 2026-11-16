@@ -10,6 +10,7 @@ struct WorkspaceView: View {
     @State private var pageHelp = false
     @State private var layers = false
     @State private var lineLegend = false
+    @State private var pageSources = false
     @Environment(\.openWindow) private var openWindow
     var body: some View {
         GeometryReader { geometry in
@@ -34,11 +35,12 @@ struct WorkspaceView: View {
         .alert("İşlem tamamlanamadı",isPresented: Binding(get: { model.error != nil },set: { if !$0 { model.error = nil } })) {
             Button("Tamam") { model.error = nil }
         } message: { Text(TRFormat.presentation(model.error ?? "")) }
+        .sheet(item:$model.pdfInsertion,onDismiss:{model.showPendingPDFScaleWindow()}) {PDFInsertionView(model:model,draft:$0)}
         .sheet(item:$model.pageDuplicateRequest) {PageDuplicateView(model:model,request:$0)}
         .sheet(isPresented:$model.showingPageSplit) { if let input=model.preparationInput {PageSplitView(model:model,input:input)} }
         .sheet(isPresented:$model.showingSourceGuides,onDismiss:{if model.showSplitAfterGuides {model.showSplitAfterGuides=false;model.showingPageSplit=model.canSplitSource}}) { if let input=model.preparationInput {SourceGuidesView(model:model,input:input)} }
         .sheet(isPresented:$model.preparingExport) { ExportPreparationView(model:model) }
-        .sheet(item:$model.scaleWindow) { ScaleWindowView(model:model,request:$0) }
+        .sheet(item:$model.scaleWindow,onDismiss:{model.finishPDFImportScaling(accepted:false)}) { ScaleWindowView(model:model,request:$0) }
         .toolbar {
             Button(action:model.choosePDF) { HStack { Image(systemName:"doc.badge.plus"); Text("PDF Seç") } }.help("PDF seç · ⌘O")
             Spacer()
@@ -50,7 +52,7 @@ struct WorkspaceView: View {
         }.tint(DesignSystem.teal).disabled(model.preparingSource)
     }
     @ViewBuilder private var sidebar: some View {
-        if model.project.binding == .gang { GangSidebarView(model: model) } else { classicSidebar }
+        if model.project.binding == .gang { GangSidebarView(model: model) } else { classicSidebar.disabled(model.preparingSource) }
     }
     private var classicSidebar: some View {
         VSplitView {
@@ -69,6 +71,10 @@ struct WorkspaceView: View {
                 }.buttonStyle(.borderless).disabled(model.source == nil).padding(.horizontal,12).padding(.bottom,8)
                 if model.project.isBooklet && model.blankSettings.mode == .manual { BlankPageOrderView(model:model).padding(.horizontal,8) }
                 HStack(spacing:8) {
+                    Button("PDF ekle…") {model.choosePagePDFs()}.disabled(!model.canAddPagePDFs)
+                    Button("Kaynaklar") {pageSources.toggle()}.popover(isPresented:$pageSources) {PageSourcesPopover(model:model)}
+                }.buttonStyle(.borderless).font(.system(size:12)).padding(.horizontal,8).padding(.bottom,8)
+                HStack(spacing:8) {
                     Button("+ Boş sayfa") {model.insertBlankPages(model.selectedPages)}
                     Button("Çoğalt") {model.requestPageDuplicate()}.help("Seçili sayfaları çoğalt · ⌘D").keyboardShortcut("d").disabled(model.selectedPages.isEmpty)
                     Button("Sil") {model.requestPageDelete()}.help("Listeden sil · ⌫ · Geri alınabilir").disabled(model.selectedPages.isEmpty)
@@ -77,9 +83,15 @@ struct WorkspaceView: View {
                     Text(summary).font(.system(size:12)).foregroundStyle(model.plan.addedBlankPages>0 ? DesignSystem.warning:DesignSystem.muted).padding(.horizontal,8)
                 }
                 List(selection: $model.selectedPages) {
-                    ForEach(model.order,id:\.self) {id in PageListRow(model:model,id:id).tag(id)}
+                    ForEach(model.order,id:\.self) {id in
+                        PageListRow(model:model,id:id).tag(id)
+                            .onDrop(of:[UTType.fileURL],isTargeted:nil) {model.acceptPagePDFDrop($0,anchor:id)}
+                            .overlay(alignment:.top) {if model.pdfInsertionIndex==model.order.firstIndex(of:id) {Rectangle().fill(DesignSystem.teal).frame(height:3)}}
+                    }
                         .onMove(perform:model.move)
                 }.listStyle(.sidebar).onDeleteCommand {model.requestPageDelete()}
+                    .onDrop(of:[UTType.fileURL],isTargeted:nil) {model.acceptPagePDFDrop($0)}
+                    .overlay(alignment:.bottom) {if model.pdfInsertionIndex==model.order.count {Rectangle().fill(DesignSystem.teal).frame(height:3)}}
                 Button { pageHelp.toggle() } label: { Image(systemName:"questionmark.circle") }.buttonStyle(.borderless).accessibilityLabel("Sayfa seçimi yardımı").popover(isPresented:$pageHelp) { Text("Baskıya dahil et · ⌘ ve ⇧ ile çoklu seç · sürükleyerek veya ↑↓ ile sırala").padding().frame(width:260) }
                     .font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1).padding(8)
             }.frame(minHeight: 250)
@@ -178,6 +190,12 @@ struct WorkspaceView: View {
                     Spacer()
                 }
             }.padding(10)
+            if model.requiresBacklessConfirmation {
+                VStack(alignment:.leading,spacing:8) {
+                    Text("Bu iş tek yüze çevrildi: arka yüz baskıya girmeyecek.")
+                    HStack {Button("Geri al") {model.undoEdit()}.disabled(!model.canUndo);Button("Çift yüz yap") {model.makePageListDuplex()}}
+                }.font(.system(size:13)).padding(12).frame(maxWidth:.infinity,alignment:.leading).background(DesignSystem.warningSurface)
+            }
             if model.showsAllSides, !model.displaySheets.isEmpty {
                 AllSheetsPreview(model:model)
             } else if let sheet = model.currentSheet,model.side == .back,!sheet.hasContent(on: .back),sheet.diagnosticBounds == nil {
@@ -230,6 +248,7 @@ struct WorkspaceView: View {
                         Button(TRFormat.presentation(first.message)) { model.revealWorkflowIssue(first) }.buttonStyle(.plain).font(.system(size:12)).lineLimit(2).accessibilityLabel("Ayarı göster: "+TRFormat.presentation(first.message))
                     }
                 }
+                if model.requiresBacklessConfirmation {Text("Arka yüz yok").foregroundStyle(DesignSystem.warning)}
                 Text(!model.project.hasPanelItems ? "" : model.cropMarkStatus).font(.system(size:12)).foregroundStyle(DesignSystem.muted)
                 if let summary = model.currentSheet?.productionSummary { Text(summary).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1) }
                 Spacer(minLength:0)

@@ -32,9 +32,32 @@ onay istenir. Kaynak PDF korunur; kopyalar aynı kaynak sayfaya referans verir.
 Boş satırlar komşu sayfanın ölçüsünü alır ve kitap forma hesabına katılır.
 Kitapta sayfa sayısı ve eklenecek boşlar listede gösterilir.
 
-Liste kimlikleri, sırası, baskı seçimi ve boşlar .atispress şema 20 ile saklanır.
-Şema 1–19 projeleri açılır. Her işlem tek undo adımıdır. Önizleme ve çıktı ortak
+Liste kimlikleri, sırası, baskı seçimi, boşlar, kaynaklar ve Ön/Arka çiftleri
+.atispress şema 21 ile saklanır. Şema 1–20 projeleri açılır. Her işlem tek undo adımıdır. Önizleme ve çıktı ortak
 planın aynı kaynak sayfa referanslarını kullanır.
+
+### Başka PDF’lerden sayfa ekleme
+
+**PDF ekle…**, satır menüsündeki **Buraya PDF ekle…** veya listeye PDF bırakma
+seçim penceresini açar. Küçük görseller, Tümü/Hiçbiri ve `1-4, 7` aralığıyla
+sayfaları seçin. Birden fazla PDF’nin sırasını oklarla değiştirin. Üstüne,
+altına, başa veya sona ekleme çizgisi konumu gösterir. Son olarak Ekle’ye basın.
+
+Çift yüzlü işte çiftler korunur. Tek sayıda yeni sayfa için boş arkalı önler,
+Ön/Arka eşleme veya tek yüzlü ürünler seçilir. Mevcut çiftin ortasına ekleme
+çift sınırına kaydırılır. Satırın **Yüz** menüsü ve İş panelindeki **Sayfa düzeni**
+yüz tercihini değiştirir. Arka yüzler baskıdan çıkarsa önizleme, durum ve çıktı
+penceresi uyarır; bu durumda çıktı açık onay ister.
+
+**Kaynaklar** dosya yollarını ve sayfa sayılarını gösterir. Değiştir… kaynağı
+yeniden bağlar; Kaldır sayfalarıyla kaldırma veya başka PDF’ye bağlama seçimi
+sorar. Eksik kaynak açılışta yeniden bağlanır. Şifreli PDF’nin parolası her
+oturumda istenir ve projeye yazılmaz. Kopyalar aynı kaynağı paylaşır.
+
+Farklı ebattaki sayfalar karışık işe dönüştürülebilir veya mevcut **Ebadı değiştir**
+penceresinde ölçeklenebilir. Kitap işinde ölçekleme gerekir. Ölçekleme penceresini
+iptal etmek eklemeyi geri alır. Kaynak sayfalar vektör olarak birleştirilir;
+önizleme ve çıktı aynı ortak sayfa referanslarını kullanır.
 
 ## Ayarlara erişim
 
@@ -63,7 +86,7 @@ kapsamı ve elle kontrol listesi [docs/STATUS.md](docs/STATUS.md) içindedir.
 Güncel uygulama sürümü **0.4.0 (build 6)**. Sürüm kaynağı
 `packaging/Info.plist`; Hakkında, tanı bilgisi ve güncelleme karşılaştırması
 aynı paket sürümünü kullanır. `swift run` için de 0.4.0 / 6 yedeği bulunur.
-Proje dosyası şeması bağımsızdır ve **20**’dir; eski projeler açılır.
+Proje dosyası şeması bağımsızdır ve **21**’dir; eski projeler açılır.
 
 **macOS 14 veya üzeri** gerekir. Intel ve Apple Silicon Mac’ler aynı universal
 uygulamayı kullanır.
@@ -321,7 +344,8 @@ bundle containing the exact same executable, launched through the desktop tools.
 On a normal Mac terminal, use the `swift run` command above.
 
 Open with **Dosya → Aç… / ⌘O**, the toolbar, or drop a PDF anywhere in the workspace.
-A new PDF replaces the previous source. Checkboxes control inclusion; select rows
+Opening a new PDF replaces the previous source. Dropping PDFs on the Sayfalar list
+opens the add-pages sheet instead. Checkboxes control inclusion; select rows
 with ⌘/⇧ and move with ↑/↓ toolbar buttons or native List drag reordering. Source
 numbers retain their original PDF identity after a move. Select a sheet in the
 lower sidebar to jump to it; **Ön / Arka** selects its face. Pinch to zoom, scroll

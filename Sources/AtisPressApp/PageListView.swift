@@ -71,6 +71,12 @@ struct PageActionsMenu:View {
         Button("Kaç kopya?…") {model.requestPageDuplicate(row,chooseCount:true)}
         Button("Sil") {model.requestPageDelete(row)}.help("Listeden sil · Kaynak PDF korunur")
         Divider()
+        Button("Buraya PDF ekle…") {model.choosePagePDFs(at:row)}
+        Menu("Yüz") {
+            Button("Ön") {model.setPageSide(row,.front)}
+            Button("Arka") {model.setPageSide(row,.back)}
+            Button("Tek yüz") {model.setPageSide(row,.single)}
+        }
         Button("Üstüne boş sayfa ekle") {model.insertBlankPages(selection,above:true)}
         Button("Altına boş sayfa ekle") {model.insertBlankPages(selection)}
         Divider()
@@ -93,7 +99,8 @@ struct PageListRow:View {
                 VStack(alignment:.leading,spacing:4) {
                     Text(model.pageListTitle(id)).font(.system(size:13,weight:.medium)).fixedSize(horizontal:false,vertical:true)
                     Text(TRFormat.size(item.size.width,item.size.height)).font(.system(size:12))
-                    Text(WorkflowPresentation.pageRole(id,project:model.project)).font(.system(size:12)).foregroundStyle(DesignSystem.muted)
+                    Text(model.pageSideTitle(id)).font(.system(size:12)).foregroundStyle(DesignSystem.muted)
+                    if !model.pageSourceName(id).isEmpty {Text(model.pageSourceName(id)).font(.system(size:12)).lineLimit(1).truncationMode(.middle)}
                     Toggle("Baskıya dahil",isOn:Binding(get:{model.included.contains(id)},set:{model.setIncluded(id,$0)}))
                         .toggleStyle(.checkbox).font(.system(size:12)).help("Geçici olarak baskıya dahil et veya çıkar")
                 }.frame(maxWidth:.infinity,alignment:.leading)

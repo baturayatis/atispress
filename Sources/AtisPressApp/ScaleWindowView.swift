@@ -6,6 +6,7 @@ struct ScaleWindowRequest:Identifiable {
     let id = UUID()
     var row:Int
     var suggested:RescaleSettings?
+    var importedPages:[Int]? = nil
 }
 enum ScalingPresentation {
     static func size(_ size:Size) -> String { TRFormat.size(size.width,size.height) }
@@ -89,7 +90,11 @@ extension Workspace {
         return context.makeImage().map { NSImage(cgImage:$0,size:NSSize(width:w,height:h)) }
     }
     func applyScaleWindow(_ settings:RescaleSettings?,all:Bool,row:Int) {
-        guard settings?.isValid != false else { return }
+        guard settings?.isValid != false else {return}
+        if let pages=importScalePages {
+            setScale(settings,pages:pages,gangID:nil)
+            finishPDFImportScaling(accepted:true);scaleWindow=nil;return
+        }
         if all {
             updateScaling { value in value.enabled = settings != nil; if let settings { value.defaults = settings }; value.overrides = [] }
         } else if scalingRows.indices.contains(row) {
@@ -117,7 +122,8 @@ extension Workspace {
     }
     func scalingSourceDPI(pages:[Int]) -> Double? {
         // Preflight reports measured low effective DPI. Never invent a 300 dpi source.
-        let text = (source?.preflight ?? []).filter { $0.code == "dpi" && pages.contains($0.page) }.map(\.explanation).joined(separator:" ")
+        let physicalPages=Set(pages.compactMap { project.artworkPageNumber($0) })
+        let text = (source?.preflight ?? []).filter { $0.code == "dpi" && physicalPages.contains($0.page) }.map(\.explanation).joined(separator:" ")
         guard let regex = try? NSRegularExpression(pattern:"yaklaşık ([0-9]+) dpi") else { return nil }
         let ns = text as NSString
         return regex.matches(in:text,range:NSRange(location:0,length:ns.length)).compactMap { Double(ns.substring(with:$0.range(at:1))) }.min()
@@ -157,12 +163,13 @@ struct ScaleWindowView:View {
         let rows = model.scalingRows
         let index = rows.indices.contains(request.row) ? request.row : 0
         _row = State(initialValue:index)
+        _all = State(initialValue:request.importedPages==nil)
         _settings = State(initialValue:request.suggested ?? (rows.indices.contains(index) ? rows[index].settings ?? RescaleSettings(target:rows[index].size) : RescaleSettings()))
     }
-    var showsJobScope:Bool { model.scalingRows.count>1 }
-    private var source:Size { model.scalingRows.indices.contains(row) ? model.scalingRows[row].size : Size(90,50) }
+    var showsJobScope:Bool { request.importedPages==nil && model.scalingRows.count>1 }
+    private var source:Size { if let id=request.importedPages?.first,let item=model.pageListItem(id) {return item.size};return model.scalingRows.indices.contains(row) ? model.scalingRows[row].size : Size(90,50) }
     var currentSize:Size { model.scalingRows.indices.contains(row) ? model.scalingRows[row].settings?.target ?? source : source }
-    private var pages:[Int] { model.scalingRows.indices.contains(row) ? model.scalingRows[row].pages : [] }
+    private var pages:[Int] { if let pages=request.importedPages {return pages};return model.scalingRows.indices.contains(row) ? model.scalingRows[row].pages : [] }
     var body:some View {
         VStack(alignment:.leading,spacing:14) {
             Text("Ebadı değiştir").font(.title2.bold())
@@ -193,8 +200,8 @@ struct ScaleWindowView:View {
                     Picker("İş",selection:$row) { ForEach(model.scalingRows) { r in Text(r.title).tag(r.id) } }
                     Button("Genel ayarı kullan") { model.useGeneralScale(row:row) }
                 }
-            } else { Text("Tüm işler").font(.callout) }
-            if model.project.isBooklet { Text("Tüm sayfalar ölçeklenir, sayfa sayısı değişmez").font(.system(size:12)) }
+            } else { Text(request.importedPages == nil ? "Tüm işler":"Yalnız eklenen sayfalar").font(.callout) }
+            if model.project.isBooklet { Text(request.importedPages == nil ? "Tüm sayfalar ölçeklenir, sayfa sayısı değişmez":"Seçili yeni sayfalar ölçeklenir, sayfa sayısı değişmez").font(.system(size:12)) }
             ScaleMiniature(source:source,settings:settings,image:image,afterImage:afterImage).frame(height:95)
             ForEach(ScalingPresentation.warnings(source:source,settings:settings,sourceDPI:model.scalingSourceDPI(pages:pages)),id:\.self) { Text($0).font(.system(size:12)).foregroundStyle(DesignSystem.warning) }
             HStack {
@@ -204,7 +211,7 @@ struct ScaleWindowView:View {
                 Button("Uygula") { model.applyScaleWindow(settings,all:all,row:row) }.buttonStyle(.borderedProminent).disabled(!settings.isValid).keyboardShortcut(.defaultAction)
             }
         }.padding(20).frame(width:620).background(DesignSystem.workspace).tint(DesignSystem.teal)
-        .task(id:pages) { image = nil; if let number = pages.first { image = await model.source?.image(page:number,pixels:512) } }
+        .task(id:pages) { image = nil; if let id = pages.first,let number=model.project.artworkPageNumber(id) { image = await model.source?.image(page:number,pixels:512) } }
         .task(id: "\(pages)-\(settings)") { afterImage = model.scaledMiniature(pages:pages,sourceSize:source,settings:settings) }
         .onChange(of:row) { _,index in if model.scalingRows.indices.contains(index) { settings = model.scalingRows[index].settings ?? RescaleSettings(target:model.scalingRows[index].size) } }
     }

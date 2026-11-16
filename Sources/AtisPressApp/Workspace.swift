@@ -100,6 +100,13 @@ final class Workspace: ObservableObject {
     @Published var included = Set<Int>() { didSet { refreshModified() } }
     @Published var selectedPages = Set<Int>()
     @Published var pageDuplicateRequest:PageDuplicateRequest?
+    @Published var pdfInsertion:PDFInsertionDraft?
+    @Published var pdfInsertionIndex:Int?
+    var pendingPDFScaleRequest:ScaleWindowRequest?
+    func showPendingPDFScaleWindow() {if let request=pendingPDFScaleRequest {pendingPDFScaleRequest=nil;scaleWindow=request}}
+    var importScalePages:[Int]?
+    private var pdfImportSnapshot:EditSnapshot?
+    var allowBacklessExportOnce=false
     @Published var sheetIndex = 0 { didSet {
         if oldValue != sheetIndex { repetition = 0 }
         warmGeneratedBleed()
@@ -242,6 +249,12 @@ final class Workspace: ObservableObject {
         return view
     }
     func chooseExport(perSheet: Bool) {
+        if requiresBacklessConfirmation && !allowBacklessExportOnce {
+            let alert=NSAlert();alert.messageText="Arka yüz yok";alert.informativeText="Arka yüz baskıya girmeyecek. Bu şekilde dışa aktarılsın mı?"
+            alert.addButton(withTitle:"Onayla ve dışa aktar");alert.addButton(withTitle:"Vazgeç")
+            guard alert.runModal() == .alertFirstButtonReturn else {return}
+        }
+        allowBacklessExportOnce=false
         guard canExportNow, let source else { return }
         if let exportPanel { exportPanel.makeKeyAndOrderFront(nil); return }
         if perSheet {
@@ -332,7 +345,33 @@ final class Workspace: ObservableObject {
         if mode == .gang {
             if next.gang == nil {
                 next.gang = GangSettings()
-                if let source {
+                if next.pageItems != nil,let source {
+                    if gangAssets.isEmpty,let reference=sourceReference {
+                        let id=project.sourcePreparation?.sourceID ?? state.projectID ?? UUID()
+                        gangAssets=[GangAsset(saved:GangSourceReference(id:id,reference:reference,pageCount:source.pages.count),source:source)]
+                        sourceReference=nil
+                    }
+                    if let fallback=gangAssets.first?.saved.id {
+                        let jobs=next.repeatJobs.enumerated().map {index,pair -> GangJob in
+                            let sourceID=next.pageItems?.first{$0.id==pair.front.number}?.sourceID ?? fallback
+                            var job=GangJob(sourceID:sourceID,name:pageListTitle(pair.front.number),front:pair.front,back:pair.back)
+                            job.quantity=project.stepAndRepeat.quantity ?? 1000;job.waste=project.stepAndRepeat.waste ?? WasteSettings()
+                            job.bleed=project.settings.bleed;job.generatedBleed=project.settings.generatedBleed
+                            job.serialFields=project.serialFields.filter{$0.jobIndex==index}.map{var field=$0;field.id=UUID();field.jobIndex=0;return field}
+                            return job
+                        }
+                        next.gang?.jobs=jobs
+                        var original=project;original.migrateScaling();next.scaling=original.scaling;next.rescaleJobs=nil
+                        next.scaling?.overrides=(original.scaling?.overrides ?? []).flatMap {value -> [ScalingOverride] in
+                            jobs.enumerated().compactMap {index,job in
+                                guard value.jobIndex==nil || value.jobIndex==index else {return nil}
+                                var value=value;value.pages=value.pages.filter{$0==job.front.number || $0==job.back?.number}
+                                value.jobIndex=nil;value.gangID=job.id
+                                return value.pages.isEmpty ? nil:value
+                            }
+                        }
+                    }
+                } else if let source {
                     let id = project.sourcePreparation?.sourceID ?? UUID()
                     if let reference = sourceReference {
                         gangAssets = [GangAsset(saved: GangSourceReference(id: id,reference: reference,pageCount: source.pages.count),source: source)]
@@ -387,12 +426,12 @@ final class Workspace: ObservableObject {
         loading = true; error = nil
         importTask = Task {
             do {
-                let source = try await PDFSource.open(url)
+                let source = try await openPagePDF(url)
                 guard !Task.isCancelled, importRevision == token else { return }
                 var baseline = project
                 var prepared: AutoLayoutResult
                 while true {
-                    var snapshot = baseline; if baseline.sourcePreparation?.split != nil || baseline.sourcePreparation?.hiddenGuideGroups.isEmpty == false { snapshot.binding = .stepAndRepeat }; snapshot.pages = source.pages.map(\.sourcePage); snapshot.pageItems=nil; snapshot.pageItemNextID=nil; snapshot.sourcePreparation = nil; snapshot.gang = nil; snapshot.book?.coverSourceID = nil; snapshot.book?.coverPDFPages = []; snapshot.book?.auxiliaryPages = []; snapshot.book?.selection = CoverSelection()
+                    var snapshot = baseline; if baseline.sourcePreparation?.split != nil || baseline.sourcePreparation?.hiddenGuideGroups.isEmpty == false { snapshot.binding = .stepAndRepeat }; snapshot.pages = source.pages.map(\.sourcePage); snapshot.pageItems=nil; snapshot.pageItemNextID=nil; snapshot.previouslyHadBacks=nil; snapshot.sourcePreparation = nil; snapshot.gang = nil; snapshot.book?.coverSourceID = nil; snapshot.book?.coverPDFPages = []; snapshot.book?.auxiliaryPages = []; snapshot.book?.selection = CoverSelection()
                     if snapshot.autoLayout == nil { snapshot.autoLayout = .legacy }
                     prepared = await Task.detached(priority: .userInitiated) { SmartAutoLayout.arrange(snapshot) }.value
                     guard !Task.isCancelled,importRevision == token else { return }
@@ -408,7 +447,7 @@ final class Workspace: ObservableObject {
                 planTask?.cancel(); revision = UUID()
                 clearRecovery(); projectIdentifier = UUID()
                 projectURL = nil; projectAccess = nil
-                sourceReference = try? ProjectSource.capture(source.preparationInput.url,createBookmark: bookmarkCreator)
+                sourceReference = try? ProjectSource.capture(source.preparationInput.originalURL,createBookmark: bookmarkCreator)
                 self.source = source
                 gangAssets = []
                 order = source.pages.map(\.number); included = Set(order); selectedPages = []
@@ -417,7 +456,7 @@ final class Workspace: ObservableObject {
                 zoomFactor = 0; zoomAction += 1
                 loading = false
                 resetJournal(); queueAutosave()
-                recordRecentFile(source.url)
+                recordRecentFile(source.originalURL)
                 offerRescaling()
                 refreshModified()
             } catch {
@@ -431,17 +470,65 @@ final class Workspace: ObservableObject {
         updateSelection()
     }
     func includeAll(_ value: Bool) {
+        if project.binding == .stepAndRepeat,project.pageItems==nil {
+            var next=project;next.pageItems=pageListItems
+            commitPageList(next,order:order,included:value ? Set(order):[],selection:selectedPages);return
+        }
         included = value ? Set(order) : []; updateSelection()
+    }
+    func clearPageSources() {
+        beginUndoGroup()
+        var next=project;next.pages=[];next.pageItems=[];next.gang=nil;next.sourcePreparation=nil
+        next.book?.selection=CoverSelection();next.retargetPageListSettings(from:project,copies:[])
+        next.book?.coverSourceID=nil;next.book?.coverPDFPages=[];next.book?.auxiliaryPages=[]
+        gangAssets=[];source=nil;sourceReference=nil;order=[];included=[];selectedPages=[]
+        project=next;endUndoGroup()
+    }
+    func capturePageSource(_ url:URL) throws -> ProjectSource {try ProjectSource.capture(url,createBookmark:bookmarkCreator)}
+    func beginPDFImportScaling() {pdfImportSnapshot=editSnapshot;beginUndoGroup()}
+    func finishPDFImportScaling(accepted:Bool) {
+        guard let snapshot=pdfImportSnapshot else {return}
+        if !accepted {restoreEdit(snapshot)}
+        importScalePages=nil;pendingPDFScaleRequest=nil;pdfImportSnapshot=nil;endUndoGroup()
+    }
+    func commitPagePDFInsertion(_ value:Project,assets:[GangAsset],combined:PDFSource,order:[Int],included:Set<Int>,selection:Set<Int>) {
+        beginUndoGroup()
+        gangAssets=assets;source=combined;sourceReference=nil
+        commitPageList(value,order:order,included:included,selection:selection)
+        endUndoGroup()
     }
     func commitPageList(_ value:Project,order nextOrder:[Int],included nextIncluded:Set<Int>,selection:Set<Int>,copies:[[Int:Int]] = []) {
         beginUndoGroup()
         var next=value
+        if hasActualPageBacks || project.previouslyHadBacks == true {next.previouslyHadBacks=true}
+        if next.pageItems==nil,project.binding == .stepAndRepeat {next.pageItems=pageListItems}
+        if var items=next.pageItems,project.binding == .stepAndRepeat {
+            var newOrder=nextOrder,newIncluded=nextIncluded
+            let maximum=max(items.map(\.id).max() ?? 0,source?.pages.count ?? 0)
+            guard maximum<Int.max else {error="Sayfa kimliği sınırına ulaşıldı.";endUndoGroup();return}
+            var id=max(next.pageItemNextID ?? 1,maximum+1)
+            let frontPairs=Set(items.filter{$0.side == .front}.compactMap(\.pairID))
+            for item in items where item.side == .back {
+                guard let pair=item.pairID,!frontPairs.contains(pair) else {continue}
+                guard id<Int.max else {endUndoGroup();return}
+                var blank=PageListItem(id:id,sourcePage:nil,size:item.size);id+=1;blank.side = .front;blank.pairID=pair
+                items.append(blank);newOrder.insert(blank.id,at:newOrder.firstIndex(of:item.id) ?? 0)
+                if nextIncluded.contains(item.id) {newIncluded.insert(blank.id)}
+            }
+            next.pageItems=items;next.pageItemNextID=id
+            next.pages=next.selectedPageList(order:newOrder,included:newIncluded)
+            next.retargetPageListSettings(from:project,copies:copies)
+            self.order=newOrder;self.included=newIncluded;selectedPages=selection
+            if project.previouslyHadBacks == true || hasActualPageBacks {next.previouslyHadBacks=true}
+            project=next;endUndoGroup();return
+        }
         if let items=next.pageItems {
             let map=Dictionary(uniqueKeysWithValues:items.map{($0.id,$0)})
             next.pages=nextOrder.filter{nextIncluded.contains($0)}.compactMap{map[$0]?.planningPage}
         } else if let source {next.pages=nextOrder.filter{nextIncluded.contains($0)}.map{source.pages[$0-1].sourcePage}}
         next.retargetPageListSettings(from:project,copies:copies)
         order=nextOrder;included=nextIncluded;selectedPages=selection
+        if project.resolvedPageLayout == .duplex || project.repeatJobs.contains(where:{$0.back != nil}) {next.previouslyHadBacks=true}
         project=next;endUndoGroup()
     }
     func updateSelection() {
@@ -453,7 +540,8 @@ final class Workspace: ObservableObject {
     }
     func move(_ offsets: IndexSet, to destination: Int) {
         var next=order;next.move(fromOffsets:offsets,toOffset:destination)
-        commitPageList(project,order:next,included:included,selection:selectedPages)
+        var value=project;if value.pageItems==nil {value.pageItems=pageListItems}
+        commitPageList(value,order:next,included:included,selection:selectedPages)
     }
     func moveSelected(up: Bool) {
         guard !selectedPages.isEmpty else { return }
@@ -467,7 +555,8 @@ final class Workspace: ObservableObject {
                 nextOrder.swapAt(index,index+1)
             }
         }
-        commitPageList(project,order:nextOrder,included:included,selection:selectedPages)
+        var value=project;if value.pageItems==nil {value.pageItems=pageListItems}
+        commitPageList(value,order:nextOrder,included:included,selection:selectedPages)
     }
     func schedulePlan() {
         planTask?.cancel()
@@ -521,7 +610,7 @@ extension Workspace {
     var state: ProjectState {
         ProjectState(projectID:projectIdentifier,project: project,source: sourceReference,order: order,included: included,
                      overlays: overlays,sheetPreset: sheetPreset,sheetIndex: sheetIndex,side: side,
-                     bookletGutter: bookletGutter,repetition: repetition,gangSources: gangAssets.isEmpty || project.book?.coverSourceID != nil ? nil : gangAssets.map(\.saved),repeatGutter: repeatGutter,gangGutter: project.binding == .gang ? project.sheet.gutter : gangGutter,linkedSources: project.book?.coverSourceID == nil ? nil : gangAssets.map(\.saved),sourcePageCount:project.pageItems == nil ? nil : source?.pages.count)
+                     bookletGutter: bookletGutter,repetition: repetition,gangSources: gangAssets.isEmpty || project.book?.coverSourceID != nil ? nil : gangAssets.map(\.saved),repeatGutter: repeatGutter,gangGutter: project.binding == .gang ? project.sheet.gutter : gangGutter,linkedSources: project.book?.coverSourceID == nil ? nil : gangAssets.map(\.saved),sourcePageCount:project.pageItems == nil ? nil : (source?.pages.count ?? 0))
     }
     private func refreshModified() {
         guard !restoring else { return }
@@ -559,7 +648,7 @@ extension Workspace {
         flushUndoEdits()
         let access = ProjectFileAccess(url)
         var snapshot = state
-        if let source,gangAssets.isEmpty { snapshot.source = try ProjectSource.capture(source.preparationInput.url,createBookmark: bookmarkCreator) }
+        if let source,gangAssets.isEmpty { snapshot.source = try ProjectSource.capture(source.preparationInput.originalURL,createBookmark: bookmarkCreator) }
         try snapshot.validateSelection(pageCount: source?.pages.count ?? 0)
         try ProjectDocument(state: snapshot).encoded().write(to: url,options: .atomic)
         sourceReference = snapshot.source; projectURL = url; projectAccess = access
@@ -616,7 +705,7 @@ extension Workspace {
         return panel.runModal() == .OK ? panel.url : nil
     }
     /// Loads into temporary values first: failure/cancel never replaces the active project.
-    func loadProject(at url: URL,relink: ((ProjectSource) -> URL?)? = nil,recovery: RecoveryRecord? = nil) async throws {
+    func loadProject(at url: URL,relink: ((ProjectSource) -> URL?)? = nil,recovery: RecoveryRecord? = nil,password:((URL)->String?)? = nil) async throws {
         let represented = recovery?.originalProjectPath.map { URL(fileURLWithPath:$0) }
         let access = ProjectFileAccess(represented ?? url)
         let file = try recovery?.document ?? ProjectDocument.decode(Data(contentsOf: url))
@@ -633,7 +722,7 @@ extension Workspace {
                     guard let replacement = relink(saved.reference) else { throw CancellationError() }
                     sourceURL = replacement; relinked = true
                 }
-                var loaded = try await PDFSource.open(sourceURL!)
+                var loaded = try await openPagePDF(sourceURL!,password:password)
                 guard loaded.pages.count == saved.pageCount else { throw ProjectFileError.sourceMismatch }
                 if let preparation=snapshot.project.sourcePreparation,preparation.sourceID==saved.id { loaded = try await loaded.prepared(preparation) }
                 let reference = try ProjectSource.capture(sourceURL!,createBookmark: bookmarkCreator)
@@ -641,6 +730,12 @@ extension Workspace {
             }
             loadedSource = try await PDFSource.combine(assets.map(\.source),displayName:snapshot.project.book?.coverSourceID == nil ? nil : "Kitap ve kapak")
             try snapshot.validateSelection(pageCount: loadedSource!.pages.count)
+            for item in snapshot.project.pageItems ?? [] {
+                guard let id=item.sourceID else {continue}
+                guard let index=assets.firstIndex(where:{$0.saved.id==id}),let local=item.localPage,
+                      local>0,local<=assets[index].source.pages.count,
+                      item.sourcePage==assets.prefix(index).reduce(0,{$0+$1.source.pages.count})+local else {throw ProjectFileError.sourceMismatch}
+            }
             guard snapshot.matchesPageMetadata(loadedSource!) else { throw ProjectFileError.sourceMismatch }
             for job in snapshot.project.gang?.jobs ?? [] {
                 guard let assetIndex = assets.firstIndex(where: { $0.saved.id==job.sourceID }) else { throw ProjectFileError.sourceMismatch }
@@ -649,7 +744,9 @@ extension Workspace {
                     if let item=snapshot.project.pageItems?.first(where:{$0.id==page.number}) {
                         guard item.planningPage==page else {throw ProjectFileError.sourceMismatch}
                         if let number=item.sourcePage {
-                            guard number>start,number<=start+assets[assetIndex].source.pages.count else {throw ProjectFileError.sourceMismatch}
+                            let owner=item.sourceID.flatMap{id in assets.firstIndex{$0.saved.id==id}} ?? assetIndex
+                            let base=assets.prefix(owner).reduce(0){$0+$1.source.pages.count}
+                            guard number>base,number<=base+assets[owner].source.pages.count else {throw ProjectFileError.sourceMismatch}
                         }
                     } else {
                         guard page.number>start,page.number<=start+assets[assetIndex].source.pages.count,loadedSource!.pages[page.number-1].sourcePage==page else { throw ProjectFileError.sourceMismatch }
@@ -671,9 +768,15 @@ extension Workspace {
                 guard let replacement = relink(reference) else { throw CancellationError() }
                 sourceURL = replacement; relinked = true
             }
-            loadedSource = try await PDFSource.open(sourceURL!)
+            loadedSource = try await openPagePDF(sourceURL!,password:password)
             if let preparation=snapshot.project.sourcePreparation { loadedSource = try await loadedSource!.prepared(preparation) }
             try snapshot.validateSelection(pageCount: loadedSource!.pages.count)
+            for item in snapshot.project.pageItems ?? [] {
+                guard let id=item.sourceID else {continue}
+                guard let index=assets.firstIndex(where:{$0.saved.id==id}),let local=item.localPage,
+                      local>0,local<=assets[index].source.pages.count,
+                      item.sourcePage==assets.prefix(index).reduce(0,{$0+$1.source.pages.count})+local else {throw ProjectFileError.sourceMismatch}
+            }
             guard snapshot.matchesPageMetadata(loadedSource!) else { throw ProjectFileError.sourceMismatch }
             snapshot.source = try ProjectSource.capture(sourceURL!,createBookmark: bookmarkCreator)
         } else { try snapshot.validateSelection(pageCount: 0) }
@@ -917,19 +1020,32 @@ extension Workspace {
     var pageLayoutMode: PageLayout { project.stepAndRepeat.pageLayout?.mode ?? .duplex }
     var pageLayoutSummary: String {
         let mode = project.resolvedPageLayout == .duplex ? "Çift yüz (1–2 ön/arka, 3–4…)" : "Tek yüz (her sayfa ayrı iş)"
+        if project.pageItems?.contains(where:{$0.side != nil}) == true {
+            let jobs=project.repeatJobs,duplex=jobs.filter{$0.back != nil}.count
+            return "\(duplex) çift yüz · \(jobs.count-duplex) tek yüz · Yüzler sayfa satırlarında gösterilir."
+        }
         return mode + (pageLayoutMode == .automatic ? " · Otomatik" : " · Manuel")
     }
     func setPageLayout(_ mode: PageLayout) {
+        if project.pageItems != nil {assignPageSides(mode);return}
+        let had=hasActualPageBacks
         var next = project
         var settings = next.stepAndRepeat.pageLayout ?? PageLayoutSettings()
         settings.mode = mode; next.stepAndRepeat.pageLayout = settings
+        if had {next.previouslyHadBacks=true}
         applyPageLayout(next)
     }
     func jobPageLayout(frontPage: Int) -> PageLayout {
-        project.stepAndRepeat.pageLayout?.overrides.last(where: { $0.frontPage == frontPage })?.layout ?? .automatic
+        if let item=project.pageItems?.first(where:{$0.id==frontPage}) {return item.side == .single ? .simplex:.duplex}
+        return project.stepAndRepeat.pageLayout?.overrides.last(where: { $0.frontPage == frontPage })?.layout ?? .automatic
     }
     func setJobPageLayout(frontPage: Int,mode: PageLayout) {
+        if project.pageItems != nil {
+            let duplex=mode == .duplex || (mode == .automatic && project.resolvedPageLayout == .duplex)
+            setPageSide(frontPage,duplex ? .front:.single);return
+        }
         var next = project
+        if hasActualPageBacks {next.previouslyHadBacks=true}
         var settings = next.stepAndRepeat.pageLayout ?? PageLayoutSettings()
         if next.stepAndRepeat.pageLayout == nil { settings.mode = .duplex }
         settings.overrides.removeAll { $0.frontPage == frontPage }
@@ -1162,7 +1278,7 @@ extension Workspace {
         loading = true; error = nil
         importTask = Task {
             do {
-                let cover = try await PDFSource.open(url)
+                let cover = try await openPagePDF(url)
                 var assets = gangAssets
                 if assets.isEmpty {
                     let reference = try ProjectSource.capture(current.url,createBookmark:bookmarkCreator)
@@ -1535,7 +1651,7 @@ extension Workspace {
     }
     var statusSummary:String {
         guard project.hasPanelItems else {return source==nil ? "PDF seçin":"Baskıya dahil sayfa yok"}
-        let scaleSuffix = scalingStatus.isEmpty ? "" : " · "+scalingStatus
+        let scaleSuffix = (scalingStatus.isEmpty ? "" : " · "+scalingStatus)+(requiresBacklessConfirmation ? " · Arka yüz yok":"")
         let copies = currentSheet?.repeatLayout?.copiesPerSheet ?? currentSheet?.front.slots.filter { $0.sourcePageNumber != nil }.count ?? 0
         if project.isBooklet || project.isLeafBinding {
             let label = project.isLeafBinding ? "yaprak/tabaka" : "sayfa/yüz"
@@ -1744,7 +1860,7 @@ extension Workspace {
         preparingSource=true;defer {preparingSource=false}
         let prepared=try await original.prepared(settings)
         try Task.checkCancellation()
-        let reference=try ProjectSource.capture(original.url,createBookmark:bookmarkCreator)
+        let reference=try ProjectSource.capture(original.originalURL,createBookmark:bookmarkCreator)
         var next=project;next.sourcePreparation=settings
         var assets=gangAssets
         let changesGrid=settings.split != nil && settings.split != project.sourcePreparation?.split

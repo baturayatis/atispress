@@ -197,6 +197,7 @@ public struct Project: Equatable, Sendable, Codable {
     var bookCoverTemplate = false
     public var leafBinding: LeafBindingSettings? = nil
     public var alignment: BlockAlignment? = nil
+    public var previouslyHadBacks:Bool? = nil
     public var pageItems:[PageListItem]? = nil
     /// Monotonic occurrence allocation survives deletion and project reopening.
     public var pageItemNextID:Int? = nil
@@ -223,10 +224,11 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case pageItemNextID, pageItems, sourcePreparation, scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case previouslyHadBacks, pageItemNextID, pageItems, sourcePreparation, scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        previouslyHadBacks = try c.decodeIfPresent(Bool.self,forKey:.previouslyHadBacks)
         pageItemNextID = try c.decodeIfPresent(Int.self,forKey:.pageItemNextID)
         pageItems = try c.decodeIfPresent([PageListItem].self,forKey:.pageItems)
         sourcePreparation = try c.decodeIfPresent(SourcePreparationSettings.self,forKey:.sourcePreparation)
@@ -276,6 +278,8 @@ public struct Slot: Equatable, Sendable {
     public var bookRegion: String? = nil
     public var gangJobID: UUID? = nil
     public var gangBlockID: UUID? = nil
+    public var sourceID:UUID? = nil
+    public var localSourcePage:Int? = nil
     public var insertedBlank = false
     public var sourcePageNumber: Int?
     public var origin: Point

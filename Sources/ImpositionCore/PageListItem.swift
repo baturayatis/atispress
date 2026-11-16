@@ -1,7 +1,14 @@
 import Foundation
 
 /// A project occurrence. Its artwork remains a reference into the source PDF.
+public enum PageItemSide:String,Codable,Sendable {case front,back,single}
+
 public struct PageListItem:Codable,Equatable,Sendable,Identifiable {
+    public var sourceID:UUID? = nil
+    public var localPage:Int? = nil
+    public var previousSide:PageItemSide? = nil
+    public var side:PageItemSide? = nil
+    public var pairID:UUID? = nil
     public var id:Int
     public var sourcePage:Int?
     public var size:Size
@@ -23,13 +30,23 @@ extension ImpositionPlanner {
             return ImpositionPlan(issues:[ValidationIssue(.error,.invalidInput,"Sayfa listesi geçersiz.")])
         }
         var input=project;input.pageItems=nil
+        let selected=Set(project.pages.map(\.number))
+        if project.binding == .stepAndRepeat,items.contains(where:{$0.side != nil}) {
+            let jobs=project.repeatJobs
+            input.pages=jobs.flatMap{[$0.front]+[$0.back].compactMap{$0}}
+            var layout=PageLayoutSettings();layout.mode = .simplex
+            layout.overrides=jobs.map{PageJobOverride(frontPage:$0.front.number,layout:$0.back==nil ? .simplex:.duplex)}
+            input.stepAndRepeat.pageLayout=layout
+        }
         var result=plan(input)
         func resolve(_ side:Side)->Side {
             var next=side
             for index in next.slots.indices {
                 guard let id=next.slots[index].sourcePageNumber,let item=map[id] else {continue}
-                next.slots[index].sourcePageNumber=item.sourcePage
-                next.slots[index].insertedBlank=item.sourcePage == nil
+                next.slots[index].sourcePageNumber=selected.contains(id) ? item.sourcePage:nil
+                next.slots[index].insertedBlank=item.sourcePage == nil || !selected.contains(id)
+                next.slots[index].sourceID=item.sourceID
+                next.slots[index].localSourcePage=item.localPage
             }
             return next
         }
@@ -38,7 +55,7 @@ extension ImpositionPlanner {
             result.sheets[index].back=resolve(result.sheets[index].back)
         }
         result.readingOrder=result.readingOrder.map {id in
-            guard let id,let item=map[id],item.sourcePage != nil else {return nil}
+            guard let id,selected.contains(id),let item=map[id],item.sourcePage != nil else {return nil}
             return id
         }
         for index in result.diagnosticSheets.indices {

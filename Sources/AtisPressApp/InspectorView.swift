@@ -37,7 +37,7 @@ struct InspectorView: View {
             .background(DesignSystem.card).environmentObject(model).tint(DesignSystem.teal)
             .accessibilityElement(children:.contain).accessibilityLabel(panel.title+" paneli")
             .accessibilityIdentifier("panel."+panel.rawValue)
-            .disabled(model.loading || model.autoArranging)
+            .disabled(model.loading || model.preparingSource || model.autoArranging)
             .onChange(of:panel) {_,_ in group=0}
             .onChange(of:model.project.binding) {_,_ in group=0}
             .onChange(of:model.ui.revealedSection) {_,section in
@@ -126,6 +126,16 @@ struct InspectorView: View {
             Text(model.workflowProductSummary).font(.callout.weight(.medium)).fixedSize(horizontal:false,vertical:true)
             Picker("Ürün tipi",selection:Binding(get:{ model.productKind },set:model.setProductKind)) {
                 ForEach(ProductKind.allCases,id:\.self) { Text($0.rawValue).tag($0) }
+            }
+            if model.project.binding == .stepAndRepeat {
+                if (model.source?.pages.count ?? model.project.pages.count) > 1 {
+                    Picker("Sayfa düzeni",selection: Binding(get: { model.pageLayoutMode },set: model.setPageLayout)) {
+                        Text("Otomatik").tag(PageLayout.automatic)
+                        Text("Çift yüz").tag(PageLayout.duplex)
+                        Text("Tek yüz").tag(PageLayout.simplex)
+                    }.pickerStyle(.segmented).inspectorSetting(model,"Sayfa düzeni",SettingGuidance.detail("Sayfa düzeni"))
+                }
+                Text(model.pageLayoutSummary).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
             }
             HStack(spacing:DesignSystem.Space.sm) {
                 Text("Adet").frame(maxWidth:.infinity,alignment:.leading)
@@ -338,14 +348,6 @@ struct InspectorView: View {
     private var repeatControls: some View {
         GroupBox("Tekrarlı Yerleşim") {
             VStack(alignment: .leading,spacing: 10) {
-                if (model.source?.pages.count ?? model.project.pages.count) > 1 {
-                    Picker("Sayfa düzeni",selection: Binding(get: { model.pageLayoutMode },set: model.setPageLayout)) {
-                        Text("Otomatik").tag(PageLayout.automatic)
-                        Text("Çift yüz").tag(PageLayout.duplex)
-                        Text("Tek yüz").tag(PageLayout.simplex)
-                    }.pickerStyle(.segmented).inspectorSetting(model,"Sayfa düzeni",SettingGuidance.detail("Sayfa düzeni"))
-                }
-                Text(model.pageLayoutSummary).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
                 Picker("Dizilim",selection: Binding(get: { model.repeatArrangement },set: model.setRepeatArrangement)) {
                     Text("Bitişik").tag(RepeatArrangement.adjacent)
                     Text("Aralıklı").tag(RepeatArrangement.spaced)

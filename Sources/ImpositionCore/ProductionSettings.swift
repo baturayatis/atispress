@@ -42,6 +42,7 @@ extension Project {
     public var resolvedPageLayout: PageLayout {
         guard let layout = stepAndRepeat.pageLayout else { return .duplex } // legacy intent
         guard layout.mode == .automatic else { return layout.mode }
+        if let items=pageItems,items.contains(where:{$0.side == .back}) {return .duplex}
         guard pages.count%2 == 0,let size = pages.first?.trimSize,
               pages.allSatisfy({ abs($0.trimSize.width-size.width) < 0.001 && abs($0.trimSize.height-size.height) < 0.001 }) else { return .simplex }
         return .duplex
@@ -49,6 +50,26 @@ extension Project {
     /// Consumes selected pages exactly once. Splitting a duplex job preserves both
     /// pages as separate fronts; a duplex override consumes the next selected page.
     public var repeatJobs: [RepeatJob] {
+        if let items=pageItems,items.contains(where:{$0.side != nil}) {
+            let metadata=Dictionary(items.map{($0.id,$0)},uniquingKeysWith:{$1})
+            let selected=Dictionary(pages.map{($0.number,$0)},uniquingKeysWith:{$1})
+            var fronts:[UUID:PageListItem]=[:],backs:[UUID:PageListItem]=[:]
+            for item in items {if let pair=item.pairID {if item.side == .front {fronts[pair]=item};if item.side == .back {backs[pair]=item}}}
+            var visited=Set<Int>(),jobs:[RepeatJob]=[]
+            for page in pages where !visited.contains(page.number) {
+                guard let item=metadata[page.number] else {continue}
+                if let pair=item.pairID,item.side != .single,
+                   let front=fronts[pair] {
+                    let back=backs[pair]
+                    var f=selected[front.id] ?? front.planningPage
+                    if selected[front.id]==nil {f.trimSize=page.trimSize;f.availableBleed=10000}
+                    visited.insert(front.id)
+                    if let back {visited.insert(back.id)}
+                    jobs.append(RepeatJob(front:f,back:back.flatMap{selected[$0.id]},frontOnly:false))
+                } else {visited.insert(page.number);jobs.append(RepeatJob(front:page,back:nil,frontOnly:true))}
+            }
+            return jobs
+        }
         var output: [RepeatJob] = [],index = 0,splitNext = false
         let global = resolvedPageLayout
         while index < pages.count {

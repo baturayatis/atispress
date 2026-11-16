@@ -20,12 +20,22 @@ extension ProjectState {
 
 extension Workspace {
     var pageListItems:[PageListItem] {
-        project.pageItems ?? source?.pages.map{PageListItem(id:$0.number,sourcePage:$0.number,size:$0.trimSize,availableBleed:$0.availableBleed)} ?? []
+        let raw=project.pageItems ?? source?.pages.map{PageListItem(id:$0.number,sourcePage:$0.number,size:$0.trimSize,availableBleed:$0.availableBleed)} ?? []
+        guard raw.contains(where:{$0.side==nil}) else {return raw}
+        var result=raw
+        let jobs=project.repeatJobs
+        for job in jobs {
+            let pair=UUID()
+            if let i=result.firstIndex(where:{$0.id==job.front.number}) {result[i].side=job.back==nil ? .single:.front;result[i].pairID=job.back==nil ? nil:pair}
+            if let back=job.back,let i=result.firstIndex(where:{$0.id==back.number}) {result[i].side = .back;result[i].pairID=pair}
+        }
+        for i in result.indices where result[i].side==nil {result[i].side = .single}
+        return result
     }
     func pageListItem(_ id:Int)->PageListItem? {pageListItems.first{$0.id==id}}
     func pageListTitle(_ id:Int)->String {
         guard let item=pageListItem(id),let number=item.sourcePage else {return "Boş"}
-        return "Sayfa \(number)"+(item.copyNumber>1 ? " (kopya \(item.copyNumber))" : "")
+        return "Sayfa \(item.localPage ?? number)"+(item.copyNumber>1 ? " (kopya \(item.copyNumber))" : "")
     }
     var canEditPageList:Bool {source != nil && project.binding != .gang && !loading && !preparingSource && !exporting && !autoArranging}
     func pageActionSelection(_ row:Int?)->Set<Int> {
@@ -35,10 +45,9 @@ extension Workspace {
     func pairedPageSelection(_ selection:Set<Int>)->Set<Int> {
         guard project.binding == .stepAndRepeat else {return selection}
         var result=selection
-        for job in project.repeatJobs where selection.contains(job.front.number) || job.back.map({selection.contains($0.number)}) == true {
-            result.insert(job.front.number)
-            if let back=job.back {result.insert(back.number)}
-        }
+        let items=pageListItems
+        let pairs=Set(items.filter{selection.contains($0.id)}.compactMap(\.pairID))
+        result.formUnion(items.filter{$0.pairID.map{pairs.contains($0)} == true}.map(\.id))
         return result
     }
     private func nextPageListID(additional:Int)->Int? {
@@ -56,8 +65,14 @@ extension Workspace {
         let oldJobs=project.repeatJobs
         var groups:[[Int]]=[]
         if wholePairs && project.binding == .stepAndRepeat {
-            for job in oldJobs where selected.contains(job.front.number) {
-                groups.append([job.front.number]+[job.back?.number].compactMap{$0})
+            var byPair:[UUID:[PageListItem]]=[:]
+            for item in items {if let pair=item.pairID {byPair[pair,default:[]].append(item)}}
+            var visited=Set<Int>()
+            for id in order where selected.contains(id) && !visited.contains(id) {
+                if let pair=map[id]?.pairID {
+                    let group=(byPair[pair] ?? []).filter{selected.contains($0.id)}.sorted{$0.side == .front && $1.side != .front}.map(\.id)
+                    groups.append(group);visited.formUnion(group)
+                }
             }
         }
         let grouped=Set(groups.flatMap{$0})
@@ -76,9 +91,12 @@ extension Workspace {
             var insertion=anchor+1
             for _ in 0..<copies {
                 var added:[Int]=[],copy:[Int:Int]=[:]
+                let newPair=UUID()
                 for id in group {
                     guard var item=map[id] else {continue}
                     item.id=nextID;nextID+=1
+                    item.pairID=group.count==2 ? newPair:nil
+                    if group.count==1 {item.side = .single}
                     if let n=item.sourcePage {copyCounts[n,default:1]+=1;item.copyNumber=copyCounts[n]!}
                     copy[id]=item.id
                     newItems.append(item);added.append(item.id);newSelection.insert(item.id)
@@ -121,11 +139,12 @@ extension Workspace {
         guard canEditPageList else {return}
         var items=pageListItems,newOrder=order,newIncluded=included,newSelection=Set<Int>()
         let anchors=order.filter{selection.contains($0)}
+        if !selection.isEmpty && anchors.isEmpty {return}
         guard let firstID=nextPageListID(additional:max(1,anchors.count)) else {return}
         var id=firstID
         for anchor in anchors.isEmpty ? [order.last ?? 0] : anchors {
             let size=items.first{$0.id==anchor}?.size ?? project.pages.first?.trimSize ?? source?.pages.first?.trimSize ?? Size(210,297)
-            let item=PageListItem(id:id,sourcePage:nil,size:size)
+            var item=PageListItem(id:id,sourcePage:nil,size:size);item.side = .single
             items.append(item);newIncluded.insert(id);newSelection.insert(id)
             let index=newOrder.firstIndex(of:anchor).map{$0+(above ? 0:1)} ?? newOrder.count
             newOrder.insert(id,at:index);id+=1
@@ -227,5 +246,72 @@ extension Project {
     func artworkPageNumber(_ id:Int)->Int? {
         if let items=pageItems {return items.first{$0.id==id}?.sourcePage}
         return id
+    }
+}
+
+extension Workspace {
+    var hasActualPageBacks:Bool {
+        if project.binding == .gang {return (project.gang?.jobs ?? []).contains{job in job.back.map{project.artworkPageNumber($0.number) != nil} == true}}
+        if project.pageItems == nil {return project.repeatJobs.contains{$0.back != nil}}
+        return pageListItems.contains{$0.side == .back && $0.sourcePage != nil && included.contains($0.id)}
+    }
+    var requiresBacklessConfirmation:Bool {
+        (project.binding == .stepAndRepeat || project.binding == .gang) && project.hasPanelItems && project.previouslyHadBacks == true && !hasActualPageBacks
+    }
+    func pageSideTitle(_ id:Int)->String {
+        switch pageListItem(id)?.side {
+        case .front:return "Ön"
+        case .back:return "Arka"
+        case .single:return "Tek yüz"
+        case nil:return WorkflowPresentation.pageRole(id,project:project)
+        }
+    }
+    func assignPageSides(_ mode:PageLayout) {
+        var next=project,items=pageListItems
+        if mode == .simplex {
+            for i in items.indices {if items[i].side != .single {items[i].previousSide=items[i].side};items[i].side = .single}
+        } else {
+            var used=Set<Int>()
+            for i in items.indices {
+                if let pair=items[i].pairID,items[i].previousSide != nil,items.contains(where:{$0.pairID==pair && $0.id != items[i].id}) {
+                    items[i].side=items[i].previousSide;used.insert(items[i].id)
+                } else if items[i].side == .front || items[i].side == .back {used.insert(items[i].id)}
+            }
+            let ids=order.filter{!used.contains($0)}
+            var pair=UUID()
+            for (offset,id) in ids.enumerated() {
+                guard let i=items.firstIndex(where:{$0.id==id}) else {continue}
+                if offset%2==0 {pair=UUID()}
+                items[i].side=offset%2==0 ? .front:.back;items[i].pairID=pair
+            }
+        }
+        next.pageItems=items
+        var layout=next.stepAndRepeat.pageLayout ?? PageLayoutSettings();layout.mode=mode;next.stepAndRepeat.pageLayout=layout
+        commitPageList(next,order:order,included:included,selection:selectedPages)
+    }
+    func setPageSide(_ id:Int,_ side:PageItemSide) {
+        guard canEditPageList else {return}
+        var items=pageListItems
+        guard let index=items.firstIndex(where:{$0.id==id}) else {return}
+        if let pair=items[index].pairID {
+            for i in items.indices where items[i].pairID==pair {if items[i].side != .single {items[i].previousSide=items[i].side};items[i].side = .single}
+        }
+        if side != .single {
+            items[index].side=side;items[index].pairID=UUID()
+            if let position=order.firstIndex(of:id) {
+                let other=side == .front ? position+1:position-1
+                if order.indices.contains(other),let j=items.firstIndex(where:{$0.id==order[other]}),items[j].side == .single {
+                    items[j].side=side == .front ? .back:.front;items[j].pairID=items[index].pairID
+                }
+            }
+        }
+        var next=project;next.pageItems=items
+        commitPageList(next,order:order,included:included,selection:selectedPages)
+    }
+    func makePageListDuplex() {
+        beginUndoGroup();defer {endUndoGroup()}
+        assignPageSides(.duplex)
+        for item in pageListItems where item.side == .back {if !included.contains(item.id) {setIncluded(item.id,true)}}
+        if requiresBacklessConfirmation {choosePagePDFs(at:order.last)}
     }
 }

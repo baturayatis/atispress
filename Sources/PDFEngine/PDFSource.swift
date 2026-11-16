@@ -28,6 +28,12 @@ public enum PDFReadError: LocalizedError {
 /// PDFKit stays on one serial queue. Main-thread vector drawing uses a separate CGPDFDocument.
 /// Reading and rasterization never mutate the source file.
 public final class PDFSource: @unchecked Sendable {
+    private var encryptedOrigin:URL?
+    private var encryptedOriginAccess=false
+    public var originalURL:URL {encryptedOrigin ?? url}
+    func retainUnlockedOrigin(_ origin:URL,folder:URL,scoped:Bool) {
+        encryptedOrigin=origin;encryptedOriginAccess=scoped;temporaryDirectory=folder
+    }
     private var usesCellMetadata=false
     private var preparedGuideURL:URL?
     public var guidePreviewURL:URL { preparedGuideURL ?? (linkedSources.count == 1 ? linkedSources[0].guidePreviewURL : preparationInput.url) }
@@ -37,8 +43,8 @@ public final class PDFSource: @unchecked Sendable {
     private var linkedSources: [PDFSource] = []
     private var compositeTitle: String?
     private var temporaryDirectory: URL?
-    public var protectedURLs: [URL] { if let preparationParent { return preparationParent.protectedURLs+[url]+(preparedGuideURL.map{[$0]} ?? []) };return linkedSources.isEmpty ? [url] : linkedSources.flatMap(\.protectedURLs)+[url] }
-    public var displayName: String { compositeTitle ?? (linkedSources.isEmpty ? url.lastPathComponent : "Karışık iş (\(linkedSources.count) PDF)") }
+    public var protectedURLs: [URL] { if let encryptedOrigin {return [encryptedOrigin,url]};if let preparationParent { return preparationParent.protectedURLs+[url]+(preparedGuideURL.map{[$0]} ?? []) };return linkedSources.isEmpty ? [url] : linkedSources.flatMap(\.protectedURLs)+[url] }
+    public var displayName: String { compositeTitle ?? (linkedSources.isEmpty ? originalURL.lastPathComponent : "Karışık iş (\(linkedSources.count) PDF)") }
     public let bindingStripCache = PDFBindingStripCache()
     public let edgeSamples = PDFEdgeSampleCache()
     public let id = UUID()
@@ -60,6 +66,7 @@ public final class PDFSource: @unchecked Sendable {
         cache.totalCostLimit = 64 * 1024 * 1024
     }
     deinit {
+        if encryptedOriginAccess {encryptedOrigin?.stopAccessingSecurityScopedResource()}
         if scopedAccess { url.stopAccessingSecurityScopedResource() }
         if let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) }
     }
