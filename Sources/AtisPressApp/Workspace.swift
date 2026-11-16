@@ -100,6 +100,7 @@ final class Workspace: ObservableObject {
     @Published var included = Set<Int>() { didSet { refreshModified() } }
     @Published var selectedPages = Set<Int>()
     @Published var pageDuplicateRequest:PageDuplicateRequest?
+    @Published var pdfLoadFailure:PDFLoadFailure?
     @Published var pdfInsertion:PDFInsertionDraft?
     @Published var pdfInsertionIndex:Int?
     var pendingPDFScaleRequest:ScaleWindowRequest?
@@ -412,7 +413,7 @@ final class Workspace: ObservableObject {
         if project.binding == .gang && project.sourcePreparation?.split == nil && project.sourcePreparation?.hiddenGuideGroups.isEmpty != false && url.pathExtension.lowercased() == "pdf" { addGangPDFs([url]); return }
         guard !preparingSource,!loading, !exporting, !autoArranging, (!confirmChanges || confirmDiscard()) else { return }
         if url.pathExtension.lowercased() == "atispress" {
-            loading = true; error = nil
+            loading = true; error = nil; pdfLoadFailure=nil
             importTask = Task {
                 do { try await loadProject(at: url,relink: chooseRelink) }
                 catch is CancellationError { }
@@ -423,7 +424,7 @@ final class Workspace: ObservableObject {
         }
         importTask?.cancel()
         let token = UUID(); importRevision = token
-        loading = true; error = nil
+        loading = true; error = nil; pdfLoadFailure=nil
         importTask = Task {
             do {
                 let source = try await openPagePDF(url)
@@ -461,7 +462,11 @@ final class Workspace: ObservableObject {
                 refreshModified()
             } catch {
                 guard !Task.isCancelled, importRevision == token else { return }
-                loading = false; self.error = error.localizedDescription
+                loading = false
+                if !(error is CancellationError) {
+                    let failure=recordPDFLoadFailure(error,url:url,stage:"Ana PDF / ortak yükleyici")
+                    pdfLoadFailure=failure;self.error=failure.localizedDescription
+                }
             }
         }
     }
@@ -1176,7 +1181,7 @@ extension Workspace {
     }
     func addGangPDFs(_ urls: [URL]) {
         guard !loading,!exporting,project.binding == .gang,!urls.isEmpty else { return }
-        loading = true; error = nil
+        loading = true; error = nil; pdfLoadFailure=nil
         importTask = Task {
             do {
                 var assets = gangAssets,settings = project.gang ?? GangSettings()
@@ -1275,7 +1280,7 @@ extension Workspace {
     }
     func loadCoverPDF(_ url: URL) {
         guard let current = source,!loading,!exporting,(project.isBooklet || project.isLeafBinding) else { return }
-        loading = true; error = nil
+        loading = true; error = nil; pdfLoadFailure=nil
         importTask = Task {
             do {
                 let cover = try await openPagePDF(url)

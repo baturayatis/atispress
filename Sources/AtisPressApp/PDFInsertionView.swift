@@ -8,7 +8,7 @@ struct PDFInsertionView:View {
     @State var draft:PDFInsertionDraft
     @State private var pairs:Bool
     @State private var working=false
-    @State private var failure:String?
+    @State private var failure:PDFLoadFailure?
     @Environment(\.dismiss) private var dismiss
     init(model:Workspace,draft:PDFInsertionDraft) {
         self.model=model;_draft=State(initialValue:draft)
@@ -55,12 +55,16 @@ struct PDFInsertionView:View {
             if model.pageInsertionPoint(draft).adjusted {Text("Ekleme noktası mevcut Ön/Arka çiftinin sınırına taşındı.").foregroundStyle(DesignSystem.warning)}
             if duplex && draft.count%2==0 {Toggle("Ön/arka çifti olarak ekle",isOn:$pairs)}
             Text("\(draft.count) sayfa seçili · Dosyalar yukarıdaki sırayla eklenir.")
-            if let failure {Text(failure).foregroundStyle(.red)}
+            if let reason=draft.disabledReason {Text(reason).foregroundStyle(DesignSystem.warning)}
+            if let failure {
+                Text(failure.localizedDescription).foregroundStyle(.red)
+                Button("Tanı bilgisini kopyala") {model.copyPDFDiagnostic(failure)}
+            }
             HStack {
                 Button("Vazgeç") {dismiss()}.keyboardShortcut(.cancelAction)
                 Spacer()
                 Button(working ? "Ekleniyor…":"Ekle") {apply()}.keyboardShortcut(.defaultAction)
-                    .disabled(working || draft.count==0 || draft.sources.contains{PDFPageRange.parse($0.range,count:$0.pdf.pages.count)==nil})
+                    .disabled(working || draft.disabledReason != nil)
             }
         }.padding(22).frame(width:690).font(.system(size:13)).disabled(working).interactiveDismissDisabled(working)
             .onAppear {model.pdfInsertionIndex=model.pageInsertionPoint(draft).index}
@@ -90,7 +94,15 @@ struct PDFInsertionView:View {
             if size == .cancel {return}
         }
         working=true
-        Task {do {try await model.insertPagePDFs(draft,mode:mode,sizeChoice:size)} catch {failure=error.localizedDescription};working=false}
+        failure=nil
+        Task {
+            do {try await model.insertPagePDFs(draft,mode:mode,sizeChoice:size)}
+            catch {
+                let entry=draft.sources.first!
+                failure=model.recordPDFLoadFailure(error,url:entry.url,stage:"Seçili sayfaları birleştirme",details:entry.pdf.loadingDetails+"\nÖn/arka çifti: \(pairs), seçili sayfa: \(draft.count)")
+            }
+            working=false
+        }
     }
 }
 private struct PDFInsertThumbnail:View {

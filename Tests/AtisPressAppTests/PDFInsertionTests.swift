@@ -3,7 +3,7 @@ import AppKit
 import PDFKit
 import SwiftUI
 import ImpositionCore
-import PDFEngine
+@testable import PDFEngine
 @testable import AtisPressApp
 
 @MainActor final class PDFInsertionTests:XCTestCase {
@@ -233,6 +233,137 @@ import PDFEngine
         XCTAssertEqual(opened.plan.sheets,model.plan.sheets)
         XCTAssertEqual(try outputPixels(opened),try outputPixels(model))
         XCTAssertEqual(opened.pageListItem(model.order.last!)?.size,value.sources[0].pdf.pages.last?.trimSize)
+    }
+    private func preciseCard(pageCount:Int = 2) throws -> URL {
+        let url=try folder().appendingPathComponent("İki yüzlü kart.pdf")
+        let kids=(0..<pageCount).map{"\($0+3) 0 R"}.joined(separator:" ")
+        var objects=["<< /Type /Catalog /Pages 2 0 R >>","<< /Type /Pages /Kids [\(kids)] /Count \(pageCount) >>"] + (0..<pageCount).map {_ in
+            "<< /Type /Page /Parent 2 0 R /MediaBox [-8.503937007874 -8.503937007874 254.267716535433 161.574803149606] /TrimBox [0 0 245.763779527559 153.070866141732] /BleedBox [-8.503937007874 -8.503937007874 254.267716535433 161.574803149606] /Resources << >> /Contents \(pageCount+3) 0 R >>"
+        }
+        let artwork="q 0.2 0.7 0.4 rg -8.5 -8.5 263 171 re f 0.9 0.1 0.2 rg 20 30 50 60 re f Q"
+        objects.append("<< /Length \(artwork.utf8.count) >>\nstream\n\(artwork)\nendstream")
+        var data=Data("%PDF-1.4\n".utf8),offsets:[Int]=[]
+        for (i,object) in objects.enumerated() {offsets.append(data.count);data.append(Data("\(i+1) 0 obj\n\(object)\nendobj\n".utf8))}
+        let xref=data.count
+        data.append(Data("xref\n0 \(objects.count+1)\n0000000000 65535 f \n".utf8))
+        for offset in offsets {data.append(Data(String(format:"%010d 00000 n \n",offset).utf8))}
+        data.append(Data("trailer\n<< /Size \(objects.count+1) /Root 1 0 R >>\nstartxref\n\(xref)\n%%EOF\n".utf8));try data.write(to:url);return url
+    }
+    func testPDFReadVariantsWithPairingOnAndOff() async throws {
+        for variant in ["owner", "user", "rotated", "different", "card", "precise"] {
+            for pairs in [true,false] {
+                let original=try variant == "precise" ? preciseCard():fixture(variant,size:variant == "different" ? Size(148,210):Size(86.7,54),password:variant == "user" ? "secret":nil)
+                var url=original
+                if variant == "owner" || variant == "rotated" {
+                    let document=try XCTUnwrap(PDFDocument(url:original))
+                    if variant == "rotated" {document.page(at:0)?.rotation=90}
+                    url=original.deletingLastPathComponent().appendingPathComponent("variant.pdf")
+                    var options:[PDFDocumentWriteOption:Any]=[:]
+                    if variant == "owner" {options[.ownerPasswordOption]="owner";options[.userPasswordOption]=""}
+                    XCTAssertTrue(document.write(to:url,withOptions:options))
+                }
+                let model=try await loaded()
+                let pdf=try await model.openPagePDF(url,password:{_ in "secret"})
+                let thumbnail=await pdf.image(page:1,pixels:180)
+                XCTAssertNotNil(thumbnail)
+                let value=PDFInsertionDraft(sources:[PDFInsertSource(url:url,pdf:pdf,selected:[1,2])],anchor:nil,position:.end)
+                do {
+                    try await model.insertPagePDFs(value,mode:pairs ? .pairs:.singles)
+                    try await settle(model)
+                    XCTAssertEqual(model.order.count,4)
+                } catch {XCTFail("\(variant), pairs=\(pairs): \(error)")}
+            }
+        }
+    }
+    func testNoFailureAfterThumbnailAndBeforeAddIncludingPassword() async throws {
+        for password in [false,true] {
+            let model=try await loaded(),before=model.project
+            let url=try fixture("İkinci kart",size:Size(86.7,54),password:password ? "secret":nil)
+            model.preparePageInsertion([url],password:{_ in "secret"});try await settle(model)
+            let draft=try XCTUnwrap(model.pdfInsertion)
+            let image=await draft.sources[0].pdf.image(page:1,pixels:180)
+            XCTAssertNotNil(image);XCTAssertNil(model.error);XCTAssertNil(model.pdfLoadFailure)
+            XCTAssertNil(draft.disabledReason);XCTAssertEqual(model.project,before)
+            XCTAssertNotNil(draft.sources[0].reference)
+            XCTAssertEqual(draft.sources[0].pdf.originalURL,url)
+            var empty=draft;empty.sources[0].selected=[]
+            XCTAssertEqual(empty.disabledReason,"Eklemek için en az bir sayfa seçin.")
+            empty.sources[0].range="invalid";XCTAssertEqual(empty.disabledReason,"Sayfa aralığı geçersiz.")
+        }
+    }
+    func testReadFailureReasonsPrivacyAndBookmarkFailure() async throws {
+        let missing=try folder().appendingPathComponent("eksik.pdf")
+        do {_ = try await PDFSource.open(missing);XCTFail("Missing file accepted")} catch {
+            XCTAssertEqual(PDFLoadFailure.classify(error,url:missing,stage:"Yükleme").reason,.missing)
+        }
+        for count in [0,1] {
+            let url=try count==0 ? preciseCard(pageCount:0):fixture("hasarlı",count:count)
+            if count==1 {try Data("broken".utf8).write(to:url)}
+            for pairs in [true,false] {
+                let model=try await loaded(),before=model.project
+                model.preparePageInsertion([url]);try await settle(model)
+                XCTAssertEqual(model.pdfLoadFailure?.reason,.damaged,"pairs=\(pairs)")
+                XCTAssertNil(model.pdfInsertion);XCTAssertEqual(model.project,before)
+            }
+        }
+        let locked=try fixture("kilitli",password:"secret")
+        do {_ = try await PDFSource.open(locked);XCTFail("Password required")} catch {
+            XCTAssertEqual(PDFLoadFailure.classify(error,url:locked,stage:"Yükleme").reason,.password)
+        }
+        let restricted=try folder().appendingPathComponent("kopya-kısıtlı.pdf")
+        var box=CGRect(x:0,y:0,width:250,height:150)
+        let options=[kCGPDFContextOwnerPassword as String:"owner",kCGPDFContextUserPassword as String:"",kCGPDFContextAllowsCopying as String:false] as [String:Any]
+        let context=try XCTUnwrap(CGContext(consumer:CGDataConsumer(url:restricted as CFURL)!,mediaBox:&box,options as CFDictionary))
+        context.beginPDFPage(nil);context.endPDFPage();context.closePDF()
+        do {_ = try await PDFSource.open(restricted);XCTFail("Copy restriction ignored")} catch {
+            XCTAssertEqual(PDFLoadFailure.classify(error,url:restricted,stage:"Yükleme").reason,.copying)
+        }
+        let denied=CocoaError(.fileReadNoPermission,userInfo:[NSFilePathErrorKey:missing.path])
+        let failure=PDFLoadFailure.classify(denied,url:missing,stage:"Yer imi")
+        XCTAssertEqual(failure.reason,.permission);XCTAssertFalse(failure.diagnosticText.contains(missing.deletingLastPathComponent().path))
+        XCTAssertEqual(PDFLoadFailure.classify(PDFReadError.metadataMismatch,url:missing,stage:"Kutular").reason,.size)
+        let log=try folder();failure.writeLog(directory:log)
+        XCTAssertTrue(try String(contentsOf:log.appendingPathComponent("pdf-load.log")).contains("eksik.pdf"))
+        let name="PDFBookmarkFailure-"+UUID().uuidString,defaults=UserDefaults(suiteName:name)!
+        defer {defaults.removePersistentDomain(forName:name)}
+        let model=Workspace(bookmarkCreator:{_ in throw denied},uiDefaults:defaults)
+        model.preparePageInsertion([try fixture()]);try await settle(model)
+        XCTAssertEqual(model.pdfLoadFailure?.reason,.permission);XCTAssertNil(model.pdfInsertion)
+    }
+    func testPreciseBoxMetadataAndNFCComparisonRoundtrip() async throws {
+        let url=try preciseCard(),pdf=try await PDFSource.open(url)
+        let written=try folder().appendingPathComponent("pdfkit.pdf"),document=try XCTUnwrap(PDFDocument(url:url))
+        XCTAssertTrue(document.write(to:written))
+        let serialized=try await PDFSource.open(written)
+        print("Precise PDF original=\(pdf.pages[0].trimSize), serialized=\(serialized.pages[0].trimSize), bleed=\(String(describing:pdf.pages[0].availableBleed)) → \(String(describing:serialized.pages[0].availableBleed))")
+        XCTAssertNotEqual(pdf.pages[0].trimSize,serialized.pages[0].trimSize)
+        let combined=try await PDFSource.combine([pdf,pdf])
+        XCTAssertEqual(combined.pages[2].trimSize,pdf.pages[0].trimSize)
+        XCTAssertEqual(combined.pages[2].availableBleed,pdf.pages[0].availableBleed)
+        let writtenPDF=try XCTUnwrap(CGPDFDocument(combined.url as CFURL))
+        let actual=try await PDFSource.open(combined.url),first=combined.pages[0]
+        var expected=combined.pages
+        expected[0]=PDFPageInfo(number:1,trimSize:Size(first.trimSize.width+0.001,first.trimSize.height),availableBleed:first.availableBleed,hasTrimBox:true)
+        XCTAssertThrowsError(try PDFSource.validateCopiedMetadata(actual.pages,expected:expected,written:writtenPDF))
+        expected[0]=PDFPageInfo(number:1,trimSize:first.trimSize,availableBleed:(first.availableBleed ?? 0)+0.001,hasTrimBox:true)
+        XCTAssertThrowsError(try PDFSource.validateCopiedMetadata(actual.pages,expected:expected,written:writtenPDF))
+        XCTAssertThrowsError(try PDFSource.validateCopiedMetadata(actual.pages,expected:Array(combined.pages.dropLast()),written:writtenPDF))
+        var renders:[Data]=[]
+        for input in [pdf.url,combined.url] {
+            let document=try XCTUnwrap(CGPDFDocument(input as CFURL)),page=try XCTUnwrap(document.page(at:1))
+            let context=try XCTUnwrap(CGContext(data:nil,width:180,height:120,bitsPerComponent:8,bytesPerRow:720,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.setFillColor(CGColor(gray:1,alpha:1));context.fill(CGRect(x:0,y:0,width:180,height:120))
+            context.concatenate(page.getDrawingTransform(.trimBox,rect:CGRect(x:0,y:0,width:180,height:120),rotate:0,preserveAspectRatio:true))
+            context.drawPDFPage(page);renders.append(Data(bytes:context.data!,count:context.bytesPerRow*context.height))
+        }
+        XCTAssertEqual(renders[0],renders[1],"Page copying must retain artwork coordinates and vectors")
+        XCTAssertTrue(PDFSource.sameFile(url,URL(fileURLWithPath:url.path.decomposedStringWithCanonicalMapping)))
+        let model=try await loaded(),value=PDFInsertionDraft(sources:[PDFInsertSource(url:url,pdf:pdf,selected:[1,2])],anchor:nil,position:.end)
+        try await model.insertPagePDFs(value,mode:.pairs);try await settle(model)
+        let file=try folder().appendingPathComponent("precise.atispress");try model.saveProject(as:file)
+        let reopened=workspace();try await reopened.loadProject(at:file);try await settle(reopened)
+        XCTAssertEqual(reopened.plan.sheets,model.plan.sheets)
+        XCTAssertEqual(try outputPixels(reopened),try outputPixels(model))
     }
     func testRanges() {
         XCTAssertEqual(PDFPageRange.parse("1-4, 7",count:7),[1,2,3,4,7])

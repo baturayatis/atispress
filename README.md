@@ -59,6 +59,13 @@ penceresinde ölçeklenebilir. Kitap işinde ölçekleme gerekir. Ölçekleme pe
 iptal etmek eklemeyi geri alır. Kaynak sayfalar vektör olarak birleştirilir;
 önizleme ve çıktı aynı ortak sayfa referanslarını kullanır.
 
+PDF okuma hataları dosya adı ve nedenle gösterilir. **Tanı bilgisini kopyala**
+yalnız dosya adı, işlem aşaması ve teknik durumu kopyalar. Dosya yolları ve
+parolalar kopyalanmaz. Günlük `~/Library/Logs/AtisPress/pdf-load.log` içindedir.
+PDF ekleme için yer imi küçük görsellerden önce alınır. Küçük görseller,
+birleştirme ve çıktı aynı yüklenmiş kaynağı kullanır. Kaynakta açıkça belirtilen
+sayfa kutuları ve taşma bilgisi PDFKit kopyalama sırasında korunur.
+
 ## Ayarlara erişim
 
 Sağdaki 72 pt simge çubuğundan bir simge seçmek, 350 pt sütunda yalnız o

@@ -51,7 +51,7 @@ struct ProjectSource: Codable, Equatable {
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         guard let values = try? url.resourceValues(forKeys: [.fileSizeKey,.isRegularFileKey]),
               values.isRegularFile == true,Int64(values.fileSize ?? -1) == fileSize else { return false }
-        return allowRename || url.lastPathComponent == fileName
+        return allowRename || url.lastPathComponent.precomposedStringWithCanonicalMapping == fileName.precomposedStringWithCanonicalMapping
     }
 }
 

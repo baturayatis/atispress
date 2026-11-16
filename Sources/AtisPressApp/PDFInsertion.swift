@@ -8,6 +8,7 @@ struct PDFInsertSource:Identifiable {
     let pdf:PDFSource
     var selected:Set<Int>
     var range=""
+    var reference:ProjectSource? = nil
 }
 enum PageInsertionPosition:String,CaseIterable {case above="Seçili sayfanın üstüne",below="Seçili sayfanın altına",start="Başa",end="Sona"}
 enum PageInsertionMode {case pairs,fronts,singles,cancel}
@@ -18,6 +19,10 @@ struct PDFInsertionDraft:Identifiable {
     var anchor:Int?
     var position:PageInsertionPosition
     var count:Int {sources.reduce(0){$0+$1.selected.count}}
+    var disabledReason:String? {
+        if sources.contains(where:{PDFPageRange.parse($0.range,count:$0.pdf.pages.count)==nil}) {return "Sayfa aralığı geçersiz."}
+        return count==0 ? "Eklemek için en az bir sayfa seçin.":nil
+    }
 }
 enum PDFPageRange {
     static func parse(_ text:String,count:Int)->Set<Int>? {
@@ -36,6 +41,8 @@ enum PDFPageRange {
 
 extension Workspace {
     func openPagePDF(_ url:URL,password:((URL)->String?)? = nil) async throws -> PDFSource {
+        let access=url.startAccessingSecurityScopedResource()
+        defer {if access {url.stopAccessingSecurityScopedResource()}}
         do {return try await PDFSource.open(url)}
         catch PDFReadError.locked {
             let value:String?
@@ -60,18 +67,25 @@ extension Workspace {
             self.preparePageInsertion(panel.urls,anchor:row ?? self.order.first(where:{self.selectedPages.contains($0)}))
         }
     }
-    func preparePageInsertion(_ urls:[URL],anchor:Int? = nil) {
+    func preparePageInsertion(_ urls:[URL],anchor:Int? = nil,password:((URL)->String?)? = nil) {
         guard canAddPagePDFs,!urls.isEmpty else {return}
-        loading=true
+        loading=true;pdfLoadFailure=nil;error=nil
         Task {
+            var activeURL=urls[0],stage="Yer imi oluşturma"
             do {
                 var values:[PDFInsertSource]=[]
                 for url in urls {
-                    let pdf=try await openPagePDF(url)
-                    values.append(PDFInsertSource(url:url,pdf:pdf,selected:Set(pdf.pages.map(\.number))))
+                    activeURL=url;stage="Yer imi oluşturma"
+                    let reference=try capturePageSource(url)
+                    stage="PDFKit / CGPDFDocument yükleme"
+                    let pdf=try await openPagePDF(url,password:password)
+                    values.append(PDFInsertSource(url:url,pdf:pdf,selected:Set(pdf.pages.map(\.number)),reference:reference))
                 }
                 pdfInsertion=PDFInsertionDraft(sources:values,anchor:anchor,position:anchor==nil ? .end:.above)
-            } catch is CancellationError {} catch {self.error=error.localizedDescription}
+            } catch is CancellationError {} catch {
+                let failure=recordPDFLoadFailure(error,url:activeURL,stage:stage)
+                pdfLoadFailure=failure;self.error=failure.localizedDescription
+            }
             loading=false
         }
     }
@@ -141,15 +155,15 @@ extension Workspace {
         guard !required.overflow,!nextID.addingReportingOverflow(required.partialValue+1).overflow else {throw ProjectFileError.invalidSelection}
         var added:[PageListItem]=[]
         for entry in draft.sources {
-            let existing=assets.firstIndex{$0.source.originalURL.standardizedFileURL==entry.url.standardizedFileURL}
+            let existing=assets.firstIndex{PDFSource.sameFile($0.source.originalURL,entry.url)}
             let assetIndex:Int
             if let existing {
-                let ref=try capturePageSource(entry.url)
+                let ref=try entry.reference ?? capturePageSource(entry.url)
                 guard ref.fileSize==assets[existing].saved.reference.fileSize,entry.pdf.pages.count==assets[existing].source.pages.count else {throw ProjectFileError.sourceMismatch}
                 assetIndex=existing
             }
             else {
-                let ref=try capturePageSource(entry.url)
+                let ref=try entry.reference ?? capturePageSource(entry.url)
                 assets.append(GangAsset(saved:GangSourceReference(id:UUID(),reference:ref,pageCount:entry.pdf.pages.count),source:entry.pdf))
                 assetIndex=assets.count-1
             }
@@ -198,5 +212,21 @@ extension Workspace {
             endUndoGroup()
         }
         pdfInsertion=nil;pdfInsertionIndex=nil
+    }
+}
+
+extension Workspace {
+    func recordPDFLoadFailure(_ error:Error,url:URL,stage:String,details:String="")->PDFLoadFailure {
+        let failure:PDFLoadFailure
+        if case ProjectFileError.sourceMismatch=error {failure=PDFLoadFailure(.size,url:url,stage:stage,detail:details)}
+        else {
+            let classified=PDFLoadFailure.classify(error,url:url,stage:stage)
+            if error is PDFLoadFailure {failure=classified}
+            else {failure=PDFLoadFailure(classified.reason,url:url,stage:classified.stage,detail:classified.detail+(details.isEmpty ? "":"\n"+details))}
+        }
+        failure.writeLog();return failure
+    }
+    func copyPDFDiagnostic(_ failure:PDFLoadFailure) {
+        NSPasteboard.general.clearContents();NSPasteboard.general.setString(failure.diagnosticText,forType:.string)
     }
 }

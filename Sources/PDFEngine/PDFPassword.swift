@@ -10,18 +10,22 @@ extension PDFSource {
         do {
             try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
             let output=folder.appendingPathComponent("unlocked.pdf")
-            try await Task.detached {
-                guard let document=PDFDocument(url:url) else {throw PDFReadError.unreadable}
-                guard !document.isLocked || document.unlock(withPassword:password) else {throw PDFReadError.locked}
+            let (details,pages)=try await Task.detached {
+                let document=try coordinatedRead(url) {try readableDocument($0,password:password)}
+                guard let original=CGPDFDocument(url as CFURL),original.isUnlocked || original.unlockWithPassword(password) else {throw PDFReadError.locked}
                 let decrypted=PDFDocument()
                 for index in 0..<document.pageCount {
-                    guard let page=document.page(at:index)?.copy() as? PDFPage else {throw PDFReadError.unreadable}
+                    let page=try copiedPage(document,original:original,index:index)
                     decrypted.insert(page,at:decrypted.pageCount)
                 }
                 guard decrypted.write(to:output) else {throw PDFReadError.unreadable}
+                return ("Özgün PDF: isEncrypted=\(document.isEncrypted), isLocked=\(document.isLocked), allowsCopying=\(document.allowsCopying), allowsPrinting=\(document.allowsPrinting)",try pageMetadata(original))
             }.value
             let source=try await open(output)
-            source.retainUnlockedOrigin(url,folder:folder,scoped:access)
+            source.originalPDFDetails=details
+            guard let written=CGPDFDocument(output as CFURL) else {throw PDFReadError.unreadable}
+            try validateCopiedMetadata(source.pages,expected:pages,written:written)
+            source.retainUnlockedOrigin(url,folder:folder,scoped:access,pages:pages)
             return source
         } catch {
             if access {url.stopAccessingSecurityScopedResource()}

@@ -45,7 +45,7 @@ final class PDFSourceTests: XCTestCase {
             _ = try await PDFSource.open(URL(fileURLWithPath: "/nonexistent-atispress-test.pdf"))
             XCTFail("Expected unreadable PDF error")
         } catch {
-            XCTAssertEqual(error.localizedDescription,"PDF dosyası okunamadı.")
+            XCTAssertEqual(error.localizedDescription,"nonexistent-atispress-test.pdf — Dosya bulunamadı")
         }
     }
     func testSlotTransformsPreservePlanFootprint() {

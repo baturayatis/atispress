@@ -366,3 +366,66 @@ snapshot ve güncelleyici testleri tam koşuya dahildir.
   yeniden bağlama pencerelerinin odak sırası ve VoiceOver sesli kullanımı
   masaüstünde ayrıca doğrulanmalıdır. Bu değişiklikte fiziksel UI denemesi
   yapılmadı.
+
+## PDF ekleme okuma hatası — sayfa-listesi
+
+### Yeniden üretim ve düzeltme
+
+- Üretilen iki sayfalık kart PDF’si ana yükleyicide açıldı ve küçük görselleri
+  çizildi. Ekle sırasında `PDFSource.combine` içindeki metadata eşitliği
+  kontrolü hem çift seçeneği açıkken hem kapalıyken başarısız oldu.
+- PDFKit’in `PDFPage.copy()` + yeni belgeye yazma yolu, varsayılan kutuyla
+  aynı olan açık BleedBox bildirimini atabiliyor. Ayrıca ondalık kutu
+  koordinatları yeniden yazılırken yuvarlanıyor. Test kaynağında 86,7 × 54 mm
+  ve 3 mm taşma, kopyada yaklaşık 86,699994 × 53,999999 mm ve bilinmeyen
+  taşmaya dönüştü. Eski birebir Double/opsiyonel eşitliği `unreadable` atıyordu.
+- Ortak sayfa kopyalayıcı medya, açık crop/trim/bleed/art kutuları ve dönüşü
+  korur. Yazılmış PDF’nin sayfa sayısı, trim ölçüsü ve etkin taşma geometrisi
+  doğrulanır. Yalnız en fazla 0,0001 mm serileştirme farkı kabul edilir.
+  Plan özgün metadata’yı kullanır. Kaynak taşması bilinmiyorsa bilinmiyor kalır.
+  PDFKit varsayılan BleedBox’ı yazmazsa, özgün bilinen taşma ancak yazılmış
+  PDF’nin etkin kutu geometrisi aynı taşmayı veriyorsa korunur.
+- Normal ve parolalı PDF, ortak erişim/yükleme, metadata ve sayfa kopyalama
+  kodunu kullanır. Owner parolalı, boş kullanıcı parolasıyla açılabilen PDF
+  otomatik açılır. Gerçek kullanıcı parolası sorulur. Kopyalama kısıtı açık
+  hatayla reddedilir. Şifre çözülmüş geçici PDF, özgün URL ve erişim süresini
+  saklar; parola projeye veya günlüğe yazılmaz. Şifreli kaynakların kılavuz
+  gizleme koruması korunur.
+- PDF ekleme seçiminde/bırakmada yer imi küçük görsellerden önce oluşturulur
+  ve Ekle sırasında yeniden oluşturulmaz. Özgün URL erişim için aynen tutulur.
+  NFC yalnız dosya kimliği karşılaştırmalarında kullanılır. Yerel dosyada
+  security scope; iCloud ubiquitous dosyada ayrıca NSFileCoordinator kullanılır.
+- Hatalar dosya adıyla Erişim izni yok, Şifreli PDF (parola gerekli),
+  Kopyalama kısıtlı, Dosya bozuk veya sayfa yok, Dosya bulunamadı ve
+  Ebat uyuşmuyor olarak ayrılır. Tanı bilgisini kopyala dosya yollarını içermez.
+  `~/Library/Logs/AtisPress/pdf-load.log` işlem aşamasını, hata alanı/kodunu
+  ve elde edilebildiğinde PDFKit şifre/kopyalama/baskı bayraklarını tutar.
+- Yeni seçim penceresi kimliği hata durumunu sıfırlar. Sayfa seçimi yoksa veya
+  aralık geçersizse Ekle’nin neden kapalı olduğu yazılır. Küçük görsel yüklenmesi
+  birleştirmeyi veya eklemeyi başlatmaz.
+
+### Test ve sınırlar
+
+```sh
+swift test --disable-sandbox
+swift test --disable-sandbox --filter PDFInsertionTests
+./scripts/build_app.sh
+open dist/AtışPress.app
+```
+
+Son tam koşu **425 test, 0 hata** (70 PDFEngine, 124 ImpositionCore,
+231 AtisPressApp). Ardından kutu doğrulamasının 0,001 mm ebat/taşma farkını
+ve sayfa sayısı değişikliğini reddettiği hedefli regresyon da geçti. Universal
+arm64/x86_64 release uygulaması derlendi, strict ad-hoc imzası doğrulandı.
+LaunchServices kaydı sandbox’ta engellendi; `dist/AtışPress.app` hazırdır.
+
+Owner/user parolası, döndürülmüş sayfa, farklı ebat, iki yüzlü kart, hassas
+ondalık kutular, bozuk/sıfır sayfalı PDF, iki çift seçeneği, izin/yer imi
+hatası, eksik dosya, kopya kısıtı, tanı metni/günlük, Ekle öncesi hatasız durum,
+özgün URL ve ikinci kaynakla kaydet/aç regresyonları bulunur. Hassas kartın
+kopyalanmış vektör içeriği piksel olarak da karşılaştırılır. Şema 21 korunur.
+
+Kullanıcının gerçek PDF’si bu oturuma eklenmedi. Ekle’ye basılmadan kırmızı
+birleştirme hatası üretilmedi. Kodda bu hata yolu Ekle eyleminden çalışır.
+Gerçek Desktop/Downloads TCC izinleri, iCloud indirme, harici disk çıkarılması,
+Finder bırakma ve VoiceOver fiziksel Mac kullanımında ayrıca doğrulanmalıdır.
