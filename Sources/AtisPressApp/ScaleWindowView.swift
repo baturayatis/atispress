@@ -77,7 +77,7 @@ extension Workspace {
         scaleWindow = nil
     }
     func scaledMiniature(pages:[Int],sourceSize:Size,settings:RescaleSettings) -> NSImage? {
-        guard settings.isValid,let source,let number = pages.first,let document = CGPDFDocument(source.url as CFURL),let page = document.page(at:number) else { return nil }
+        guard settings.isValid,let source,let item = pages.first,let number = (project.pageItems == nil ? item : pageListItem(item)?.sourcePage),let document = CGPDFDocument(source.url as CFURL),let page = document.page(at:number) else { return nil }
         let factor = min(400/settings.target.width,160/settings.target.height)
         let w = max(1,Int(settings.target.width*factor)),h = max(1,Int(settings.target.height*factor))
         guard let context = CGContext(data:nil,width:w,height:h,bitsPerComponent:8,bytesPerRow:w*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }

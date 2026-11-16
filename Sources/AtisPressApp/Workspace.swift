@@ -99,6 +99,7 @@ final class Workspace: ObservableObject {
     @Published private(set) var order: [Int] = [] { didSet { refreshModified() } }
     @Published var included = Set<Int>() { didSet { refreshModified() } }
     @Published var selectedPages = Set<Int>()
+    @Published var pageDuplicateRequest:PageDuplicateRequest?
     @Published var sheetIndex = 0 { didSet {
         if oldValue != sheetIndex { repetition = 0 }
         warmGeneratedBleed()
@@ -391,7 +392,7 @@ final class Workspace: ObservableObject {
                 var baseline = project
                 var prepared: AutoLayoutResult
                 while true {
-                    var snapshot = baseline; if baseline.sourcePreparation?.split != nil || baseline.sourcePreparation?.hiddenGuideGroups.isEmpty == false { snapshot.binding = .stepAndRepeat }; snapshot.pages = source.pages.map(\.sourcePage); snapshot.sourcePreparation = nil; snapshot.gang = nil; snapshot.book?.coverSourceID = nil; snapshot.book?.coverPDFPages = []; snapshot.book?.auxiliaryPages = []; snapshot.book?.selection = CoverSelection()
+                    var snapshot = baseline; if baseline.sourcePreparation?.split != nil || baseline.sourcePreparation?.hiddenGuideGroups.isEmpty == false { snapshot.binding = .stepAndRepeat }; snapshot.pages = source.pages.map(\.sourcePage); snapshot.pageItems=nil; snapshot.pageItemNextID=nil; snapshot.sourcePreparation = nil; snapshot.gang = nil; snapshot.book?.coverSourceID = nil; snapshot.book?.coverPDFPages = []; snapshot.book?.auxiliaryPages = []; snapshot.book?.selection = CoverSelection()
                     if snapshot.autoLayout == nil { snapshot.autoLayout = .legacy }
                     prepared = await Task.detached(priority: .userInitiated) { SmartAutoLayout.arrange(snapshot) }.value
                     guard !Task.isCancelled,importRevision == token else { return }
@@ -432,25 +433,41 @@ final class Workspace: ObservableObject {
     func includeAll(_ value: Bool) {
         included = value ? Set(order) : []; updateSelection()
     }
-    private func updateSelection() {
+    func commitPageList(_ value:Project,order nextOrder:[Int],included nextIncluded:Set<Int>,selection:Set<Int>,copies:[[Int:Int]] = []) {
+        beginUndoGroup()
+        var next=value
+        if let items=next.pageItems {
+            let map=Dictionary(uniqueKeysWithValues:items.map{($0.id,$0)})
+            next.pages=nextOrder.filter{nextIncluded.contains($0)}.compactMap{map[$0]?.planningPage}
+        } else if let source {next.pages=nextOrder.filter{nextIncluded.contains($0)}.map{source.pages[$0-1].sourcePage}}
+        next.retargetPageListSettings(from:project,copies:copies)
+        order=nextOrder;included=nextIncluded;selectedPages=selection
+        project=next;endUndoGroup()
+    }
+    func updateSelection() {
         guard let source else { return }
-        project.pages = order.filter { included.contains($0) }.map { source.pages[$0-1].sourcePage }
+        if let items=project.pageItems {
+            let map=Dictionary(uniqueKeysWithValues:items.map{($0.id,$0)})
+            project.pages=order.filter{included.contains($0)}.compactMap{map[$0]?.planningPage}
+        } else {project.pages = order.filter { included.contains($0) }.map { source.pages[$0-1].sourcePage }}
     }
     func move(_ offsets: IndexSet, to destination: Int) {
-        order.move(fromOffsets: offsets,toOffset: destination); updateSelection()
+        var next=order;next.move(fromOffsets:offsets,toOffset:destination)
+        commitPageList(project,order:next,included:included,selection:selectedPages)
     }
     func moveSelected(up: Bool) {
         guard !selectedPages.isEmpty else { return }
+        var nextOrder=order
         if up {
-            for index in order.indices.dropFirst() where selectedPages.contains(order[index]) && !selectedPages.contains(order[index-1]) {
-                order.swapAt(index,index-1)
+            for index in nextOrder.indices.dropFirst() where selectedPages.contains(nextOrder[index]) && !selectedPages.contains(nextOrder[index-1]) {
+                nextOrder.swapAt(index,index-1)
             }
-        } else if order.count > 1 {
-            for index in (0..<(order.count-1)).reversed() where selectedPages.contains(order[index]) && !selectedPages.contains(order[index+1]) {
-                order.swapAt(index,index+1)
+        } else if nextOrder.count > 1 {
+            for index in (0..<(nextOrder.count-1)).reversed() where selectedPages.contains(nextOrder[index]) && !selectedPages.contains(nextOrder[index+1]) {
+                nextOrder.swapAt(index,index+1)
             }
         }
-        updateSelection()
+        commitPageList(project,order:nextOrder,included:included,selection:selectedPages)
     }
     func schedulePlan() {
         planTask?.cancel()
@@ -504,7 +521,7 @@ extension Workspace {
     var state: ProjectState {
         ProjectState(projectID:projectIdentifier,project: project,source: sourceReference,order: order,included: included,
                      overlays: overlays,sheetPreset: sheetPreset,sheetIndex: sheetIndex,side: side,
-                     bookletGutter: bookletGutter,repetition: repetition,gangSources: gangAssets.isEmpty || project.book?.coverSourceID != nil ? nil : gangAssets.map(\.saved),repeatGutter: repeatGutter,gangGutter: project.binding == .gang ? project.sheet.gutter : gangGutter,linkedSources: project.book?.coverSourceID == nil ? nil : gangAssets.map(\.saved))
+                     bookletGutter: bookletGutter,repetition: repetition,gangSources: gangAssets.isEmpty || project.book?.coverSourceID != nil ? nil : gangAssets.map(\.saved),repeatGutter: repeatGutter,gangGutter: project.binding == .gang ? project.sheet.gutter : gangGutter,linkedSources: project.book?.coverSourceID == nil ? nil : gangAssets.map(\.saved),sourcePageCount:project.pageItems == nil ? nil : source?.pages.count)
     }
     private func refreshModified() {
         guard !restoring else { return }
@@ -624,19 +641,26 @@ extension Workspace {
             }
             loadedSource = try await PDFSource.combine(assets.map(\.source),displayName:snapshot.project.book?.coverSourceID == nil ? nil : "Kitap ve kapak")
             try snapshot.validateSelection(pageCount: loadedSource!.pages.count)
-            guard snapshot.project.pages.allSatisfy({ loadedSource!.pages[$0.number-1].sourcePage == $0 }) else { throw ProjectFileError.sourceMismatch }
+            guard snapshot.matchesPageMetadata(loadedSource!) else { throw ProjectFileError.sourceMismatch }
             for job in snapshot.project.gang?.jobs ?? [] {
                 guard let assetIndex = assets.firstIndex(where: { $0.saved.id==job.sourceID }) else { throw ProjectFileError.sourceMismatch }
                 let start = assets.prefix(assetIndex).reduce(0) { $0+$1.source.pages.count }
                 for page in [job.front,job.back].compactMap({ $0 }) {
-                    guard page.number>start,page.number<=start+assets[assetIndex].source.pages.count,loadedSource!.pages[page.number-1].sourcePage==page else { throw ProjectFileError.sourceMismatch }
+                    if let item=snapshot.project.pageItems?.first(where:{$0.id==page.number}) {
+                        guard item.planningPage==page else {throw ProjectFileError.sourceMismatch}
+                        if let number=item.sourcePage {
+                            guard number>start,number<=start+assets[assetIndex].source.pages.count else {throw ProjectFileError.sourceMismatch}
+                        }
+                    } else {
+                        guard page.number>start,page.number<=start+assets[assetIndex].source.pages.count,loadedSource!.pages[page.number-1].sourcePage==page else { throw ProjectFileError.sourceMismatch }
+                    }
                 }
             }
             if let book = snapshot.project.book,let id = book.coverSourceID {
                 guard let index = assets.firstIndex(where:{ $0.saved.id==id }) else { throw ProjectFileError.sourceMismatch }
                 let offset = assets.prefix(index).reduce(0) { $0+$1.saved.pageCount }
-                guard book.coverPDFPages.allSatisfy({ $0>offset && $0<=offset+assets[index].saved.pageCount }),
-                      book.auxiliaryPages.allSatisfy({ $0>0 && $0<=loadedSource!.pages.count }) else { throw ProjectFileError.sourceMismatch }
+                guard book.coverPDFPages.allSatisfy({ id in snapshot.project.artworkPageNumber(id).map{$0>offset && $0<=offset+assets[index].saved.pageCount} ?? false }),
+                      book.auxiliaryPages.allSatisfy({ id in snapshot.project.artworkPageNumber(id).map{$0>0 && $0<=loadedSource!.pages.count} ?? false }) else { throw ProjectFileError.sourceMismatch }
             }
             if snapshot.linkedSources != nil { snapshot.linkedSources = assets.map(\.saved) }
             else { snapshot.gangSources = assets.map(\.saved) }
@@ -650,8 +674,7 @@ extension Workspace {
             loadedSource = try await PDFSource.open(sourceURL!)
             if let preparation=snapshot.project.sourcePreparation { loadedSource = try await loadedSource!.prepared(preparation) }
             try snapshot.validateSelection(pageCount: loadedSource!.pages.count)
-            let actual = snapshot.project.pages.map { loadedSource!.pages[$0.number-1].sourcePage }
-            guard actual == snapshot.project.pages else { throw ProjectFileError.sourceMismatch }
+            guard snapshot.matchesPageMetadata(loadedSource!) else { throw ProjectFileError.sourceMismatch }
             snapshot.source = try ProjectSource.capture(sourceURL!,createBookmark: bookmarkCreator)
         } else { try snapshot.validateSelection(pageCount: 0) }
         try Task.checkCancellation()
@@ -1015,7 +1038,8 @@ extension Workspace {
         edit(&next.jobs[i]); project.gang = next
     }
     private func makeGangJobs(source: PDFSource,id: UUID,offset: Int,baseline: Project) -> [GangJob] {
-        var single = baseline; single.pages = source.pages.map(\.sourcePage)
+        var single = baseline
+        if baseline.pageItems == nil || offset != 0 {single.pages = source.pages.map(\.sourcePage)}
         return single.repeatJobs.enumerated().map { index,pair in
             var f = pair.front; f.number += offset
             var b = pair.back; b?.number += offset
@@ -1057,8 +1081,22 @@ extension Workspace {
                 let additions = Array(settings.jobs.dropFirst(originalCount))
                 settings = project.gang ?? GangSettings(); settings.jobs += additions
                 gangAssets = assets; source = merged; sourceReference = nil
-                var next = project; next.pages = merged.pages.map(\.sourcePage); next.gang = settings
-                order = merged.pages.map(\.number); included = Set(order); selectedPages = []
+                var next = project
+                if next.pageItems != nil {
+                    let oldSourceCount=assets.prefix(assets.count-urls.count).reduce(0){$0+$1.source.pages.count}
+                    let addedPages=merged.pages.filter{$0.number>oldSourceCount}.map(\.sourcePage)
+                    let mapping=try next.appendPageListSources(addedPages)
+                    for index in settings.jobs.indices where index>=originalCount {
+                        settings.jobs[index].front.number=mapping[settings.jobs[index].front.number]!
+                        if let back=settings.jobs[index].back {settings.jobs[index].back?.number=mapping[back.number]!}
+                    }
+                    order+=addedPages.compactMap{mapping[$0.number]};included.formUnion(order.suffix(addedPages.count))
+                    next.pages=next.selectedPageList(order:order,included:included)
+                } else {
+                    next.pages = merged.pages.map(\.sourcePage)
+                    order = merged.pages.map(\.number); included = Set(order)
+                }
+                next.gang = settings;selectedPages = []
                 project = next; selectedGangJobID = settings.jobs.last?.id
                 recordRecentFile(urls.last!); schedulePlan()
             } catch is CancellationError { } catch { self.error = error.localizedDescription }
@@ -1105,6 +1143,7 @@ extension Workspace {
     func enableBookSettings() { project.book = BookSettings() }
     var bookCoverDomain: [SourcePage] { project.bookCoverPages }
     func coverPageLabel(_ number: Int) -> String {
+        if project.pageItems != nil {return pageListTitle(number)}
         var offset = 0
         for asset in gangAssets {
             if number>offset && number<=offset+asset.saved.pageCount { return "\(number-offset) · \(asset.saved.reference.fileName)" }
@@ -1136,13 +1175,16 @@ extension Workspace {
                 try Task.checkCancellation()
                 guard project.isBooklet || project.isLeafBinding else { throw CancellationError() }
                 var next = project,book = next.book ?? BookSettings()
-                book.coverSourceID = id; book.coverPDFPages = cover.pages.map { $0.number+offset }
+                let addedPages=combined.pages.filter{$0.number>offset}.map(\.sourcePage)
+                let mapping=try next.appendPageListSources(addedPages)
+                book.coverSourceID = id; book.coverPDFPages = addedPages.compactMap{mapping[$0.number]}
                 book.auxiliaryPages = Array(Set(book.auxiliaryPages+book.coverPDFPages)).sorted()
                 book.selection = CoverSelection()
                 next.book = book; next.coverMode = .separate
                 let selected = included.union(book.coverPDFPages)
                 let newOrder = order+book.coverPDFPages
-                next.pages = newOrder.filter { selected.contains($0) }.map { combined.pages[$0-1].sourcePage }
+                if next.pageItems != nil {next.pages=next.selectedPageList(order:newOrder,included:selected)}
+                else {next.pages = newOrder.filter { selected.contains($0) }.map { combined.pages[$0-1].sourcePage }}
                 gangAssets = assets; source = combined; sourceReference = nil
                 order = newOrder; included = selected; selectedPages = []
                 project = next; sheetIndex = 0; repetition = 0; schedulePlan(); recordRecentFile(url)
@@ -1291,7 +1333,7 @@ extension Workspace {
         restoring = true
         planTask?.cancel(); bleedTask?.cancel(); bindingStripTask?.cancel()
         source = snapshot.source; gangAssets = snapshot.assets; sourceReference = snapshot.state.source
-        order = snapshot.state.order; included = snapshot.state.included
+        order = snapshot.state.order; included = snapshot.state.included; selectedPages.formIntersection(Set(order))
         bookletGutter = snapshot.state.bookletGutter; repeatGutter = snapshot.state.repeatGutter; gangGutter = snapshot.state.gangGutter
         project = snapshot.state.project; overlays = snapshot.state.overlays; sheetPreset = snapshot.state.sheetPreset
         sheetIndex = snapshot.state.sheetIndex; side = snapshot.state.side; repetition = snapshot.state.repetition ?? 0
@@ -1492,7 +1534,7 @@ extension Workspace {
         return section.fields.contains(where: { isManual($0) || project.autoLayout?.presetFields?.contains($0) == true }) ? "Manuel" : "Otomatik"
     }
     var statusSummary:String {
-        guard project.hasPanelItems else {return "PDF seçin"}
+        guard project.hasPanelItems else {return source==nil ? "PDF seçin":"Baskıya dahil sayfa yok"}
         let scaleSuffix = scalingStatus.isEmpty ? "" : " · "+scalingStatus
         let copies = currentSheet?.repeatLayout?.copiesPerSheet ?? currentSheet?.front.slots.filter { $0.sourcePageNumber != nil }.count ?? 0
         if project.isBooklet || project.isLeafBinding {
@@ -1582,7 +1624,7 @@ extension Workspace {
         }
     }
     var workflowReadyText:String {
-        guard project.hasPanelItems else {return "PDF seçin"}
+        guard project.hasPanelItems else {return source==nil ? "PDF seçin":"Baskıya dahil sayfa yok"}
         if source == nil { return "PDF seçerek başlayın" }
         if planning || autoArranging { return "Yerleşim hesaplanıyor…" }
         if exporting { return "PDF hazırlanıyor…" }
@@ -1730,8 +1772,19 @@ extension Workspace {
             guard assets.count==1 else {throw SourcePreparationError.unsupportedSource}
             assets[0]=GangAsset(saved:GangSourceReference(id:assets[0].saved.id,reference:reference,pageCount:original.pages.count),source:prepared)
         }
-        if changesGrid {next.pages=prepared.pages.map(\.sourcePage)}
-        else {
+        if changesGrid {next.pages=prepared.pages.map(\.sourcePage);next.pageItems=nil;next.pageItemNextID=nil}
+        else if let items=project.pageItems {
+            next.pageItems=try items.map {item in
+                var next=item
+                if let number=item.sourcePage {
+                    guard prepared.pages.indices.contains(number-1) else {throw ProjectFileError.sourceMismatch}
+                    next.size=prepared.pages[number-1].trimSize;next.availableBleed=prepared.pages[number-1].availableBleed
+                }
+                return next
+            }
+            let map=Dictionary(uniqueKeysWithValues:next.pageItems!.map{($0.id,$0)})
+            next.pages=order.filter{included.contains($0)}.compactMap{map[$0]?.planningPage}
+        } else {
             guard project.pages.allSatisfy({prepared.pages.indices.contains($0.number-1)}) else {throw ProjectFileError.sourceMismatch}
             next.pages=project.pages.map{prepared.pages[$0.number-1].sourcePage}
         }

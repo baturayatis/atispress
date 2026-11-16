@@ -60,7 +60,7 @@ import PDFEngine
         XCTAssertTrue(m.exportPreparationSummary.contains("4 kılavuz çizgisi gizlendi"))
         let file=dir.appendingPathComponent("split.atispress");try m.saveProject(as:file)
         let decoded=try ProjectDocument.decode(Data(contentsOf:file))
-        XCTAssertEqual(decoded.version,19);XCTAssertEqual(decoded.state.project.sourcePreparation,preparation)
+        XCTAssertEqual(decoded.version,20);XCTAssertEqual(decoded.state.project.sourcePreparation,preparation)
         XCTAssertEqual(decoded.state.gangSources?.first?.reference.path,url.path)
         XCTAssertEqual(decoded.state.gangSources?.first?.pageCount,1,"Stored reference counts original, never temporary cells")
         let opened=workspace();try await opened.loadProject(at:file);try await settle(opened)

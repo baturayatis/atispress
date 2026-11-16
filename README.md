@@ -17,6 +17,25 @@ In an environment that prevents nested `sandbox-exec` (including the current
 agent environment), use `swift build --disable-sandbox` and
 `swift test --disable-sandbox`. Xcode can also open `Package.swift` directly.
 
+## Sayfa listesi
+
+Sayfalar listesindeki … ve sağ tık menüsüyle çoğaltma, listeden silme,
+üstüne/altına boş sayfa ekleme ve başa/sona taşıma yapılır. Üstteki + Boş sayfa,
+Çoğalt ve Sil aynı işlemleri kullanır. ⌘D çoğaltır; liste odaktayken ⌫ siler;
+⌘Z / ⇧⌘Z geri alır/yineler. ⌘ ve ⇧ ile çoklu seçim, sürükleyerek sıralama vardır.
+Baskıya dahil kutusu geçici baskı seçimini değiştirir; Sil satırı listeden kaldırır.
+
+Ön/Arka çiftinin tek yüzü çoğaltılırken çift varsayılan olarak yeni ürün olur;
+isterseniz yalnız seçili sayfayı çoğaltabilirsiniz. Kaç kopya?… 1–99 tekrar alır.
+Çiftin tek yüzünü silerken çift/yalnız seçili sayfa seçimi sorulur. Çoklu silmede
+onay istenir. Kaynak PDF korunur; kopyalar aynı kaynak sayfaya referans verir.
+Boş satırlar komşu sayfanın ölçüsünü alır ve kitap forma hesabına katılır.
+Kitapta sayfa sayısı ve eklenecek boşlar listede gösterilir.
+
+Liste kimlikleri, sırası, baskı seçimi ve boşlar .atispress şema 20 ile saklanır.
+Şema 1–19 projeleri açılır. Her işlem tek undo adımıdır. Önizleme ve çıktı ortak
+planın aynı kaynak sayfa referanslarını kullanır.
+
 ## Ayarlara erişim
 
 Sağdaki 72 pt simge çubuğundan bir simge seçmek, 350 pt sütunda yalnız o
@@ -41,10 +60,10 @@ kapsamı ve elle kontrol listesi [docs/STATUS.md](docs/STATUS.md) içindedir.
 
 ## Kurulum
 
-Güncel uygulama sürümü **0.3.0 (build 5)**. Sürüm kaynağı
+Güncel uygulama sürümü **0.4.0 (build 6)**. Sürüm kaynağı
 `packaging/Info.plist`; Hakkında, tanı bilgisi ve güncelleme karşılaştırması
-aynı paket sürümünü kullanır. `swift run` için de 0.3.0 / 5 yedeği bulunur.
-Proje dosyası şeması bağımsızdır ve **19**’dur; eski projeler açılır.
+aynı paket sürümünü kullanır. `swift run` için de 0.4.0 / 6 yedeği bulunur.
+Proje dosyası şeması bağımsızdır ve **20**’dir; eski projeler açılır.
 
 **macOS 14 veya üzeri** gerekir. Intel ve Apple Silicon Mac’ler aynı universal
 uygulamayı kullanır.

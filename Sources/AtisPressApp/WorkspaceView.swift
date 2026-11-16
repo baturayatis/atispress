@@ -34,6 +34,7 @@ struct WorkspaceView: View {
         .alert("İşlem tamamlanamadı",isPresented: Binding(get: { model.error != nil },set: { if !$0 { model.error = nil } })) {
             Button("Tamam") { model.error = nil }
         } message: { Text(TRFormat.presentation(model.error ?? "")) }
+        .sheet(item:$model.pageDuplicateRequest) {PageDuplicateView(model:model,request:$0)}
         .sheet(isPresented:$model.showingPageSplit) { if let input=model.preparationInput {PageSplitView(model:model,input:input)} }
         .sheet(isPresented:$model.showingSourceGuides,onDismiss:{if model.showSplitAfterGuides {model.showSplitAfterGuides=false;model.showingPageSplit=model.canSplitSource}}) { if let input=model.preparationInput {SourceGuidesView(model:model,input:input)} }
         .sheet(isPresented:$model.preparingExport) { ExportPreparationView(model:model) }
@@ -67,17 +68,19 @@ struct WorkspaceView: View {
                     Button { model.moveSelected(up: false) } label: { Image(systemName: "arrow.down") }.help("Seçili sayfaları aşağı taşı").accessibilityLabel("Seçili sayfaları aşağı taşı")
                 }.buttonStyle(.borderless).disabled(model.source == nil).padding(.horizontal,12).padding(.bottom,8)
                 if model.project.isBooklet && model.blankSettings.mode == .manual { BlankPageOrderView(model:model).padding(.horizontal,8) }
+                HStack(spacing:8) {
+                    Button("+ Boş sayfa") {model.insertBlankPages(model.selectedPages)}
+                    Button("Çoğalt") {model.requestPageDuplicate()}.help("Seçili sayfaları çoğalt · ⌘D").keyboardShortcut("d").disabled(model.selectedPages.isEmpty)
+                    Button("Sil") {model.requestPageDelete()}.help("Listeden sil · ⌫ · Geri alınabilir").disabled(model.selectedPages.isEmpty)
+                }.buttonStyle(.borderless).font(.system(size:12)).padding(.horizontal,8).padding(.bottom,8).disabled(!model.canEditPageList)
+                if let summary=model.pageListBookletSummary {
+                    Text(summary).font(.system(size:12)).foregroundStyle(model.plan.addedBlankPages>0 ? DesignSystem.warning:DesignSystem.muted).padding(.horizontal,8)
+                }
                 List(selection: $model.selectedPages) {
-                    if let source = model.source {
-                        ForEach(model.order,id: \.self) { number in
-                            PageRow(source:source,number:number,role:WorkflowPresentation.pageRole(number,project:model.project),included: Binding(
-                                get: { model.included.contains(number) },
-                                set: { model.setIncluded(number,$0) }))
-                            .tag(number)
-                        }.onMove(perform: model.move)
-                    }
-                }.listStyle(.sidebar)
-                Button { pageHelp.toggle() } label: { Image(systemName:"questionmark.circle") }.buttonStyle(.borderless).accessibilityLabel("Sayfa seçimi yardımı").popover(isPresented:$pageHelp) { Text("Baskıya dahil et · ⌘ ile çoklu seç · sürükleyerek veya ↑↓ ile sırala").padding().frame(width:260) }
+                    ForEach(model.order,id:\.self) {id in PageListRow(model:model,id:id).tag(id)}
+                        .onMove(perform:model.move)
+                }.listStyle(.sidebar).onDeleteCommand {model.requestPageDelete()}
+                Button { pageHelp.toggle() } label: { Image(systemName:"questionmark.circle") }.buttonStyle(.borderless).accessibilityLabel("Sayfa seçimi yardımı").popover(isPresented:$pageHelp) { Text("Baskıya dahil et · ⌘ ve ⇧ ile çoklu seç · sürükleyerek veya ↑↓ ile sırala").padding().frame(width:260) }
                     .font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1).padding(8)
             }.frame(minHeight: 250)
             VStack(spacing: 0) {
@@ -209,7 +212,7 @@ struct WorkspaceView: View {
             Divider()
             HStack(spacing:DesignSystem.Space.md) {
                 if !model.project.hasPanelItems {
-                    Label("PDF seçin",systemImage:"doc.badge.plus")
+                    Label(model.source==nil ? "PDF seçin":"Baskıya dahil sayfa yok",systemImage:"doc.badge.plus")
                 } else if model.workflowIssues.isEmpty {
                     Label(model.workflowReadyText,systemImage:"checkmark.circle.fill")
                         .foregroundStyle(DesignSystem.success).padding(DesignSystem.Space.sm)
@@ -233,36 +236,5 @@ struct WorkspaceView: View {
             }.font(.callout).padding(DesignSystem.Space.md)
 
         }
-    }
-}
-
-private struct PageRow: View {
-    let source: PDFSource
-    let number: Int
-    let role:String
-    @Binding var included: Bool
-    @State private var thumbnail: NSImage?
-    var body: some View {
-        HStack(spacing: 9) {
-            Toggle("Sayfa \(number) · \(role) · baskıya dahil",isOn:$included).labelsHidden().toggleStyle(.switch)
-            ZStack {
-                RoundedRectangle(cornerRadius: 3).fill(DesignSystem.paper)
-                if let thumbnail { Image(nsImage: thumbnail).resizable().scaledToFit() }
-                else { Image(systemName: "doc").foregroundStyle(DesignSystem.muted) }
-            }.frame(width: 44,height: 62).clipped()
-            VStack(alignment: .leading,spacing: 4) {
-                HStack { Text("Sayfa \(number)").fontWeight(.medium); Text(role).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1) }
-                let info = source.pages[number-1]
-                Text("\(TRFormat.dimension(info.trimSize.width)) × \(TRFormat.dimension(info.trimSize.height)) mm").font(.system(size:12))
-                if info.availableBleed == 0 { Image(systemName:"drop.slash").font(.system(size:12)).foregroundStyle(DesignSystem.muted).help("Taşma yok") }
-                else { Text(info.availableBleed.map { "Taşma payı \(TRFormat.dimension($0)) mm" } ?? "Taşma bilinmiyor")
-                    .font(.system(size:12)).foregroundStyle(DesignSystem.muted) }
-            }
-        }.opacity(included ? 1 : 0.45)
-        .task(id: "\(source.id)-\(number)") {
-            let image = await source.image(page: number,pixels: 128)
-            if !Task.isCancelled { thumbnail = image }
-        }
-        .onDisappear { thumbnail = nil }
     }
 }

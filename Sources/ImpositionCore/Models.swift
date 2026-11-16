@@ -197,6 +197,9 @@ public struct Project: Equatable, Sendable, Codable {
     var bookCoverTemplate = false
     public var leafBinding: LeafBindingSettings? = nil
     public var alignment: BlockAlignment? = nil
+    public var pageItems:[PageListItem]? = nil
+    /// Monotonic occurrence allocation survives deletion and project reopening.
+    public var pageItemNextID:Int? = nil
     public var blankPlacement: BlankPlacement? = nil
     public var book: BookSettings? = nil
     public var gang: GangSettings? = nil
@@ -220,10 +223,12 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case sourcePreparation, scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case pageItemNextID, pageItems, sourcePreparation, scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        pageItemNextID = try c.decodeIfPresent(Int.self,forKey:.pageItemNextID)
+        pageItems = try c.decodeIfPresent([PageListItem].self,forKey:.pageItems)
         sourcePreparation = try c.decodeIfPresent(SourcePreparationSettings.self,forKey:.sourcePreparation)
         scaling = try c.decodeIfPresent(ScalingSettings.self,forKey:.scaling)
         rescaleJobs = try c.decodeIfPresent([RescaleJob].self,forKey:.rescaleJobs)
@@ -271,6 +276,7 @@ public struct Slot: Equatable, Sendable {
     public var bookRegion: String? = nil
     public var gangJobID: UUID? = nil
     public var gangBlockID: UUID? = nil
+    public var insertedBlank = false
     public var sourcePageNumber: Int?
     public var origin: Point
     public var size: Size

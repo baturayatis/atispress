@@ -228,3 +228,62 @@ LaunchServices kaydı sandbox'ta engellendi; paket masaüstü aracıyla açıld�
   Kılavuz grubuna yeni rol atayan editör sunulmaz.
 - VoiceOver sesli okuması ve tüm karmaşık menü/panel odak geçişleri fiziksel
   kullanımda ayrıca kontrol edilmeli.
+
+## Sayfa listesi işlemleri — sayfa-listesi
+
+- Her satırda … ve sağ tık menüsü; üstte + Boş sayfa, Çoğalt, Sil bulunur.
+  ⌘D ve liste odaktayken ⌫ aynı komutları çalıştırır. Native List çoklu seçimi
+  ve .onMove yeniden sıralaması kullanılır. Menü, sağ tıklanan satır seçiliyse
+  bütün seçime; başka bir satırsa o satıra uygulanır.
+- Çiftin tek yüzü seçildiğinde çoğaltma penceresinde bütün Ön/Arka çiftini
+  yeni ürün yapma varsayılandır. Yalnız seçili yüz ve 1–99 kopya seçenekleri
+  vardır. Tam çift seçiliyse normal Çoğalt doğrudan çalışır.
+- Sil, tek bağımsız sayfada doğrudan çalışır. Çoklu seçimde onay; çiftin tek
+  yüzünde çift/yalnız seçili yüz seçimi vardır. Baskıya dahil ayrı geçici
+  seçimdir. Tek yüz silme ve tek satır sürükleme okuma sırasını yeniden eşler;
+  çiftin birlikte taşınması için iki satır birlikte seçilmelidir.
+- Boşlar komşu ölçüsündedir, kesik çerçeveli küçük görselle gösterilir ve forma
+  içeriğinde yer tutar. Tamamen boş bir arka yüz de kasıtlı eklenmişse çıktıya
+  alınır. Kitap sayfa sayısı, listedeki boşlar ve otomatik eklenecek boşlar
+  gösterilir; forma için boş eklemek gerektiğinde satır uyarı rengindedir.
+- PageListItem kimlikleri fiziksel PDF sayfa numaralarından ayrıdır. Planner
+  aynı geometri/paginasyon hesabını kullanır; son ortak planda çizim referansı
+  özgün sayfaya, boşlar nil'e çözülür. PDF kopyalanmaz veya rasterleştirilmez.
+  .atispress yalnız küçük referans/ölçü kayıtlarıyla büyür; kaynak PDF korunur.
+- Sıra değişiminde seri alanları ve işe özel ölçekler ürün sırasına taşınır;
+  çift çoğaltırken alan kimlikleri yenilenir. Kılavuz hazırlama, sonradan PDF
+  ekleme ve ayrı kapak bağlama da liste kimliklerini korur.
+- Şema **20**; şema 1–19 açılır. Açılışta kimlikler, sıra/baskı seçimi,
+  kaynak sayfa sınırları ve kaynak ölçüleri denetlenir. Undo/redo aynı
+  ProjectState ve kaynak erişimini saklar. Güncelleyici değiştirilmedi.
+
+### Test ve çalıştırma
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+swift test --disable-sandbox
+swift run --disable-sandbox AtisPressApp
+```
+
+Son tam koşu **409 test, 0 hata** (70 PDFEngine, 124 ImpositionCore,
+215 AtisPressApp). Yeni PageListActionTests çoğaltma/99 kopya, çift kaynakları,
+tek yüz, silme/dahil etme ayrımı, çoklu seçim, boş/sıra, kitap forma sayısı,
+undo/redo, şema 19 göçü ve 20 kaydet/aç, seri/ölçek taşıma, ek PDF/kapak,
+bozuk referans reddi, kimlik taşması/yeniden kullanmama ve PDF vektör/piksel karşılaştırmasını kapsar. Önceki
+reachability, round-trip, snapshot ve güncelleyici testleri de geçer.
+
+Masaüstü uygulamasında …/sağ tık menüsünün yedi işlemi ve Baskıya dahil
+kutusunun erişilebilirlik adları incelendi. Açılışta bulunan kurtarma oturumu
+geri yüklendi ve açık bırakıldı. İşlem ve çıktı denemeleri üretilen test PDF'leriyle
+çalıştırılır. Universal uygulama dist/AtışPress.app altında derlenir; LaunchServices
+kaydı sandbox'ta engellenebilir.
+
+### Sınırlar ve elle doğrulama
+
+- Bu işlemler klasik Sayfalar listesi içindir. Karışık işin mevcut ürün
+  listesi kendi ürün işlemlerini kullanır.
+- Tek yüz silme/yeniden sıralama kalan okuma sırasından Ön/Arka eşlemesini
+  yeniden oluşturur. Kitapta elle belirlenmiş otomatik boş konumları yeni
+  sayıya uymuyorsa mevcut ön kontrol uyarısını gidermek gerekir.
+- Uzun gerçek belgelerde sürükleyerek çoklu sıralama ve VoiceOver sesli
+  gezinme ayrıca denenmelidir.

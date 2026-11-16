@@ -21,8 +21,12 @@ extension Workspace {
         if settings.method == .solidColor && white(settings.color) {return "Taşma: kenar rengi beyaz, taşma beyaz çıkar"}
         if settings.method != .solidColor {
             guard let source else {return "Taşma üretilemedi: kaynak PDF yok"}
-            let samples=pages.compactMap {source.edgeSamples.cached(page:$0.number)}
-            if samples.count<pages.count {return "Taşma üretilemedi: kenar örnekleri henüz hazır değil"}
+            let artwork=pages.compactMap {page -> Int? in
+                if project.pageItems != nil {return pageListItem(page.number)?.sourcePage}
+                return page.number
+            }
+            let samples=artwork.compactMap {source.edgeSamples.cached(page:$0)}
+            if samples.count<artwork.count {return "Taşma üretilemedi: kenar örnekleri henüz hazır değil"}
             if samples.allSatisfy({sample in SampleEdge.allCases.allSatisfy {edge in sample.strips[edge]?.uniformColor(tolerance:settings.tolerance).map(white) ?? false}}) {return "Taşma: kenar rengi beyaz, taşma beyaz çıkar"}
         }
         return adjacent ? "Taşma: bloğun dış çevresinde (bitişik dizilim)":"Taşma: her kartın 4 kenarında üretildi"

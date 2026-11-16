@@ -78,8 +78,19 @@ struct ProjectState: Codable, Equatable {
     var repeatGutter: Double
     var gangGutter: Double? = nil
     var linkedSources: [GangSourceReference]? = nil
+    var sourcePageCount:Int? = nil
 
     func validateSelection(pageCount: Int) throws {
+        if let items=project.pageItems {
+            let map=Dictionary(items.map{($0.id,$0)},uniquingKeysWith:{$1})
+            guard pageCount>=0,sourcePageCount==pageCount,map.count==items.count,Set(order)==Set(map.keys),Set(order).count==order.count,
+                  included.isSubset(of:Set(order)),items.allSatisfy({$0.id>0 && $0.copyNumber>0 && ($0.sourcePage.map{(1...max(1,pageCount)).contains($0)} ?? true) && $0.size.width.isFinite && $0.size.height.isFinite && $0.size.width>0 && $0.size.height>0}),
+                  project.pages==order.filter({included.contains($0)}).compactMap({map[$0]?.planningPage}) else {throw ProjectFileError.invalidSelection}
+            if let next=project.pageItemNextID {
+                guard next>0,next>(items.map(\.id).max() ?? 0) else {throw ProjectFileError.invalidSelection}
+            }
+            return
+        }
         guard order.count == pageCount,Set(order) == Set((0..<pageCount).map { $0+1 }),
               Set(order).count == order.count,
               included.isSubset(of: Set(order)),
@@ -89,7 +100,7 @@ struct ProjectState: Codable, Equatable {
     }
 }
 struct ProjectDocument: Codable, Equatable {
-    static let currentVersion = 19
+    static let currentVersion = 20
     var version: Int = currentVersion
     var state: ProjectState
     static func decode(_ data: Data) throws -> ProjectDocument {
@@ -113,7 +124,7 @@ struct ProjectDocument: Codable, Equatable {
             guard sources.contains(where:{$0.id==preparation.sourceID}) else {throw ProjectFileError.invalidSelection}
         }
         if let id = file.state.project.book?.coverSourceID, !sources.contains(where: { $0.id==id }) { throw ProjectFileError.invalidSelection }
-        try file.state.validateSelection(pageCount: file.state.order.count)
+        try file.state.validateSelection(pageCount: file.state.sourcePageCount ?? file.state.order.count)
         return file
     }
     func encoded() throws -> Data {
