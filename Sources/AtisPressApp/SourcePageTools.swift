@@ -7,6 +7,7 @@ struct SourcePageTools:View {
     @ObservedObject var model:Workspace
     var body:some View {
         VStack(alignment:.leading,spacing:6) {
+            if model.canSeparateArtwork { Button("Akıllı İş Ayırma…") { model.showingArtworkSeparation = true } }
             if let split=model.suggestedPageSplit {
                 Text("Bu sayfa birden fazla kart içeriyor gibi görünüyor (\(split.columns) × \(split.rows)).").font(.system(size:12))
                 HStack {Button("Sayfayı böl") {model.showingPageSplit=true};Button("Olduğu gibi kullan",action:model.dismissPageSplitSuggestion)}

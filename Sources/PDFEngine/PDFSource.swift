@@ -109,8 +109,9 @@ public final class PDFSource: @unchecked Sendable {
         } catch { try? FileManager.default.removeItem(at: folder); throw error }
     }
     public func prepared(_ settings:SourcePreparationSettings) async throws -> PDFSource {
+        guard settings.split == nil || settings.separation == nil else { throw SourcePreparationError.unsupportedSource }
         let input=preparationInput
-        if settings.split == nil && settings.hiddenGuideGroups.isEmpty { return input }
+        if !settings.hasPreparedProducts && settings.hiddenGuideGroups.isEmpty { return input }
         let folder=FileManager.default.temporaryDirectory.appendingPathComponent("atispress-prepared-"+UUID().uuidString)
         try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
         do {
@@ -125,8 +126,14 @@ public final class PDFSource: @unchecked Sendable {
                 let splitURL=folder.appendingPathComponent("cells.pdf"),from=url
                 try await Task.detached(priority:.userInitiated) {try PDFSourcePreparation.split(source:from,destination:splitURL,settings:split)}.value
                 url=splitURL
+            } else if let separation = settings.separation {
+                let output = folder.appendingPathComponent("regions.pdf"), from = url
+                try await Task.detached(priority: .userInitiated) {
+                    try PDFSourcePreparation.separate(source: from, destination: output, settings: separation)
+                }.value
+                url = output
             }
-            let result=try await PDFSource.open(url,preparedCells:settings.split != nil)
+            let result=try await PDFSource.open(url,preparedCells:settings.hasPreparedProducts)
             result.preparationParent=input;result.preparedGuideURL=guideURL;result.temporaryDirectory=folder;result.compositeTitle=input.displayName
             return result
         } catch {try? FileManager.default.removeItem(at:folder);throw error}

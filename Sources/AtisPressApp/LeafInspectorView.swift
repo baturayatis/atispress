@@ -38,7 +38,7 @@ struct LeafInspectorView: View {
                     Text("Ayrı PDF").tag(CoverMode.separate)
                 }.pickerStyle(.segmented).inspectorSetting(model,"Kapak modu",SettingGuidance.detail("Kapak modu"))
                 if model.project.coverMode != .included {
-                    if model.project.coverMode == .separate { if model.project.sourcePreparation?.split == nil {Button("Kapak PDF yükle…",action:model.chooseCoverPDF)} }
+                    if model.project.coverMode == .separate { if model.project.sourcePreparation?.hasPreparedProducts != true {Button("Kapak PDF yükle…",action:model.chooseCoverPDF)} }
                     coverPicker("Ön kapak",\.front)
                     coverPicker("Arka kapak",\.back)
                     Text("Kapaklar ayrı yaprak olarak basılır; iç yüzleri boştur. Aynı cilt payı uygulanır.").font(.system(size:12))

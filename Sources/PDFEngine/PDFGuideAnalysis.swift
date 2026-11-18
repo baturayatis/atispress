@@ -23,6 +23,7 @@ public struct PDFGuideAnalysis:Sendable {
     public var strokes:[PDFGuideStroke] = []
     public var groups:[PDFGuideGroup] = []
     public var artworkBounds:[Rect] = []
+    var regionBounds: [Rect] = []
     public var hasImages = false
     public var unsupported = false
     public var rasterFramesSuspected = false
@@ -129,20 +130,20 @@ public enum PDFGuideDetector {
             var resource:CGPDFDictionaryRef?,ancestor=page.dictionary,group:CGPDFDictionaryRef?
             for _ in 0..<32 {guard let d=ancestor else {break};if CGPDFDictionaryGetDictionary(d,"Resources",&resource) {break};var parent:CGPDFDictionaryRef?;_ = CGPDFDictionaryGetDictionary(d,"Parent",&parent);ancestor=parent}
             let unsafe=page.dictionary.map {CGPDFDictionaryGetDictionary($0,"Group",&group)} ?? false
-            merge(scan(data:data,number:number,view:view,resource:resource,matrix:.identity,layer:"",depth:0,scope:"",unsafe:unsafe,clip:page.getBoxRect(.mediaBox)),into:&output)
+            merge(scan(data:data,number:number,view:view,resource:resource,matrix:.identity,layer:"",depth:0,scope:"",unsafe:unsafe,clip:page.getBoxRect(.mediaBox),collectRegions:document.numberOfPages==1),into:&output)
         }
         if output.hasImages,output.strokes.isEmpty,document.numberOfPages==1,let page=document.page(at:1) {output.rasterFramesSuspected=rasterFrames(page)}
         return output
     }
     private static func merge(_ other:PDFGuideAnalysis,into output:inout PDFGuideAnalysis) {
-        output.strokes+=other.strokes;output.artworkBounds+=other.artworkBounds
+        output.strokes+=other.strokes;output.artworkBounds+=other.artworkBounds;output.regionBounds+=other.regionBounds.prefix(max(0,601-output.regionBounds.count))
         output.hasImages = output.hasImages || other.hasImages;output.unsupported = output.unsupported || other.unsupported
         for group in other.groups {
             if let i=output.groups.firstIndex(where:{$0.id==group.id}) {output.groups[i].count+=group.count;output.groups[i].canHide = output.groups[i].canHide && group.canHide}
             else {output.groups.append(group)}
         }
     }
-    private static func scan(data:Data,number:Int,view:CGAffineTransform,resource:CGPDFDictionaryRef?,matrix:CGAffineTransform,layer:String,depth:Int,scope:String,unsafe:Bool,clip:CGRect?) -> PDFGuideAnalysis {
+    private static func scan(data:Data,number:Int,view:CGAffineTransform,resource:CGPDFDictionaryRef?,matrix:CGAffineTransform,layer:String,depth:Int,scope:String,unsafe:Bool,clip:CGRect?,collectRegions:Bool) -> PDFGuideAnalysis {
         var output=PDFGuideAnalysis()
         guard data.count<=4*1024*1024 else {output.unsupported=true;return output}
             struct State { var matrix=CGAffineTransform.identity; var width=1.0; var rgb=[0.0,0,0]; var layer=""; var components=1; var clip:CGRect? }
@@ -150,7 +151,14 @@ public enum PDFGuideDetector {
             state.matrix=matrix;state.layer=layer;state.clip=clip
             func point(_ x:Double,_ y:Double) -> CGPoint { CGPoint(x:x,y:y).applying(state.matrix) }
             func rect(_ r:CGRect) -> Rect { Rect(x:r.minX,y:r.minY,width:r.width,height:r.height) }
-            func clear() {path=CGMutablePath();segments=[];rectangle=nil;curved=false}
+            var curveBounds = CGRect.null
+            func clear() {path=CGMutablePath();segments=[];rectangle=nil;curved=false;curveBounds = .null}
+            func recordRegion(_ bounds: CGRect) {
+                guard collectRegions, output.regionBounds.count <= 600 else { return }
+                let clipped = state.clip.map { bounds.intersection($0) } ?? bounds
+                guard !clipped.isNull, !clipped.isEmpty else { return }
+                output.regionBounds.append(rect(clipped.applying(view)))
+            }
             func value(_ n:Int) -> Double {Double(args[n].text) ?? 0}
             func components(_ name:String) -> Int {
                 if name=="/DeviceRGB" {return 3};if name=="/DeviceCMYK" {return 4};if name=="/DeviceGray" {return 1}
@@ -186,7 +194,12 @@ public enum PDFGuideDetector {
                     rectangle=path.isEmpty ? r:nil
                     let pts=[point(value(0),value(1)),point(value(0)+value(2),value(1)),point(value(0)+value(2),value(1)+value(3)),point(value(0),value(1)+value(3))]
                     path.move(to:pts[0]);for i in 1..<4 {path.addLine(to:pts[i])};path.closeSubpath();for i in 0..<4 {segments.append((pts[i],pts[(i+1)%4]))};current=pts[0];begin=current
-                case "c","v","y":curved=true // Curved paths are deliberately not offered for hiding.
+                case "c","v","y":
+                    curved = true // Curved paths are deliberately not offered for hiding.
+                    if collectRegions {
+                        let points = stride(from: 0, to: args.count - args.count % 2, by: 2).map { point(value($0), value($0 + 1)) }
+                        for p in [current] + points { curveBounds = curveBounds.union(CGRect(origin: p, size: .zero)) }
+                    }
                 case "S","s":
                     if token.text=="s" {segments.append((current,begin));path.closeSubpath()}
                     if rectangle == nil,segments.count==4,segments.allSatisfy({abs($0.0.x-$0.1.x)<0.001 || abs($0.0.y-$0.1.y)<0.001}) { rectangle=path.boundingBoxOfPath }
@@ -206,9 +219,17 @@ public enum PDFGuideDetector {
                         output.strokes.append(PDFGuideStroke(page:number,groupID:key,bounds:rect(bounds),segments:visible.map {a,b in let x=a.applying(view),y=b.applying(view);return (Point(x.x,x.y),Point(y.x,y.y))},rectangle:rectangle.flatMap {r in (state.clip?.insetBy(dx:-0.01,dy:-0.01).contains(r) ?? true) ? rect(r.applying(view)):nil},paintRange:token.range))
                         if let i=output.groups.firstIndex(where:{$0.id==key}) {output.groups[i].count+=1}
                         else {output.groups.append(PDFGuideGroup(id:key,color:r,width:width,layer:state.layer,role:role,count:1,canHide:true))}
-                    } else if !path.isEmpty { output.artworkBounds.append(rect(path.boundingBoxOfPath.applying(view))) }
+                    } else if !path.isEmpty {
+                        output.artworkBounds.append(rect(path.boundingBoxOfPath.applying(view)))
+                        recordRegion(path.boundingBoxOfPath.union(curveBounds).insetBy(dx: -width / 2, dy: -width / 2))
+                    }
                     clear()
-                case "f","F","f*","B","B*","b","b*":if !path.isEmpty {output.artworkBounds.append(rect(path.boundingBoxOfPath.applying(view)))};clear()
+                case "f","F","f*","B","B*","b","b*":
+                    if !path.isEmpty {
+                        output.artworkBounds.append(rect(path.boundingBoxOfPath.applying(view)))
+                        recordRegion(path.boundingBoxOfPath.union(curveBounds))
+                    }
+                    clear()
                 case "W","W*":
                     let box=path.boundingBoxOfPath
                     if !box.isNull {state.clip=state.clip.map{$0.intersection(box)} ?? box}
@@ -218,7 +239,10 @@ public enum PDFGuideDetector {
                 case "Do":
                     var objects:CGPDFDictionaryRef?,stream:CGPDFStreamRef?,subtype:UnsafePointer<CChar>?
                     if let resource,let name=args.first?.text,CGPDFDictionaryGetDictionary(resource,"XObject",&objects),let objects,CGPDFDictionaryGetStream(objects,String(name.dropFirst()),&stream),let stream,let dict=CGPDFStreamGetDictionary(stream),CGPDFDictionaryGetName(dict,"Subtype",&subtype),let subtype {
-                        if String(cString:subtype)=="Image" {output.hasImages=true}
+                        if String(cString:subtype)=="Image" {
+                            output.hasImages=true
+                            recordRegion(CGRect(x: 0, y: 0, width: 1, height: 1).applying(state.matrix))
+                        }
                         else if String(cString:subtype)=="Form",depth<8 {
                             var format=CGPDFDataFormat.raw,formResources:CGPDFDictionaryRef?,array:CGPDFArrayRef?
                             if let formData=CGPDFStreamCopyData(stream,&format),format == .raw {
@@ -227,7 +251,7 @@ public enum PDFGuideDetector {
                                     var v=[CGPDFReal](repeating:0,count:6);for i in 0..<6 {_ = CGPDFArrayGetNumber(array,i,&v[i])};fm=CGAffineTransform(a:v[0],b:v[1],c:v[2],d:v[3],tx:v[4],ty:v[5])
                                 }
                                 _ = CGPDFDictionaryGetDictionary(dict,"Resources",&formResources)
-                                let nested=scan(data:formData as Data,number:number,view:view,resource:formResources ?? resource,matrix:fm.concatenating(state.matrix),layer:state.layer,depth:depth+1,scope:scope+name+"/",unsafe:true,clip:formClip(dict,matrix:fm.concatenating(state.matrix),parent:state.clip))
+                                let nested=scan(data:formData as Data,number:number,view:view,resource:formResources ?? resource,matrix:fm.concatenating(state.matrix),layer:state.layer,depth:depth+1,scope:scope+name+"/",unsafe:true,clip:formClip(dict,matrix:fm.concatenating(state.matrix),parent:state.clip),collectRegions:collectRegions)
                                 merge(nested,into:&output)
                             } else {output.unsupported=true}
                         } else {output.unsupported=true}

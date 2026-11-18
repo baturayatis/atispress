@@ -7,17 +7,21 @@ struct TeamInspectorView: View {
     var body: some View {
         GroupBox("Takım Düzeni") {
             VStack(alignment: .leading, spacing: 8) {
-                Picker("Baskı", selection: Binding(get: { model.project.team?.duplex ?? false }, set: model.setTeamDuplex)) {
-                    Text("Tek yüz").tag(false)
-                    Text("Çift yüz").tag(true)
-                }.pickerStyle(.segmented)
+                if model.project.sourcePreparation?.separation != nil {
+                    Button("Bölgeleri ve yüzleri düzenle…") { model.showingArtworkSeparation = true }
+                } else {
+                    Picker("Baskı", selection: Binding(get: { model.project.team?.duplex ?? false }, set: model.setTeamDuplex)) {
+                        Text("Tek yüz").tag(false)
+                        Text("Çift yüz").tag(true)
+                    }.pickerStyle(.segmented)
+                }
                 Toggle("90° döndürmeye izin ver", isOn: Binding(
                     get: { model.project.team?.allowRotation ?? true },
                     set: { value in
                         model.project.team?.allowRotation = value
                         model.project.team?.manualLayouts = nil
                     }))
-                if model.project.team?.duplex == true, let job = model.selectedGangJob {
+                if model.project.sourcePreparation?.separation == nil, model.project.team?.duplex == true, let job = model.selectedGangJob {
                     pagePicker(job, side: .front)
                     pagePicker(job, side: .back)
                     Button("Sıralı eşle (1–2, 3–4…)") { model.setTeamDuplex(true) }

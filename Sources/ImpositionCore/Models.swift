@@ -11,7 +11,7 @@ public struct Point: Equatable, Sendable, Codable {
     public init(_ x: Double, _ y: Double) { self.x = x; self.y = y }
 }
 /// Axis-aligned bounds in sheet millimetres. Shared with every plan consumer.
-public struct Rect: Equatable, Sendable {
+public struct Rect: Equatable, Sendable, Codable {
     public var origin: Point
     public var size: Size
     public init(x: Double, y: Double, width: Double, height: Double) {

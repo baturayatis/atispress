@@ -42,6 +42,7 @@ struct WorkspaceView: View {
         } message: { Text(TRFormat.presentation(model.error ?? "")) }
         .sheet(item:$model.pdfInsertion,onDismiss:{model.showPendingPDFScaleWindow()}) {PDFInsertionView(model:model,draft:$0).id($0.id)}
         .sheet(item:$model.pageDuplicateRequest) {PageDuplicateView(model:model,request:$0)}
+        .sheet(isPresented: $model.showingArtworkSeparation) { if let input = model.preparationInput { ArtworkSeparationView(model: model, input: input) } }
         .sheet(isPresented:$model.showingPageSplit) { if let input=model.preparationInput {PageSplitView(model:model,input:input)} }
         .sheet(isPresented:$model.showingSourceGuides,onDismiss:{if model.showSplitAfterGuides {model.showSplitAfterGuides=false;model.showingPageSplit=model.canSplitSource}}) { if let input=model.preparationInput {SourceGuidesView(model:model,input:input)} }
         .sheet(isPresented:$model.preparingExport) { ExportPreparationView(model:model) }

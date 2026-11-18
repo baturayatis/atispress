@@ -72,6 +72,8 @@ public struct PageSplitSettings:Equatable,Codable,Sendable {
 public struct SourcePreparationSettings:Equatable,Codable,Sendable {
     public var sourceID:UUID
     public var split:PageSplitSettings?
+    public var separation: ArtworkSeparation?
+    public var hasPreparedProducts: Bool { split != nil || separation != nil }
     public var hiddenGuideGroups:[String] = []
     public var ignoreSplitSuggestion:Bool = false
     public init(sourceID:UUID = UUID()) { self.sourceID = sourceID }

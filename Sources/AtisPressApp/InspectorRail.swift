@@ -6,7 +6,7 @@ extension Workspace {
         if InspectorRegistry.fields(panel).contains(where:{isManual($0) || project.autoLayout?.presetFields?.contains($0)==true}) {return true}
         if panel == .job && basicQuantity != nil {return true}
         if panel == .serial && !editableSerialFields.isEmpty {return true}
-        if panel == .scaling && (project.hasRescaling || project.sourcePreparation?.split != nil || !(project.sourcePreparation?.hiddenGuideGroups.isEmpty ?? true)) {return true}
+        if panel == .scaling && (project.hasRescaling || project.sourcePreparation?.hasPreparedProducts == true || !(project.sourcePreparation?.hiddenGuideGroups.isEmpty ?? true)) {return true}
         if panel == .price,let cost=project.costing,cost.margin != nil || cost.vat != nil {return true}
         if panel == .bleed && showsMissingBleedWarning {return true}
         return workflowIssues.contains {InspectorPanel.legacy(inspectorSection(for:$0))==panel}

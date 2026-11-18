@@ -9,7 +9,7 @@ struct GangInspectorView: View {
     var body: some View {
         GroupBox("Karışık iş") {
             VStack(alignment:.leading,spacing:9) {
-                if model.project.sourcePreparation?.split == nil && model.project.sourcePreparation?.hiddenGuideGroups.isEmpty != false { Button("PDF ekle…",action:model.chooseGangPDFs) }
+                if model.project.sourcePreparation?.hasPreparedProducts != true && model.project.sourcePreparation?.hiddenGuideGroups.isEmpty != false { Button("PDF ekle…",action:model.chooseGangPDFs) }
                 Picker("Düzen",selection:Binding(get: { model.project.gang?.mode ?? .automatic },set: { value in
                     if value == .manual { model.manualGang() } else { model.project.gang?.mode = .automatic }
                 })) {
@@ -20,14 +20,18 @@ struct GangInspectorView: View {
                 if let job = model.selectedGangJob {
                     LabeledContent("İş adı") { TextField("Ad",text:binding(job,\.name)) }
                     Text("\(TRFormat.dimension(job.front.trimSize.width)) × \(TRFormat.dimension(job.front.trimSize.height)) mm · PDF kesim ölçüsü").font(.system(size:12))
-                    let pages = model.gangSourcePages(job.sourceID)
-                    Picker("Ön sayfa",selection:Binding(get: { job.front.number },set: { n in if let p = pages.first(where: { $0.number==n }) { model.editGangJob(job.id) { $0.front = p } } })) {
-                        ForEach(Array(pages.enumerated()),id:\.element.number) { i,p in Text("\(i+1)").tag(p.number) }
-                    }.inspectorSetting(model,"Ön sayfa",SettingGuidance.detail("Ön sayfa"))
-                    Picker("Arka sayfa",selection:Binding(get: { job.back?.number ?? 0 },set: { n in model.editGangJob(job.id) { $0.back = pages.first { $0.number==n } } })) {
-                        Text("Yok — tek yüz").tag(0)
-                        ForEach(Array(pages.enumerated()),id:\.element.number) { i,p in Text("\(i+1)").tag(p.number) }
-                    }.inspectorSetting(model,"Arka sayfa",SettingGuidance.detail("Arka sayfa"))
+                    if model.project.sourcePreparation?.separation != nil {
+                        Button("Bölgeleri ve yüzleri düzenle…") { model.showingArtworkSeparation = true }
+                    } else {
+                        let pages = model.gangSourcePages(job.sourceID)
+                        Picker("Ön sayfa",selection:Binding(get: { job.front.number },set: { n in if let p = pages.first(where: { $0.number==n }) { model.editGangJob(job.id) { $0.front = p } } })) {
+                            ForEach(Array(pages.enumerated()),id:\.element.number) { i,p in Text("\(i+1)").tag(p.number) }
+                        }.inspectorSetting(model,"Ön sayfa",SettingGuidance.detail("Ön sayfa"))
+                        Picker("Arka sayfa",selection:Binding(get: { job.back?.number ?? 0 },set: { n in model.editGangJob(job.id) { $0.back = pages.first { $0.number==n } } })) {
+                            Text("Yok — tek yüz").tag(0)
+                            ForEach(Array(pages.enumerated()),id:\.element.number) { i,p in Text("\(i+1)").tag(p.number) }
+                        }.inspectorSetting(model,"Arka sayfa",SettingGuidance.detail("Arka sayfa"))
+                    }
                     Toggle("90° döndürmeye izin ver",isOn:binding(job,\.allowRotation)).inspectorSetting(model,"90° döndürmeye izin ver",SettingGuidance.detail("90° döndürmeye izin ver"))
                     HStack { Text("Önizleme rengi"); Slider(value:binding(job,\.tint),in:0...1) }
                     HStack {
@@ -72,7 +76,7 @@ struct GangSidebarView: View {
     @ObservedObject var model: Workspace
     var body: some View {
         VStack(alignment:.leading,spacing:8) {
-            HStack { Text(model.project.team == nil ? "Karışık İşler" : "Takım Düzeni").font(.headline); Spacer(); if model.project.team == nil, model.project.sourcePreparation?.split == nil && model.project.sourcePreparation?.hiddenGuideGroups.isEmpty != false { Button("PDF ekle…",action:model.chooseGangPDFs) } }.padding(10)
+            HStack { Text(model.project.team == nil ? "Karışık İşler" : "Takım Düzeni").font(.headline); Spacer(); if model.project.team == nil, model.project.sourcePreparation?.hasPreparedProducts != true && model.project.sourcePreparation?.hiddenGuideGroups.isEmpty != false { Button("PDF ekle…",action:model.chooseGangPDFs) } }.padding(10)
             ForEach(model.gangAssets,id:\.saved.id) { asset in Text(asset.saved.reference.fileName).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1).padding(.horizontal) }
             if let layout = model.currentSheet?.gangLayout { Text(layout.summary).font(.callout).padding(.horizontal) }
             if let team = model.plan.teamSummary {

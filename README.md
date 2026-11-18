@@ -36,6 +36,21 @@ Sol listedeki **Düzen** seçicisi ilgili tabakanın önizlemesine gider.
 ve sayfaların yerleşimini değiştirebilirsiniz. Çakışmalar ve sığmayan
 bloklar dışa aktarmayı durdurur. Önizleme ve PDF çıktı aynı planı kullanır.
 
+## Akıllı İş Ayırma
+
+Tek sayfalı PDF'de **Ölçek/Böl → Akıllı İş Ayırma** çalışma alanındaki
+vektör sınırlarından, görüntü kutularından ve tanınan kesim/taşma
+çerçevelerinden aday bölgeler önerir. Kutuları seçebilir, elle çizebilir,
+ölçülerini düzeltebilir ve dört kenarın taşmasını ayrı girebilirsiniz.
+Öneri bulunamadığında bölgeleri elle çizin.
+
+Her bölgeye tek yüzlü bir ürün, mevcut ürünün ön veya arka yüzü ya da
+**Kullanma** atayın. **Ayrı işler** en fazla sekiz ürünü Karışık İş'e
+aktarır. **Tam takım** onaylı ürünleri ortak adetle Takım Düzeni'ne aktarır.
+Uygulamadan önce bölge, taşma ve yüz eşlemelerini onaylayın. Kayda özgün
+PDF bağlantısı ve kutu ölçüleri girer. Önizleme ve çıktı aynı vektör
+kırpmasını kullanır.
+
 ## İç Kesim İşaretleri
 
 **İşaretler → İç Kesim** bölümünde işi seçin. Yatay ve dikey kesimi
@@ -64,7 +79,7 @@ Boş satırlar komşu sayfanın ölçüsünü alır ve kitap forma hesabına kat
 Kitapta sayfa sayısı ve eklenecek boşlar listede gösterilir.
 
 Liste kimlikleri, sırası, baskı seçimi, boşlar, kaynaklar ve Ön/Arka çiftleri
-.atispress şema 23 ile saklanır. Şema 1–22 projeleri açılır. Her işlem tek undo adımıdır. Önizleme ve çıktı ortak
+.atispress şema 24 ile saklanır. Şema 1–23 projeleri açılır. Her işlem tek undo adımıdır. Önizleme ve çıktı ortak
 planın aynı kaynak sayfa referanslarını kullanır.
 
 ### Başka PDF’lerden sayfa ekleme
@@ -124,7 +139,7 @@ kapsamı ve elle kontrol listesi [docs/STATUS.md](docs/STATUS.md) içindedir.
 Güncel uygulama sürümü **0.4.0 (build 6)**. Sürüm kaynağı
 `packaging/Info.plist`; Hakkında, tanı bilgisi ve güncelleme karşılaştırması
 aynı paket sürümünü kullanır. `swift run` için de 0.4.0 / 6 yedeği bulunur.
-Proje dosyası şeması bağımsızdır ve **23**’tür; eski projeler açılır.
+Proje dosyası şeması bağımsızdır ve **24**’tür; eski projeler açılır.
 
 **macOS 14 veya üzeri** gerekir. Intel ve Apple Silicon Mac’ler aynı universal
 uygulamayı kullanır.

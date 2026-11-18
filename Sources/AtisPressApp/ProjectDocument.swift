@@ -100,7 +100,7 @@ struct ProjectState: Codable, Equatable {
     }
 }
 struct ProjectDocument: Codable, Equatable {
-    static let currentVersion = 23
+    static let currentVersion = 24
     var version: Int = currentVersion
     var state: ProjectState
     static func decode(_ data: Data) throws -> ProjectDocument {
@@ -118,10 +118,13 @@ struct ProjectDocument: Codable, Equatable {
         if header.version < 18, file.state.project.hasRescaling { file.state.project.migrateScaling() }
         guard file.state.source != nil || !(file.state.linkedSources ?? file.state.gangSources ?? []).isEmpty || file.state.order.isEmpty else { throw ProjectFileError.invalidSelection }
         let sources = file.state.linkedSources ?? file.state.gangSources ?? []
+        let preparation = file.state.project.sourcePreparation
+        let separatedCount = preparation?.separation.map { PDFSourcePreparation.products($0).reduce(0) { $0 + ($1.back == nil ? 1 : 2) } }
+        if let preparation, preparation.separation != nil && preparation.split != nil { throw ProjectFileError.invalidSelection }
         if file.state.project.team != nil {
             let project = file.state.project
             guard project.binding == .gang, project.pageItems == nil, sources.count == 1,
-                  project.pages.count == sources[0].pageCount,
+                  project.pages.count == (separatedCount ?? sources[0].pageCount),
                   project.pages.enumerated().allSatisfy({ $0.element.number == $0.offset + 1 }),
                   !(project.gang?.jobs.isEmpty ?? true) else { throw ProjectFileError.invalidSelection }
         }
@@ -129,9 +132,11 @@ struct ProjectDocument: Codable, Equatable {
             if let id=item.sourceID {
                 guard let source=sources.first(where:{$0.id==id}),let local=item.localPage,local>0,item.sourcePage != nil else {throw ProjectFileError.invalidSelection}
                 let count:Int
-                if let preparation=file.state.project.sourcePreparation,preparation.sourceID==id,let split=preparation.split {
-                    count=PDFSourcePreparation.products(split).reduce(0){$0+($1.back == nil ? 1:2)}
-                } else {count=source.pageCount}
+                if let preparation, preparation.sourceID == id {
+                    count = separatedCount ?? preparation.split.map {
+                        PDFSourcePreparation.products($0).reduce(0) { $0 + ($1.back == nil ? 1 : 2) }
+                    } ?? source.pageCount
+                } else { count = source.pageCount }
                 guard local<=count else {throw ProjectFileError.invalidSelection}
             } else if item.localPage != nil {throw ProjectFileError.invalidSelection}
             if item.side == .front || item.side == .back {guard item.pairID != nil else {throw ProjectFileError.invalidSelection}}
@@ -139,7 +144,7 @@ struct ProjectDocument: Codable, Equatable {
 
         guard Set(sources.map(\.id)).count == sources.count,sources.allSatisfy({ $0.pageCount > 0 }),
               (file.state.project.gang?.jobs ?? []).allSatisfy({ job in sources.contains { $0.id==job.sourceID } }) else { throw ProjectFileError.invalidSelection }
-        if let preparation=file.state.project.sourcePreparation,preparation.split != nil {
+        if let preparation=file.state.project.sourcePreparation,preparation.hasPreparedProducts {
             guard sources.contains(where:{$0.id==preparation.sourceID}) else {throw ProjectFileError.invalidSelection}
         }
         if let id = file.state.project.book?.coverSourceID, !sources.contains(where: { $0.id==id }) { throw ProjectFileError.invalidSelection }

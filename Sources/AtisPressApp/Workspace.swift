@@ -14,6 +14,7 @@ final class Workspace: ObservableObject {
     private var workflowRecommendationTask:Task<Void,Never>?
     @Published var pendingSourceTrim:(id:UUID,trim:Size,bleed:Double)?
     @Published var showSplitAfterGuides=false
+    @Published var showingArtworkSeparation = false
     @Published var showingPageSplit = false
     @Published var showingSourceGuides = false
     @Published var preparingSource = false
@@ -220,9 +221,9 @@ final class Workspace: ObservableObject {
             bleedSampleSummary = plan.generatedBleed.color.components.count == 4 ? "Dolgu: CMYK" : "Dolgu: RGB — özgün CMYK kanalları korunmaz."
             return
         }
-        let sampleSlots = project.sourcePreparation?.split != nil ? (currentSheet.map { $0.front.slots+$0.back.slots } ?? side.slots) : side.slots
+        let sampleSlots = project.sourcePreparation?.hasPreparedProducts == true ? (currentSheet.map { $0.front.slots+$0.back.slots } ?? side.slots) : side.slots
         let numbers = Array(Set(sampleSlots.compactMap(\.sourcePageNumber)))
-        let scaled:[(Int,ArtworkRescale)] = project.sourcePreparation?.split != nil ? sampleSlots.compactMap {slot in guard let n=slot.sourcePageNumber,let scale=slot.rescale else {return nil};return (n,scale)}:[]
+        let scaled:[(Int,ArtworkRescale)] = project.sourcePreparation?.hasPreparedProducts == true ? sampleSlots.compactMap {slot in guard let n=slot.sourcePageNumber,let scale=slot.rescale else {return nil};return (n,scale)}:[]
         if numbers.allSatisfy({ source.edgeSamples.cached(page: $0) != nil }) && scaled.allSatisfy({source.edgeSamples.cached(page:$0.0,rescale:$0.1) != nil}) {
             let native = numbers.filter { source.edgeSamples.cached(page: $0)?.usesCMYK == true }.count
             let rgb = numbers.count-native
@@ -345,9 +346,11 @@ final class Workspace: ObservableObject {
         next.binding = mode
         if next.team != nil {
             next.team = nil
-            next.gang = nil
-            sourceReference = gangAssets.first?.saved.reference
-            gangAssets = []
+            if next.sourcePreparation?.separation == nil {
+                next.gang = nil
+                sourceReference = gangAssets.first?.saved.reference
+                gangAssets = []
+            }
         }
         if mode == .gang {
             if next.gang == nil {
@@ -461,6 +464,7 @@ final class Workspace: ObservableObject {
     }
 
     func setTeamDuplex(_ duplex: Bool) {
+        guard project.sourcePreparation?.separation == nil else { return }
         guard var team = project.team, let id = gangAssets.first?.saved.id else { return }
         var next = project
         team.duplex = duplex
@@ -474,6 +478,7 @@ final class Workspace: ObservableObject {
     }
 
     func swapTeamPage(jobID: UUID, side: SideKind, with number: Int) {
+        guard project.sourcePreparation?.separation == nil else { return }
         guard var jobs = project.gang?.jobs, let target = jobs.firstIndex(where: { $0.id == jobID }),
               let sourceIndex = jobs.firstIndex(where: { $0.front.number == number || ($0.back?.number ?? 0) == number })
         else { return }
@@ -511,7 +516,7 @@ final class Workspace: ObservableObject {
         }
     }
     func open(_ url: URL,confirmChanges: Bool = true) {
-        if project.binding == .gang && project.team == nil && project.sourcePreparation?.split == nil && project.sourcePreparation?.hiddenGuideGroups.isEmpty != false && url.pathExtension.lowercased() == "pdf" { addGangPDFs([url]); return }
+        if project.binding == .gang && project.team == nil && project.sourcePreparation?.hasPreparedProducts != true && project.sourcePreparation?.hiddenGuideGroups.isEmpty != false && url.pathExtension.lowercased() == "pdf" { addGangPDFs([url]); return }
         guard !preparingSource,!loading, !exporting, !autoArranging, (!confirmChanges || confirmDiscard()) else { return }
         if url.pathExtension.lowercased() == "atispress" {
             loading = true; error = nil; pdfLoadFailure=nil
@@ -534,7 +539,7 @@ final class Workspace: ObservableObject {
                 var prepared: AutoLayoutResult
                 while true {
                     var snapshot = baseline
-                    if baseline.team != nil || baseline.sourcePreparation?.split != nil ||
+                    if baseline.team != nil || baseline.sourcePreparation?.hasPreparedProducts == true ||
                         baseline.sourcePreparation?.hiddenGuideGroups.isEmpty == false {
                         snapshot.binding = .stepAndRepeat
                     }
@@ -722,7 +727,7 @@ final class Workspace: ObservableObject {
                 }
                 if let url { urls.append(url) }
             }
-            if project.binding == .gang,project.team == nil,urls.allSatisfy({ $0.pathExtension.lowercased()=="pdf" }) { addGangPDFs(urls) }
+            if project.binding == .gang,project.team == nil,project.sourcePreparation?.separation == nil,urls.allSatisfy({ $0.pathExtension.lowercased()=="pdf" }) { addGangPDFs(urls) }
             else if let url = urls.first { open(url) }
         }
         return true
@@ -1301,7 +1306,7 @@ extension Workspace {
         panel.begin { [weak self] response in if response == .OK { self?.addGangPDFs(panel.urls) } }
     }
     func addGangPDFs(_ urls: [URL]) {
-        guard !loading,!exporting,project.binding == .gang,project.team == nil,!urls.isEmpty else { return }
+        guard !loading,!exporting,project.binding == .gang,project.team == nil,project.sourcePreparation?.separation == nil,!urls.isEmpty else { return }
         loading = true; error = nil; pdfLoadFailure=nil
         importTask = Task {
             do {
@@ -2018,10 +2023,13 @@ extension Workspace {
     }
     var preparationSourceID:UUID { project.sourcePreparation?.sourceID ?? gangAssets.first?.saved.id ?? UUID() }
     var preparationInput:PDFSource? { source?.preparationInput }
-    var canSplitSource:Bool { preparationInput?.pages.count == 1 && gangAssets.count<=1 && !project.isBooklet && !project.isLeafBinding }
+    var canSeparateArtwork: Bool {
+        preparationInput?.pages.count == 1 && gangAssets.count <= 1 && !project.isBooklet && !project.isLeafBinding
+    }
+    var canSplitSource:Bool { project.sourcePreparation?.separation == nil && preparationInput?.pages.count == 1 && gangAssets.count<=1 && !project.isBooklet && !project.isLeafBinding }
     var canInspectSourceGuides:Bool { preparationInput != nil && gangAssets.count<=1 }
     var suggestedPageSplit:PageSplitSettings? {
-        guard canSplitSource,project.sourcePreparation?.split == nil,project.sourcePreparation?.ignoreSplitSuggestion != true,let input=preparationInput else {return nil}
+        guard canSplitSource,project.sourcePreparation?.hasPreparedProducts != true,project.sourcePreparation?.ignoreSplitSuggestion != true,let input=preparationInput else {return nil}
         return input.guides.suggestion(size:input.pages[0].trimSize)
     }
     var hiddenSourceGuideCount:Int {
@@ -2035,32 +2043,57 @@ extension Workspace {
     func applySourcePreparation(_ settings:SourcePreparationSettings) async throws {
         guard let original=preparationInput,gangAssets.count<=1,!preparingSource else {throw SourcePreparationError.unsupportedSource}
         if settings.split != nil && settings.split != project.sourcePreparation?.split && !canSplitSource {throw SourcePreparationError.unsupportedSource}
+        if settings.separation != nil && (!canSeparateArtwork || settings.split != nil) { throw SourcePreparationError.unsupportedSource }
         preparingSource=true;defer {preparingSource=false}
         let prepared=try await original.prepared(settings)
         try Task.checkCancellation()
         let reference=try ProjectSource.capture(original.originalURL,createBookmark:bookmarkCreator)
         var next=project;next.sourcePreparation=settings
         var assets=gangAssets
-        let changesGrid=settings.split != nil && settings.split != project.sourcePreparation?.split
-        if let split=settings.split,changesGrid {
+        let restoresSeparationMode = settings.separation.map {
+            project.binding != .gang || $0.asTeam != (project.team != nil)
+        } ?? false
+        let changesGrid = settings.hasPreparedProducts && (settings.split != project.sourcePreparation?.split ||
+                                                           settings.separation != project.sourcePreparation?.separation || restoresSeparationMode)
+        if changesGrid {
             var gang=GangSettings()
-            let products=PDFSourcePreparation.products(split)
+            let products = settings.separation.map(PDFSourcePreparation.products) ??
+                settings.split.map(PDFSourcePreparation.products) ?? []
             for product in products {
                 let front=prepared.pages[product.front-1].sourcePage,back=product.back.map {prepared.pages[$0-1].sourcePage}
                 var job=project.gang?.jobs.first(where:{$0.splitProduct==product.number}) ?? GangJob(sourceID:settings.sourceID,name:"Ürün \(product.number)",front:front,back:back)
                 let existing=project.gang?.jobs.contains(where:{$0.id==job.id}) == true
                 job.sourceID=settings.sourceID;job.splitProduct=product.number;job.front=front;job.back=back
                 if !existing {
-                    job.quantity=project.stepAndRepeat.quantity ?? 1000;job.bleed=([front]+[back].compactMap{$0}).compactMap(\.availableBleed).min() ?? split.cellBleed
+                    job.quantity=project.stepAndRepeat.quantity ?? 1000;job.bleed=([front]+[back].compactMap{$0}).compactMap(\.availableBleed).min() ?? settings.split?.cellBleed ?? 0
                     job.generatedBleed=project.settings.generatedBleed
                     job.generatedBleed.enabled=([front]+[back].compactMap{$0}).contains {($0.availableBleed ?? 0)+0.001<job.bleed}
                     job.serialFields=project.serialFields.map {var f=$0;f.id=UUID();f.jobIndex=0;return f}
                 }
+                if settings.separation != nil { job.rescale = nil }
                 gang.jobs.append(job)
             }
             next.binding = .gang;next.gang=gang;next.book=nil;next.serialFields=[];next.scaling=nil;next.rescaleJobs=nil
+            let hasPairedProducts = gang.jobs.contains { $0.back != nil }
+            if settings.separation != nil {
+                next.previouslyHadBacks = nil
+                if !hasPairedProducts { next.settings.turnMethod = .sheetwise }
+            }
+            if settings.separation?.asTeam == true {
+                var team = project.team ?? TeamSettings()
+                if project.team == nil {
+                    team.quantity = project.stepAndRepeat.quantity ?? 1000
+                    team.waste = project.stepAndRepeat.waste ?? WasteSettings()
+                }
+                team.duplex = hasPairedProducts
+                team.manualLayouts = nil
+                next.team = team
+            } else { next.team = nil }
             // Independent products start with space for both bleeds and protected crop ticks.
-            if project.sourcePreparation?.split == nil {next.sheet.gutter=max(2*next.settings.bleed,2*(next.settings.cropMarkOffset+next.settings.cropMarkLength))}
+            if project.sourcePreparation?.hasPreparedProducts != true {
+                let bleed = settings.separation == nil ? next.settings.bleed : gang.jobs.map(\.bleed).max() ?? 0
+                next.sheet.gutter = max(2 * bleed, 2 * (next.settings.cropMarkOffset + next.settings.cropMarkLength))
+            }
             assets=[GangAsset(saved:GangSourceReference(id:settings.sourceID,reference:reference,pageCount:original.pages.count),source:prepared)]
         } else if !assets.isEmpty {
             guard assets.count==1 else {throw SourcePreparationError.unsupportedSource}
