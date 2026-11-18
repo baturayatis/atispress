@@ -9,7 +9,7 @@ import PDFEngine
         let model = Workspace()
         for mode in [BindingMethod.stepAndRepeat, .gang, .saddleStitch, .perfectBound, .spiral, .wireO, .sewn] {
             model.setMode(mode)
-            XCTAssertTrue(model.project.settings.generatedBleed.enabled, "\(mode)")
+            XCTAssertFalse(model.project.settings.generatedBleed.enabled, "\(mode)")
             XCTAssertEqual(model.project.settings.generatedBleed.method, .automatic)
             XCTAssertEqual(model.project.settings.bleed, 3)
         }
@@ -21,12 +21,13 @@ import PDFEngine
         XCTAssertTrue(model.showsMissingBleedWarning)
         XCTAssertTrue(model.exportPreparationSummary.contains(Workspace.missingBleedWarning))
         model.workflowBleed = 4.5
-        XCTAssertTrue(model.editableGeneratedBleed.enabled)
+        XCTAssertFalse(model.editableGeneratedBleed.enabled)
         XCTAssertEqual(model.workflowBleed,4.5)
-        XCTAssertFalse(model.showsMissingBleedWarning)
-        XCTAssertFalse(model.exportPreparationSummary.contains(Workspace.missingBleedWarning))
-        model.project.settings.generatedBleed.enabled = false
+        XCTAssertTrue(model.showsMissingBleedWarning)
+        XCTAssertTrue(model.exportPreparationSummary.contains(Workspace.missingBleedWarning))
         model.project.pages[0].availableBleed = 3
+        XCTAssertTrue(model.showsMissingBleedWarning)
+        model.project.pages[0].availableBleed = 4.5
         XCTAssertFalse(model.showsMissingBleedWarning)
         model.project.pages[0].availableBleed = nil
         model.enableMissingBleed()
@@ -37,10 +38,10 @@ import PDFEngine
         model.project.gang?.jobs = [job]
         XCTAssertTrue(model.showsMissingBleedWarning)
         model.workflowBleed = 3.5
-        XCTAssertTrue(model.editableGeneratedBleed.enabled)
-        XCTAssertFalse(model.showsMissingBleedWarning)
-        model.editableGeneratedBleed.enabled = false
+        XCTAssertFalse(model.editableGeneratedBleed.enabled)
+        XCTAssertTrue(model.showsMissingBleedWarning)
         model.enableMissingBleed()
+        XCTAssertTrue(model.editableGeneratedBleed.enabled)
         XCTAssertFalse(model.showsMissingBleedWarning)
     }
     func testGuideRequiresEnabledAndPositiveAmountInBothCanvasPaths() {
@@ -57,31 +58,31 @@ import PDFEngine
             }
         }
     }
-    func testAutomaticMissingBleedStaysEnabledAcrossModes() {
+    func testAutomaticLayoutLeavesMissingBleedUnfilledAcrossModes() {
         for mode in [BindingMethod.stepAndRepeat,.saddleStitch,.perfectBound,.spiral,.wireO] {
             var project = Workspace.newProject()
             project.pages = (1...16).map { SourcePage(number:$0,trimSize:Size(85,55),availableBleed:0) }
             project.binding = mode
             let result = SmartAutoLayout.arrange(project)
-            XCTAssertTrue(result.project.settings.generatedBleed.enabled,"\(mode)")
+            XCTAssertFalse(result.project.settings.generatedBleed.enabled,"\(mode)")
             XCTAssertEqual(result.project.settings.bleed,3)
         }
     }
 
-    func testDisabledAmountEditorAndSharedStepperBinding() throws {
+    func testAmountCanChangeWithoutEnablingArtworkGeneration() {
         let model = Workspace()
         model.project.settings.generatedBleed.enabled = false
-        let input = DimensionInput("Taşma payı",value:Binding(get:{model.workflowBleed},set:{model.workflowBleed = $0}),range:0...30,enabled:model.editableGeneratedBleed.enabled)
-        XCTAssertFalse(input.enabled)
+        let input = DimensionInput("Taşma payı",value:Binding(get:{model.workflowBleed},set:{model.workflowBleed = $0}),range:0...30)
+        XCTAssertTrue(input.enabled)
         input.value = 3.5
-        XCTAssertTrue(model.editableGeneratedBleed.enabled)
-        let root = URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let code = try String(contentsOf:root.appendingPathComponent("Sources/AtisPressApp/InspectorControls.swift"),encoding:.utf8)
-        XCTAssertTrue(code.contains(".disabled(!enabled).opacity(enabled ? 1 : 0.45)"))
+        XCTAssertEqual(model.workflowBleed,3.5)
+        XCTAssertFalse(model.editableGeneratedBleed.enabled)
     }
-    func testIndependentCoversInheritDefaultAndExplicitOffSurvivesModeChanges() {
+
+    func testIndependentCoversKeepExplicitGenerationSettingAcrossModeChanges() {
         let model = Workspace()
         model.project.pages = (1...20).map { SourcePage(number:$0,trimSize:Size(85,55),availableBleed:0) }
+        model.project.settings.generatedBleed.enabled = true
         for mode in [BindingMethod.saddleStitch,.perfectBound] {
             model.setMode(mode)
             model.project.book = BookSettings()

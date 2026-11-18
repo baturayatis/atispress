@@ -8,6 +8,7 @@ public struct EdgeStrip: @unchecked Sendable {
     public let isCMYK: Bool
     public let firstColor: BleedColor
     public let lastColor: BleedColor
+    let averageColor: BleedColor
     let memoryCost: Int
     private let minimum: [UInt8]
     private let maximum: [UInt8]
@@ -41,6 +42,12 @@ public struct EdgeStrip: @unchecked Sendable {
             for c in 0..<4 { line.append(bytes[offset+c]) }
         }
         firstColor = color(offsets[0]); lastColor = color(offsets.last!)
+        var totals = [Double](repeating: 0, count: 4)
+        for offset in stride(from: 0, to: line.count, by: 4) {
+            for channel in totals.indices { totals[channel] += Double(line[offset+channel]) }
+        }
+        let mean = totals.map { $0 / (255*Double(length)) }
+        averageColor = isCMYK ? .cmyk(mean[0],mean[1],mean[2],mean[3]) : .rgb(mean[0],mean[1],mean[2])
         let width = vertical ? 1 : length,height = vertical ? length : 1
         guard let provider = CGDataProvider(data: Data(line) as CFData),
               let image = CGImage(width: width,height: height,bitsPerComponent: 8,bitsPerPixel: 32,bytesPerRow: width*4,
@@ -102,6 +109,15 @@ public final class PDFPageEdgeSamples: NSObject, @unchecked Sendable {
         }
         strips = results; memoryCost = cost
     }
+    var averageEdgeColor: BleedColor {
+        let colors = SampleEdge.allCases.compactMap { strips[$0]?.averageColor.components }
+        var mean = [Double](repeating: 0, count: usesCMYK ? 4 : 3)
+        for color in colors {
+            for channel in mean.indices { mean[channel] += color[channel] / Double(colors.count) }
+        }
+        return usesCMYK ? .cmyk(mean[0],mean[1],mean[2],mean[3]) : .rgb(mean[0],mean[1],mean[2])
+    }
+
     public func corner(left: Bool,top: Bool) -> BleedColor {
         let strip = strips[left ? .left : .right]!
         return top ? strip.firstColor : strip.lastColor

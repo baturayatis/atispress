@@ -9,25 +9,29 @@ struct GangInspectorView: View {
     var body: some View {
         GroupBox("Karışık iş") {
             VStack(alignment:.leading,spacing:9) {
-                if model.project.sourcePreparation?.split == nil && model.project.sourcePreparation?.hiddenGuideGroups.isEmpty != false { Button("PDF ekle…",action:model.chooseGangPDFs) }
+                if model.project.sourcePreparation?.hasPreparedProducts != true && model.project.sourcePreparation?.hiddenGuideGroups.isEmpty != false { Button("PDF ekle…",action:model.chooseGangPDFs) }
                 Picker("Düzen",selection:Binding(get: { model.project.gang?.mode ?? .automatic },set: { value in
                     if value == .manual { model.manualGang() } else { model.project.gang?.mode = .automatic }
                 })) {
                     Text("Otomatik giyotin").tag(GangSettings.Mode.automatic)
                     Text("Elle yerleştir").tag(GangSettings.Mode.manual)
-                }.pickerStyle(.segmented).inspectorSetting(model,"Düzen",SettingGuidance.detail("Düzen"))
+                }.pickerStyle(.segmented).inspectorSetting(model,"Düzen",SettingGuidance.detail("Düzen")).inspectorTarget("gangMode")
                 Text("Her iş bir dikdörtgen ızgara bloğudur. Bitişik kesimde boşluk 0; aralıklı düzende boşluk en az 2 × taşma olmalı.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
                 if let job = model.selectedGangJob {
                     LabeledContent("İş adı") { TextField("Ad",text:binding(job,\.name)) }
                     Text("\(TRFormat.dimension(job.front.trimSize.width)) × \(TRFormat.dimension(job.front.trimSize.height)) mm · PDF kesim ölçüsü").font(.system(size:12))
-                    let pages = model.gangSourcePages(job.sourceID)
-                    Picker("Ön sayfa",selection:Binding(get: { job.front.number },set: { n in if let p = pages.first(where: { $0.number==n }) { model.editGangJob(job.id) { $0.front = p } } })) {
-                        ForEach(Array(pages.enumerated()),id:\.element.number) { i,p in Text("\(i+1)").tag(p.number) }
-                    }.inspectorSetting(model,"Ön sayfa",SettingGuidance.detail("Ön sayfa"))
-                    Picker("Arka sayfa",selection:Binding(get: { job.back?.number ?? 0 },set: { n in model.editGangJob(job.id) { $0.back = pages.first { $0.number==n } } })) {
-                        Text("Yok — tek yüz").tag(0)
-                        ForEach(Array(pages.enumerated()),id:\.element.number) { i,p in Text("\(i+1)").tag(p.number) }
-                    }.inspectorSetting(model,"Arka sayfa",SettingGuidance.detail("Arka sayfa"))
+                    if model.project.sourcePreparation?.separation != nil {
+                        Text("Bölge ve yüz eşlemesi İş Ayır sekmesinde düzenlenir.").font(.caption).foregroundStyle(DesignSystem.muted)
+                    } else {
+                        let pages = model.gangSourcePages(job.sourceID)
+                        Picker("Ön sayfa",selection:Binding(get: { job.front.number },set: { n in if let p = pages.first(where: { $0.number==n }) { model.editGangJob(job.id) { $0.front = p } } })) {
+                            ForEach(Array(pages.enumerated()),id:\.element.number) { i,p in Text("\(i+1)").tag(p.number) }
+                        }.inspectorSetting(model,"Ön sayfa",SettingGuidance.detail("Ön sayfa"))
+                        Picker("Arka sayfa",selection:Binding(get: { job.back?.number ?? 0 },set: { n in model.editGangJob(job.id) { $0.back = pages.first { $0.number==n } } })) {
+                            Text("Yok — tek yüz").tag(0)
+                            ForEach(Array(pages.enumerated()),id:\.element.number) { i,p in Text("\(i+1)").tag(p.number) }
+                        }.inspectorSetting(model,"Arka sayfa",SettingGuidance.detail("Arka sayfa"))
+                    }
                     Toggle("90° döndürmeye izin ver",isOn:binding(job,\.allowRotation)).inspectorSetting(model,"90° döndürmeye izin ver",SettingGuidance.detail("90° döndürmeye izin ver"))
                     HStack { Text("Önizleme rengi"); Slider(value:binding(job,\.tint),in:0...1) }
                     HStack {
@@ -72,14 +76,21 @@ struct GangSidebarView: View {
     @ObservedObject var model: Workspace
     var body: some View {
         VStack(alignment:.leading,spacing:8) {
-            HStack { Text("Karışık İşler").font(.headline); Spacer(); if model.project.sourcePreparation?.split == nil && model.project.sourcePreparation?.hiddenGuideGroups.isEmpty != false { Button("PDF ekle…",action:model.chooseGangPDFs) } }.padding(10)
+            HStack { Text(model.project.team == nil ? "Karışık İşler" : "Takım Düzeni").font(.headline); Spacer(); if model.project.team == nil, model.project.sourcePreparation?.hasPreparedProducts != true && model.project.sourcePreparation?.hiddenGuideGroups.isEmpty != false { Button("PDF ekle…",action:model.chooseGangPDFs) } }.padding(10)
             ForEach(model.gangAssets,id:\.saved.id) { asset in Text(asset.saved.reference.fileName).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1).padding(.horizontal) }
             if let layout = model.currentSheet?.gangLayout { Text(layout.summary).font(.callout).padding(.horizontal) }
+            if let team = model.plan.teamSummary {
+                Text("\(team.pageCount) sayfa · \(model.plan.sheets.count) düzen · \(team.plateCount) kalıp/renk · \(model.plan.totalPressSheets) tabaka")
+                    .font(.caption).padding(.horizontal)
+                Picker("Düzen", selection: Binding(get: { model.sheetIndex }, set: model.selectPreviewSheet)) {
+                    ForEach(model.plan.sheets.indices, id: \.self) { index in Text("Düzen \(index + 1)").tag(index) }
+                }.padding(.horizontal)
+            }
             List(selection:$model.selectedGangJobID) {
                 ForEach(model.project.gang?.jobs ?? []) { job in
                     VStack(alignment:.leading,spacing:5) {
                         HStack { Circle().fill(Color(nsColor:DesignSystem.jobTint(job.tint,fill:false))).frame(width:10,height:10); Text(job.name).fontWeight(.medium) }
-                        Text("Adet \(job.quantity) + fire \(job.waste.quantities(for:job.quantity)?.waste ?? 0) · \(job.back == nil ? "Tek yüz" : "Çift yüz")").font(.system(size:12))
+                        if model.project.team == nil { Text("Adet \(job.quantity) + fire \(job.waste.quantities(for:job.quantity)?.waste ?? 0) · \(job.back == nil ? "Tek yüz" : "Çift yüz")").font(.system(size:12)) }
                         if let result = model.currentSheet?.gangLayout?.jobs.first(where: { $0.job.id==job.id }) {
                             Text("\(result.copiesPerSheet) adet/tabaka · Fazla: \(result.surplus) adet").font(.system(size:12))
                             ForEach(result.serialPlan.fields) { field in Text("Seri: \(result.serialPlan.range(field:field,repetition:model.repetition) ?? "—")").font(.system(size:12)) }

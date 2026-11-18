@@ -6,28 +6,257 @@ import ImpositionCore
 
 @MainActor
 final class GangWorkspaceTests: XCTestCase {
-    private func model() -> Workspace {
-        Workspace(bookmarkCreator: { try $0.bookmarkData(options:.minimalBookmark,includingResourceValuesForKeys:nil,relativeTo:nil) })
+    private func preferences() -> UserDefaults {
+        let name = "GangWorkspaceTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: name)!
+        addTeardownBlock { defaults.removePersistentDomain(forName: name) }
+        return defaults
+    }
+
+    private func model(defaults: UserDefaults? = nil) -> Workspace {
+        Workspace(bookmarkCreator: { try $0.bookmarkData(options:.minimalBookmark,includingResourceValuesForKeys:nil,relativeTo:nil) },
+                  uiDefaults: defaults ?? preferences())
     }
     private func folder() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at:url,withIntermediateDirectories:true)
         addTeardownBlock { try? FileManager.default.removeItem(at:url) }; return url
     }
-    private func pdf(_ folder: URL,_ name: String,_ size: Size,pages: Int = 1) throws -> URL {
+    private func pdf(_ folder: URL,_ name: String,_ size: Size,pages: Int = 1, distinctPages: Bool = false) throws -> URL {
         let url = folder.appendingPathComponent(name)
         var rect = CGRect(x:0,y:0,width:size.width*72/25.4,height:size.height*72/25.4)
         let context = try XCTUnwrap(CGContext(consumer:XCTUnwrap(CGDataConsumer(url:url as CFURL)),mediaBox:&rect,nil))
-        for _ in 0..<pages { context.beginPDFPage(nil); context.setFillColor(CGColor(gray:0.75,alpha:1)); context.fill(rect); context.endPDFPage() }
+        for page in 0..<pages {
+            context.beginPDFPage(nil)
+            context.setFillColor(CGColor(gray: distinctPages ? CGFloat(page) / CGFloat(pages) : 0.75, alpha: 1))
+            context.fill(rect)
+            context.endPDFPage()
+        }
         context.closePDF(); return url
     }
     private func settle(_ model: Workspace) async throws {
         for _ in 0..<1000 {
-            if !model.loading && !model.planning && !model.autoArranging && !model.samplingBleed { return }
+            if !model.loading && !model.planning && !model.autoArranging { return }
             try await Task.sleep(for:.milliseconds(10))
         }
         XCTFail("Gang workspace did not settle")
     }
+    func testTeamImportPairPlacementProjectRoundTripAndVectorExport() async throws {
+        let directory = try folder()
+        let input = try pdf(directory, "team.pdf", Size(55, 35), pages: 13, distinctPages: true)
+        let workspace = model()
+        workspace.open(input)
+        try await settle(workspace)
+        XCTAssertTrue(workspace.showingTeamImportChoice)
+        XCTAssertEqual(workspace.project.binding, .stepAndRepeat)
+        XCTAssertNil(workspace.project.team)
+        workspace.startTeam()
+        workspace.project.sheet.size = Size(160, 135)
+        workspace.project.sheet.orientation = .portrait
+        workspace.basicQuantity = 3
+        workspace.setTeamDuplex(true)
+        let first = try XCTUnwrap(workspace.project.gang?.jobs.first)
+        workspace.swapTeamPage(jobID: first.id, side: .back, with: 4)
+        XCTAssertEqual(workspace.project.gang?.jobs.first?.back?.number, 4)
+        XCTAssertEqual(workspace.project.gang?.jobs.dropFirst().first?.back?.number, 2)
+        try await settle(workspace)
+        XCTAssertTrue(workspace.plan.canExport, "\(workspace.plan.issues)")
+        XCTAssertGreaterThan(workspace.plan.sheets.count, 1)
+        workspace.manualGang()
+        try await settle(workspace)
+        let last = try XCTUnwrap(workspace.project.gang?.jobs.last)
+        workspace.swapTeamPlacements(first.id, last.id)
+        try await settle(workspace)
+        XCTAssertTrue(workspace.plan.canExport, "\(workspace.plan.issues)")
+        XCTAssertTrue(workspace.plan.sheets[0].front.slots.contains { $0.sourcePageNumber == last.front.number })
+        let saved = directory.appendingPathComponent("team.atispress")
+        try workspace.saveProject(as: saved)
+        let document = try ProjectDocument.decode(Data(contentsOf: saved))
+        XCTAssertEqual(document.version, ProjectDocument.currentVersion)
+        XCTAssertEqual(document.state.gangSources?.count, 1)
+        XCTAssertNotNil(document.state.project.team?.manualLayouts)
+        let opened = model()
+        try await opened.loadProject(at: saved)
+        try await settle(opened)
+        XCTAssertEqual(opened.project, workspace.project)
+        XCTAssertEqual(opened.plan.sheets, workspace.plan.sheets)
+        XCTAssertEqual(opened.plan.teamSummary, workspace.plan.teamSummary)
+        let source = try XCTUnwrap(opened.source)
+        let plan = opened.plan
+        let output = directory.appendingPathComponent("imposed.pdf")
+        let export = try await Task.detached {
+            try PDFExporter.export(plan: plan, source: source, destination: .singlePDF(output), marks: .none)
+        }.value
+        XCTAssertEqual(export.sheetCount, plan.totalPressSheets)
+        XCTAssertEqual(export.pageCount, 2 * plan.totalPressSheets)
+        let rendered = try XCTUnwrap(CGPDFDocument(output as CFURL))
+        XCTAssertEqual(rendered.numberOfPages, export.pageCount)
+        let verification = try await Task.detached {
+            try ExportVerification.check(files: export.files, plan: plan, source: source,
+                                         marks: .none, includeBlankBacks: true)
+        }.value
+        XCTAssertTrue(verification.passed, "\(verification.differences)")
+    }
+
+    func testVersion21ClassicProjectOpensWithIdenticalPlan() async throws {
+        let directory = try folder()
+        let input = try pdf(directory, "classic.pdf", Size(55, 35), pages: 2)
+        let workspace = model()
+        workspace.open(input)
+        try await settle(workspace)
+        let saved = directory.appendingPathComponent("classic.atispress")
+        try workspace.saveProject(as: saved)
+        var legacy = try ProjectDocument.decode(Data(contentsOf: saved))
+        legacy.version = 21
+        try legacy.encoded().write(to: saved)
+        let opened = model()
+        try await opened.loadProject(at: saved)
+        try await settle(opened)
+        XCTAssertEqual(opened.project, workspace.project)
+        XCTAssertEqual(opened.plan.sheets, workspace.plan.sheets)
+        XCTAssertEqual(opened.plan.teamSummary, workspace.plan.teamSummary)
+        XCTAssertNil(opened.project.team)
+    }
+
+    func testInternalCutSettingsRoundTripAndVersion22Defaults() async throws {
+        let directory = try folder()
+        let input = try pdf(directory, "cuts.pdf", Size(150, 50), pages: 2)
+        let workspace = model()
+        workspace.open(input)
+        try await settle(workspace)
+        let url = directory.appendingPathComponent("cuts.atispress")
+        try workspace.saveProject(as: url)
+        var legacy = try ProjectDocument.decode(Data(contentsOf: url))
+        legacy.version = 22
+        try legacy.encoded().write(to: url)
+        let reopened = model()
+        try await reopened.loadProject(at: url)
+        try await settle(reopened)
+        XCTAssertNil(reopened.project.internalCutJobs)
+        XCTAssertEqual(reopened.plan.sheets, workspace.plan.sheets)
+        var cuts = InternalCutMarks()
+        cuts.horizontal.enabled = true
+        cuts.vertical.enabled = true
+        cuts.vertical.position = .custom
+        cuts.vertical.offsets = [50, 100]
+        workspace.project.internalCutJobs = [1: cuts]
+        workspace.startTeam()
+        XCTAssertEqual(workspace.project.gang?.jobs.first?.internalCuts, cuts)
+        XCTAssertNil(workspace.project.gang?.jobs.last?.internalCuts)
+        try await settle(workspace)
+        try workspace.saveProject(as: url)
+        try await reopened.loadProject(at: url)
+        try await settle(reopened)
+        XCTAssertEqual(reopened.project, workspace.project)
+        XCTAssertEqual(reopened.plan.sheets, workspace.plan.sheets)
+        XCTAssertTrue(reopened.plan.sheets.flatMap { $0.front.marks }.contains { $0.kind == .internalCut })
+    }
+
+    func testTeamImportChoicePersistsChangesAndResetsWithoutChangingOpenProjects() async throws {
+        let directory = try folder()
+        let input = try pdf(directory, "multi.pdf", Size(55, 35), pages: 3)
+        let single = try pdf(directory, "single.pdf", Size(55, 35))
+        let defaults = preferences()
+        let first = model(defaults: defaults)
+        first.open(input)
+        try await settle(first)
+        XCTAssertTrue(first.showingTeamImportChoice)
+        first.finishTeamImport(.asIs, remember: false)
+        XCTAssertEqual(first.ui.teamPDFImport, .ask)
+        XCTAssertFalse(first.showingTeamImportChoice)
+        first.open(input, confirmChanges: false)
+        try await settle(first)
+        XCTAssertTrue(first.showingTeamImportChoice)
+        first.finishTeamImport(.asIs, remember: true)
+        XCTAssertEqual(model(defaults: defaults).ui.teamPDFImport, .asIs)
+        first.ui.teamPDFImport = .ask
+        first.open(input, confirmChanges: false)
+        try await settle(first)
+        XCTAssertTrue(first.showingTeamImportChoice)
+        first.finishTeamImport(.team, remember: true)
+        try await settle(first)
+        XCTAssertNotNil(first.project.team)
+
+        let automatic = model(defaults: defaults)
+        XCTAssertEqual(automatic.ui.teamPDFImport, .team)
+        automatic.open(single)
+        try await settle(automatic)
+        XCTAssertNil(automatic.project.team)
+        XCTAssertFalse(automatic.showingTeamImportChoice)
+        automatic.open(input, confirmChanges: false)
+        try await settle(automatic)
+        XCTAssertNotNil(automatic.project.team)
+        XCTAssertFalse(automatic.showingTeamImportChoice)
+
+        let teamProject = automatic.project
+        automatic.ui.teamPDFImport = .asIs
+        XCTAssertEqual(automatic.project, teamProject)
+        automatic.setMode(.stepAndRepeat)
+        try await settle(automatic)
+        let saved = directory.appendingPathComponent("repeat.atispress")
+        try automatic.saveProject(as: saved)
+        let repeatProject = automatic.project
+
+        let next = model(defaults: defaults)
+        XCTAssertEqual(next.ui.teamPDFImport, .asIs)
+        next.open(input)
+        try await settle(next)
+        XCTAssertFalse(next.showingTeamImportChoice)
+        XCTAssertNil(next.project.team)
+        next.startTeam()
+        XCTAssertNotNil(next.project.team)
+        XCTAssertEqual(next.ui.teamPDFImport, .asIs)
+
+        next.ui.teamPDFImport = .team
+        try await next.loadProject(at: saved)
+        try await settle(next)
+        XCTAssertEqual(next.project, repeatProject)
+        XCTAssertFalse(next.showingTeamImportChoice)
+        XCTAssertFalse(next.isModified)
+        next.ui.teamPDFImport = .ask
+        XCTAssertNil(defaults.object(forKey: TeamPDFImport.defaultsKey))
+        XCTAssertEqual(model(defaults: defaults).ui.teamPDFImport, .ask)
+        next.open(input)
+        try await settle(next)
+        XCTAssertTrue(next.showingTeamImportChoice)
+    }
+
+    func testLegacyImageColorSettingsAreIgnoredOnOpenAndSave() async throws {
+        let directory = try folder()
+        let input = try pdf(directory, "legacy.pdf", Size(55, 35), pages: 3, distinctPages: true)
+        let workspace = model()
+        workspace.open(input)
+        try await settle(workspace)
+        workspace.startTeam()
+        try await settle(workspace)
+        let saved = directory.appendingPathComponent("legacy.atispress")
+        try workspace.saveProject(as: saved)
+
+        var root = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: saved)) as? [String: Any])
+        var state = try XCTUnwrap(root["state"] as? [String: Any])
+        var project = try XCTUnwrap(state["project"] as? [String: Any])
+        var gang = try XCTUnwrap(project["gang"] as? [String: Any])
+        var jobs = try XCTUnwrap(gang["jobs"] as? [[String: Any]])
+        jobs[0]["imageColor"] = ["brightness": 0.5, "contrast": 2, "saturation": 0, "cmykProfileID": "legacy"]
+        gang["jobs"] = jobs
+        project["gang"] = gang
+        project["imageColorJobs"] = ["1": ["brightness": -0.5, "contrast": 0, "saturation": 2]]
+        state["project"] = project
+        root["state"] = state
+        try JSONSerialization.data(withJSONObject: root).write(to: saved)
+
+        let reopened = model()
+        try await reopened.loadProject(at: saved)
+        try await settle(reopened)
+        XCTAssertEqual(reopened.project, workspace.project)
+        XCTAssertEqual(reopened.plan.sheets, workspace.plan.sheets)
+        XCTAssertFalse(reopened.isModified)
+        try reopened.saveProject(as: saved)
+        let resaved = String(decoding: try Data(contentsOf: saved), as: UTF8.self)
+        XCTAssertFalse(resaved.contains("\"imageColor\""))
+        XCTAssertFalse(resaved.contains("\"imageColorJobs\""))
+    }
+
     func testMultiplePDFsSettingsSerialsAndManualPlanRoundtripSchemaNine() async throws {
         let folder = try folder(),a = try pdf(folder,"cards.pdf",Size(55,35),pages:2),b = try pdf(folder,"labels.pdf",Size(30,45))
         let workspace = model(); workspace.setMode(.gang); workspace.addGangPDFs([a,b]); try await settle(workspace)

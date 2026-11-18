@@ -16,7 +16,7 @@ final class WorkflowCardTests:XCTestCase {
     func testEveryPreRedesignSettingBindingAndEditorRemainsReachable() throws {
         let editors = InspectorRegistry.settingsByEditor.keys
         let sources = try editors.map(source)
-        let combined = sources.joined(separator:"\n")
+        let combined = (sources + [try source("Workspace")]).joined(separator:"\n")
         let regex = try NSRegularExpression(pattern:#"\b(?:project|field|paper|book|settings|waste|selection|entry)\.(?:wrappedValue\.)?([A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)*)"#)
         let ns = combined as NSString
         var after = Set(regex.matches(in:combined,range:NSRange(location:0,length:ns.length)).map { ns.substring(with:$0.range(at:1)) })
@@ -24,7 +24,9 @@ final class WorkflowCardTests:XCTestCase {
         for match in overlayRegex.matches(in:combined,range:NSRange(location:0,length:ns.length)) { after.insert("model."+ns.substring(with:match.range(at:1))) }
         let keyPathRegex = try NSRegularExpression(pattern:#"\\\.([A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)*)"#)
         for match in keyPathRegex.matches(in:combined,range:NSRange(location:0,length:ns.length)) { after.insert("keyPath."+ns.substring(with:match.range(at:1))) }
+        // Vector reflection no longer uses the edge-stretch uniformity threshold.
         let before = Set(WorkflowSettingsBefore.byEditor.values.flatMap { $0 })
+            .subtracting(["model.editableGeneratedBleed.tolerance"])
         XCTAssertTrue(before.isSubset(of:after),"Lost setting keys: \(before.subtracting(after).sorted())")
         XCTAssertEqual(WorkflowSettingsBefore.byEditor.values.reduce(0) { $0+$1.count },257)
         // Follow editor references from the actual inspector, not from the inventory.

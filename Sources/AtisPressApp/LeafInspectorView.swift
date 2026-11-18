@@ -13,7 +13,7 @@ struct LeafInspectorView: View {
                     Text("Sol").tag(LeafBindingSettings.BindingEdge.left)
                     Text("Üst").tag(LeafBindingSettings.BindingEdge.top)
                     Text("Sağ").tag(LeafBindingSettings.BindingEdge.right)
-                }.inspectorSetting(model,"Cilt kenarı",SettingGuidance.detail("Cilt kenarı"))
+                }.inspectorTarget("bindingEdge").inspectorSetting(model,"Cilt kenarı",SettingGuidance.detail("Cilt kenarı"))
                 Toggle("90° döndürmeye izin ver",isOn:model.autoBinding($model.project.stepAndRepeat.allowRotation,.allowRotation)).automaticReset(model,.allowRotation)
                 input("Cilt payı (mm)",settings.allowance)
                 Picker("Cilt payı davranışı",selection:model.leafSettingBinding(\.behavior)) {
@@ -23,7 +23,7 @@ struct LeafInspectorView: View {
                 }.pickerStyle(.segmented).inspectorSetting(model,"Cilt payı davranışı",SettingGuidance.detail("Cilt payı davranışı"))
                 if (model.project.leafSettings.allowance ?? 0)==0 { Text("Cilt payı girilmedi; makinenizin gerektirdiği payı girin.").foregroundStyle(DesignSystem.warning) }
                 Text("Kesim ölçüsü korunur. Koru: baskı içeriği değişmez. Küçült: güvenli alana orantılı sığdırır. Kaydır: cilt kenarından uzaklaştırır; taşan baskı içeriği kırpılmaz.").font(.system(size:12))
-                Toggle("Delik işaretleri (çıktıya basılır)",isOn:model.leafSettingBinding(\.holes)).inspectorSetting(model,"Delik işaretlerini çıktıya ekle",SettingGuidance.detail("Delik işaretlerini çıktıya ekle"))
+                Toggle("Delik işaretleri (çıktıya basılır)",isOn:model.leafSettingBinding(\.holes)).inspectorTarget("holes").inspectorSetting(model,"Delik işaretlerini çıktıya ekle",SettingGuidance.detail("Delik işaretlerini çıktıya ekle"))
                 if model.project.leafSettings.holes {
                     input("Delik aralığı (mm)",settings.pitch)
                     input("Delik çapı (mm)",settings.diameter)
@@ -36,9 +36,9 @@ struct LeafInspectorView: View {
                     Text("Dahil").tag(CoverMode.included)
                     Text("Ayrı bas").tag(CoverMode.excluded)
                     Text("Ayrı PDF").tag(CoverMode.separate)
-                }.pickerStyle(.segmented).inspectorSetting(model,"Kapak modu",SettingGuidance.detail("Kapak modu"))
+                }.pickerStyle(.segmented).inspectorTarget("coverMode").inspectorSetting(model,"Kapak modu",SettingGuidance.detail("Kapak modu"))
                 if model.project.coverMode != .included {
-                    if model.project.coverMode == .separate { if model.project.sourcePreparation?.split == nil {Button("Kapak PDF yükle…",action:model.chooseCoverPDF)} }
+                    if model.project.coverMode == .separate { if model.project.sourcePreparation?.hasPreparedProducts != true {Button("Kapak PDF yükle…",action:model.chooseCoverPDF)} }
                     coverPicker("Ön kapak",\.front)
                     coverPicker("Arka kapak",\.back)
                     Text("Kapaklar ayrı yaprak olarak basılır; iç yüzleri boştur. Aynı cilt payı uygulanır.").font(.system(size:12))

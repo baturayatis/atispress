@@ -17,14 +17,130 @@ In an environment that prevents nested `sandbox-exec` (including the current
 agent environment), use `swift build --disable-sandbox` and
 `swift test --disable-sandbox`. Xcode can also open `Package.swift` directly.
 
+## Takım Düzeni
+
+Çok sayfalı bir PDF açınca **Takım olarak diz** seçeneği, sayfaları aynı
+işte bir araya getirir. **Olduğu gibi kullan** mevcut PDF açma düzenini
+kullanır. **Montaj** panelinde tek veya çift yüzü seçin. Çift yüzde ilk
+eşleme 1–2, 3–4 şeklindedir. Ön ve arka sayfa menüleri sayfaların yerini
+değiştirir. Bir çiftin kesim ölçüleri eşleşmelidir.
+
+**Tabaka** panelinde özel ölçü ve yönü, **Montaj** panelinde çevirme yöntemini seçin. Kenar,
+maşa ve taşma ayarları yerleşime dahildir. Gerekirse takım birden fazla
+düzene bölünür. Tekrarlar tam takım halinde eklenir. Fire her düzende
+gerekli fiziksel tabaka sayısına uygulanır. Otomatik arama sınırlıdır ve
+bulduğu düzenin optimum olduğunu garanti etmez.
+
+Sol listedeki **Düzen** seçicisi ilgili tabakanın önizlemesine gider.
+**Elle yerleştir** ile blokları sürükleyebilir, ölçülü konum girebilir
+ve sayfaların yerleşimini değiştirebilirsiniz. Çakışmalar ve sığmayan
+bloklar dışa aktarmayı durdurur. Önizleme ve PDF çıktı aynı planı kullanır.
+
+## Baskı Öncesi Renk Düzenleme
+
+**Renk → Görsel düzenleme** altında işi seçip parlaklık, kontrast ve
+doygunluğu ayarlayın. **Özgün / Düzenlenmiş** önizlemeyi değiştirir.
+Çıktı ayarlanmış değerleri kullanır. **Sıfırla** seçili işin değerlerini kaldırır.
+
+Klasik PDF nesne tablolarındaki sayfa düzeyi 8 bit RGB ve gri tonlamalı
+görseller ham, Flate veya desteklenen JPEG (DCT) biçimindeyse düzenlenebilir.
+Düzenlenmiş JPEG örnekleri kayıpsız Flate akışına yazılır. PDF’de atanmış
+RGB ve gri ICC profilleri korunur. Gri görsellerde doygunluk etkisizdir.
+ICC profili yalnızca JPEG’e gömülü olan veya PDF profiliyle uyuşmayan
+görseller atlanır. Özel DCT dönüşümleri, spot, JPEG 2000, maskeli ve
+Form içindeki görseller de düzenleme dışında kalır ve uyarı gösterilir.
+
+Ham veya Flate kodlu 8 bit CMYK görseller için doğrulanmış, çift yönlü
+gömülü baskı ICC profili gerekir. Renkler ColorSync ile sRGB çalışma
+uzayında düzenlenir ve aynı CMYK profiline geri dönüştürülür. Düzenlenen
+piksellerin mürekkep oranları değişebilir. Profilsiz CMYK, CMYK JPEG ve
+spot renk veya üst baskı içerebilecek karmaşık sayfalardaki CMYK görseller
+uyarıyla atlanır. Özgün PDF, metin ve vektör çizimleri korunur.
+
+## Akıllı İş Ayırma
+
+Tek sayfalı PDF'de **İş Ayır → Akıllı İş Ayırma** çalışma alanındaki
+vektör sınırlarından, görüntü kutularından ve tanınan kesim/taşma
+çerçevelerinden aday bölgeler önerir. Kutuları seçebilir, elle çizebilir,
+ölçülerini düzeltebilir ve dört kenarın taşmasını ayrı girebilirsiniz.
+Öneri bulunamadığında bölgeleri elle çizin.
+
+Her bölgeye tek yüzlü bir ürün, mevcut ürünün ön veya arka yüzü ya da
+**Kullanma** atayın. **Ayrı işler** en fazla sekiz ürünü Karışık İş'e
+aktarır. **Tam takım** onaylı ürünleri ortak adetle Takım Düzeni'ne aktarır.
+Uygulamadan önce bölge, taşma ve yüz eşlemelerini onaylayın. Kayda özgün
+PDF bağlantısı ve kutu ölçüleri girer. Önizleme ve çıktı aynı vektör
+kırpmasını kullanır.
+
+## İç Kesim İşaretleri
+
+**İşaretler → İç Kesim** bölümünde işi seçin. Yatay ve dikey kesimi
+ayrı ayrı açabilirsiniz. **Orta** kesim ebadının yarısını kullanır.
+**Özel** konumlar yatay kesimde alt kenardan, dikey kesimde sol kenardan
+milimetre olarak ölçülür. Ölçüler ürünle birlikte döner.
+
+Önizleme ve PDF aynı kısa işaretleri kullanır. İşaretler kesim ve taşma
+alanlarının dışında kalan boşluklarda görünür. Komşu ürünlerin çakışan
+işaretleri birleşir. Normal kesim işaretleri kapalıyken de iç kesimler
+basılır. Kesim işareti uzunluğu sıfırsa iç kesim için 5 mm kullanılır.
+
+## Sayfa listesi
+
+Sayfalar listesindeki … ve sağ tık menüsüyle çoğaltma, listeden silme,
+üstüne/altına boş sayfa ekleme ve başa/sona taşıma yapılır. Üstteki + Boş sayfa,
+Çoğalt ve Sil aynı işlemleri kullanır. ⌘D çoğaltır; liste odaktayken ⌫ siler;
+⌘Z / ⇧⌘Z geri alır/yineler. ⌘ ve ⇧ ile çoklu seçim, sürükleyerek sıralama vardır.
+Baskıya dahil kutusu geçici baskı seçimini değiştirir; Sil satırı listeden kaldırır.
+
+Ön/Arka çiftinin tek yüzü çoğaltılırken çift varsayılan olarak yeni ürün olur;
+isterseniz yalnız seçili sayfayı çoğaltabilirsiniz. Kaç kopya?… 1–99 tekrar alır.
+Çiftin tek yüzünü silerken çift/yalnız seçili sayfa seçimi sorulur. Çoklu silmede
+onay istenir. Kaynak PDF korunur; kopyalar aynı kaynak sayfaya referans verir.
+Boş satırlar komşu sayfanın ölçüsünü alır ve kitap forma hesabına katılır.
+Kitapta sayfa sayısı ve eklenecek boşlar listede gösterilir.
+
+Liste kimlikleri, sırası, baskı seçimi, boşlar, kaynaklar ve Ön/Arka çiftleri
+.atispress şema 25 ile saklanır. Şema 1–24 projeleri açılır. Her işlem tek undo adımıdır. Önizleme ve çıktı ortak
+planın aynı kaynak sayfa referanslarını kullanır.
+
+### Başka PDF’lerden sayfa ekleme
+
+**PDF ekle…**, satır menüsündeki **Buraya PDF ekle…** veya listeye PDF bırakma
+seçim penceresini açar. Küçük görseller, Tümü/Hiçbiri ve `1-4, 7` aralığıyla
+sayfaları seçin. Birden fazla PDF’nin sırasını oklarla değiştirin. Üstüne,
+altına, başa veya sona ekleme çizgisi konumu gösterir. Son olarak Ekle’ye basın.
+
+Çift yüzlü işte çiftler korunur. Tek sayıda yeni sayfa için boş arkalı önler,
+Ön/Arka eşleme veya tek yüzlü ürünler seçilir. Mevcut çiftin ortasına ekleme
+çift sınırına kaydırılır. Satırın **Yüz** menüsü ve İş panelindeki **Sayfa düzeni**
+yüz tercihini değiştirir. Arka yüzler baskıdan çıkarsa önizleme, durum ve çıktı
+penceresi uyarır; bu durumda çıktı açık onay ister.
+
+**Kaynaklar** dosya yollarını ve sayfa sayılarını gösterir. Değiştir… kaynağı
+yeniden bağlar; Kaldır sayfalarıyla kaldırma veya başka PDF’ye bağlama seçimi
+sorar. Eksik kaynak açılışta yeniden bağlanır. Şifreli PDF’nin parolası her
+oturumda istenir ve projeye yazılmaz. Kopyalar aynı kaynağı paylaşır.
+
+Farklı ebattaki sayfalar karışık işe dönüştürülebilir veya mevcut **Ebadı değiştir**
+penceresinde ölçeklenebilir. Kitap işinde ölçekleme gerekir. Ölçekleme penceresini
+iptal etmek eklemeyi geri alır. Kaynak sayfalar vektör olarak birleştirilir;
+önizleme ve çıktı aynı ortak sayfa referanslarını kullanır.
+
+PDF okuma hataları dosya adı ve nedenle gösterilir. **Tanı bilgisini kopyala**
+yalnız dosya adı, işlem aşaması ve teknik durumu kopyalar. Dosya yolları ve
+parolalar kopyalanmaz. Günlük `~/Library/Logs/AtisPress/pdf-load.log` içindedir.
+PDF ekleme için yer imi küçük görsellerden önce alınır. Küçük görseller,
+birleştirme ve çıktı aynı yüklenmiş kaynağı kullanır. Kaynakta açıkça belirtilen
+sayfa kutuları ve taşma bilgisi PDFKit kopyalama sırasında korunur.
+
 ## Ayarlara erişim
 
 Sağdaki 72 pt simge çubuğundan bir simge seçmek, 350 pt sütunda yalnız o
-paneli açar. Paneller İş, Tabaka, Kenarlar, Taşma, İşaretler, Seri No,
-Ölçek/Böl, Cilt, Fiyat ve Çıktı sırasındadır. Cilt kitap/yaprak işlerinde
+paneli açar. Paneller İş, Tabaka, Montaj, Kenarlar, Taşma, İşaretler, Renk, Seri No,
+İş Ayır, Ölçek, Cilt, Fiyat ve Çıktı sırasındadır. Cilt kitap/yaprak işlerinde
 görünür. Seçili panel hatırlanır; ilk kullanımda İş açılır.
 
-⌘1–⌘9 ilk dokuz paneli seçer. Çıktı simgeden veya Görüntü → Ayarlar bölümüne
+⌘1–⌘9 mevcut İş, Tabaka, Kenarlar, Taşma, İşaretler, Seri No, Ölçek, Cilt ve Fiyat kısayollarıdır. Çıktı simgeden veya Görüntü → Ayarlar bölümüne
 git menüsünden açılır. ⌘0 mevcut Sığdır kısayoludur. Başlığa çift tıklama
 sütunu daraltır; simgeye basmak aynı paneli açılır pencerede gösterir.
 Görüntü menüsünden simge çubuğu gizlenebilir. Yoğun panellerin Alt grup
@@ -41,10 +157,10 @@ kapsamı ve elle kontrol listesi [docs/STATUS.md](docs/STATUS.md) içindedir.
 
 ## Kurulum
 
-Güncel uygulama sürümü **0.3.0 (build 5)**. Sürüm kaynağı
+Güncel uygulama sürümü **0.4.0 (build 6)**. Sürüm kaynağı
 `packaging/Info.plist`; Hakkında, tanı bilgisi ve güncelleme karşılaştırması
-aynı paket sürümünü kullanır. `swift run` için de 0.3.0 / 5 yedeği bulunur.
-Proje dosyası şeması bağımsızdır ve **19**’dur; eski projeler açılır.
+aynı paket sürümünü kullanır. `swift run` için de 0.4.0 / 6 yedeği bulunur.
+Proje dosyası şeması bağımsızdır ve **25**’tir; eski projeler açılır.
 
 **macOS 14 veya üzeri** gerekir. Intel ve Apple Silicon Mac’ler aynı universal
 uygulamayı kullanır.
@@ -302,7 +418,8 @@ bundle containing the exact same executable, launched through the desktop tools.
 On a normal Mac terminal, use the `swift run` command above.
 
 Open with **Dosya → Aç… / ⌘O**, the toolbar, or drop a PDF anywhere in the workspace.
-A new PDF replaces the previous source. Checkboxes control inclusion; select rows
+Opening a new PDF replaces the previous source. Dropping PDFs on the Sayfalar list
+opens the add-pages sheet instead. Checkboxes control inclusion; select rows
 with ⌘/⇧ and move with ↑/↓ toolbar buttons or native List drag reordering. Source
 numbers retain their original PDF identity after a move. Select a sheet in the
 lower sidebar to jump to it; **Ön / Arka** selects its face. Pinch to zoom, scroll

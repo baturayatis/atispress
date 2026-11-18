@@ -23,7 +23,7 @@ struct SerialInspectorView: View {
                     if let sheet = model.currentSheet,sheet.unnumberedCopiesDescription != "0" {
                         Text("Fazla \(sheet.unnumberedCopiesDescription) kopya numarasız").font(.system(size:12)).foregroundStyle(DesignSystem.warning)
                     }
-                    Button("Alan Ekle") { model.addSerialField() }.disabled(model.editableSerialFields.count >= 100)
+                    Button("Alan Ekle") { model.addSerialField() }.disabled(model.editableSerialFields.count >= 100).inspectorTarget(section == 0 ? "serialAdd" : nil)
                     if section==nil || section==0 {
                     ForEach(fields) { field in
                         VStack(alignment: .leading,spacing: 4) {
@@ -73,7 +73,7 @@ struct SerialInspectorView: View {
                 Text("Metin").tag(SerialCodeSettings.Kind.text)
                 Text("QR kod").tag(SerialCodeSettings.Kind.qr)
                 Text("Barkod").tag(SerialCodeSettings.Kind.code128)
-            }.pickerStyle(.segmented).inspectorSetting(model,"Tür",SettingGuidance.detail("Tür"))
+            }.pickerStyle(.segmented).inspectorTarget(section == 1 ? "serialKind" : nil).inspectorSetting(model,"Tür",SettingGuidance.detail("Tür"))
             if section==nil || section==1 {
                 if field.wrappedValue.kind != .text {SerialCodeControlsView(model:model,field:field)}
                 else {Text("Metin seri numara aralığından üretilir. Başlangıç ve bitişi Aralık grubunda ayarlayın.")}
@@ -83,18 +83,18 @@ struct SerialInspectorView: View {
                 Text("Kopya").tag(SerialField.Distribution.copy)
                 Text("Blok").tag(SerialField.Distribution.block)
                 Text("İş").tag(SerialField.Distribution.job)
-            }.pickerStyle(.segmented).inspectorSetting(model,"Aralık dağıtımı",SettingGuidance.detail("Aralık dağıtımı"))
+            }.pickerStyle(.segmented).inspectorTarget("serialDistribution").inspectorSetting(model,"Aralık dağıtımı",SettingGuidance.detail("Aralık dağıtımı"))
             Picker("Arka yüz numarası",selection:field.backNumbering) {
                 Text("Ön ile aynı").tag(SerialField.BackNumber.same)
                 Text("Ardışık").tag(SerialField.BackNumber.consecutive)
-            }.pickerStyle(.segmented).inspectorSetting(model,"Arka yüz numarası",SettingGuidance.detail("Arka yüz numarası"))
+            }.pickerStyle(.segmented).inspectorTarget("serialBack").inspectorSetting(model,"Arka yüz numarası",SettingGuidance.detail("Arka yüz numarası"))
             Picker("Mod",selection: field.mode) {
                 Text("Sıralı").tag(SerialField.Mode.sequential)
                 Text("Kes ve istifle").tag(SerialField.Mode.stack)
             }.pickerStyle(.segmented).inspectorSetting(model,"Mod",SettingGuidance.detail("Mod"))
             if field.wrappedValue.usesSerialNumber {
-                number("Başlangıç",field.start)
-                number("Artış",field.step)
+                number("Başlangıç",field.start,id:"serialStart")
+                number("Artış",field.step,id:"serialStep")
                 Toggle("Bitiş no göster",isOn: field.showsEndNumber).toggleStyle(.switch).inspectorSetting(model,"Bitiş no göster",SettingGuidance.detail("Bitiş no göster"))
                 if field.wrappedValue.showsEndNumber {
                     HStack {
@@ -125,7 +125,7 @@ struct SerialInspectorView: View {
             if field.wrappedValue.kind == .text || field.wrappedValue.codeSettings.humanReadable {
                 Picker("Yazı tipi",selection: field.font) {
                     ForEach(Array(Set(["Helvetica","Helvetica-Bold","Menlo-Regular","Times-Roman","Courier",field.wrappedValue.font])).sorted(),id: \.self) { Text($0).tag($0) }
-                }.inspectorSetting(model,"Yazı tipi",SettingGuidance.detail("Yazı tipi"))
+                }.inspectorTarget("serialFont").inspectorSetting(model,"Yazı tipi",SettingGuidance.detail("Yazı tipi"))
                 LabeledContent("Yazı tipi adı") { TextField("Ad",text:field.font).textFieldStyle(.roundedBorder) }
                 if NSFont(name: field.wrappedValue.font,size: 12) == nil {
                     Text("Yazı tipi bulunamadı; sistem yedeği kullanılır.").font(.system(size:12)).foregroundStyle(DesignSystem.warning)
@@ -140,9 +140,9 @@ struct SerialInspectorView: View {
                 Text("Ön").tag(SerialField.Sides.front)
                 Text("Arka").tag(SerialField.Sides.back)
                 Text("Ön ve arka").tag(SerialField.Sides.both)
-            }.pickerStyle(.segmented).inspectorSetting(model,"Yüzler",SettingGuidance.detail("Yüzler"))
-            number("X (mm)",field.position.x)
-            number("Y (mm)",field.position.y)
+            }.pickerStyle(.segmented).inspectorTarget("serialFaces").inspectorSetting(model,"Yüzler",SettingGuidance.detail("Yüzler"))
+            number("X (mm)",field.position.x,id:"serialX")
+            number("Y (mm)",field.position.y,id:"serialY")
             HStack {
                 Button("Ortala") { model.placeSerial(snapshot.id,corner:nil) }
                 Menu("Köşeye al") {
@@ -184,10 +184,10 @@ struct SerialInspectorView: View {
             endDraft = field.value(at: max(1,model.serialQuantity(job: field.jobIndex))-1).map(String.init) ?? ""
         }
     }
-    private func number(_ title: String,_ value: Binding<Int64>) -> some View {
-        HStack { Text(title); Spacer(); TextField(title,value: value,format:.number.locale(TRFormat.locale)).frame(width:72).textFieldStyle(.roundedBorder); Stepper(title,value:value,step:1).labelsHidden().fixedSize() }.inspectorSetting(model,title,SettingGuidance.detail(title))
+    private func number(_ title: String,_ value: Binding<Int64>,id: String? = nil) -> some View {
+        HStack { Text(title); Spacer(); TextField(title,value: value,format:.number.locale(TRFormat.locale)).frame(width:72).textFieldStyle(.roundedBorder).inspectorTarget(id); Stepper(title,value:value,step:1).labelsHidden().fixedSize() }.inspectorSetting(model,title,SettingGuidance.detail(title))
     }
-    private func number(_ title: String,_ value: Binding<Double>) -> some View {
-        HStack { Text(title).frame(maxWidth:.infinity,alignment:.leading); DimensionInput(title,value:value,unit:title.contains("pt") ? "pt" : title.contains("°") ? "°" : title.contains("%") ? "%" : "mm") }.inspectorSetting(model,title,SettingGuidance.detail(title))
+    private func number(_ title: String,_ value: Binding<Double>,id: String? = nil) -> some View {
+        HStack { Text(title).frame(maxWidth:.infinity,alignment:.leading); DimensionInput(title,value:value,unit:title.contains("pt") ? "pt" : title.contains("°") ? "°" : title.contains("%") ? "%" : "mm",inspectorID:id) }.inspectorSetting(model,title,SettingGuidance.detail(title))
     }
 }

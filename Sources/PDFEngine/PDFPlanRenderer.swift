@@ -38,6 +38,7 @@ public struct PDFRenderOptions: Equatable, Sendable, Codable {
     public func shows(_ kind: MarkKind) -> Bool {
         switch kind {
         case .crop,.sharedCut: return crop
+        case .internalCut: return false
         case .fold: return fold
         case .bleed: return bleed
         case .safeArea: return safeArea
@@ -67,14 +68,48 @@ public protocol PDFSlotOverlay: Sendable {
 public extension PDFSlotOverlay { var phase: PDFOverlayPhase { .overArtwork } }
 
 public enum PDFPlanRenderer {
+    public enum SlotPass { case all, mirrorBleed, artwork }
+
+    /// Paint each card's mirror extensions before any card artwork.
+    public static func drawMirrorBleed(_ side: Side, document: CGPDFDocument, in context: CGContext,
+                                       sheetIndex: Int, kind: SideKind, repetition: Int,
+                                       overlays: [any PDFSlotOverlay]) throws {
+        let mirrors = overlays.compactMap { $0 as? GeneratedBleedOverlay }
+        guard !mirrors.isEmpty else { return }
+        let trims = side.slots.map { slot in
+            PDFPreviewDrawing.localTrim(slot).applying(PDFPreviewDrawing.slotTransform(slot))
+        }
+        for (index, slot) in side.slots.enumerated() where mirrors.contains(where: { $0.mirrorsArtwork(in: slot) }) {
+            guard let clip = slot.artworkClip,
+                  let page = slot.sourcePageNumber.flatMap({ document.page(at: $0) }) else { continue }
+            let bounds = CGRect(x: clip.origin.x, y: clip.origin.y, width: clip.size.width, height: clip.size.height)
+            guard bounds.intersects(context.boundingBoxOfClipPath) else { continue }
+            context.saveGState()
+            defer { context.restoreGState() }
+            for (neighbor, trim) in trims.enumerated() where neighbor != index {
+                let blocked = bounds.intersection(trim)
+                guard !blocked.isEmpty else { continue }
+                context.addRect(bounds)
+                context.addRect(blocked)
+                context.clip(using: .evenOdd)
+            }
+            try Task.checkCancellation()
+            try drawSlot(slot,page: page,in: context,reference: SlotReference(sheet: sheetIndex,side: kind,slot: index),
+                         repetition: repetition,overlays: mirrors,pass: .mirrorBleed)
+        }
+    }
     public static func drawSlot(_ slot: Slot,page: CGPDFPage?,in context: CGContext,
                                 reference: SlotReference,repetition: Int = 0,raster: PDFPageRaster? = nil,
-                                overlays: [any PDFSlotOverlay] = []) throws {
+                                overlays: [any PDFSlotOverlay] = [],pass: SlotPass = .all,tone: Int = 0) throws {
         context.saveGState()
         defer { context.restoreGState() }
         let placementTransform = PDFPreviewDrawing.bindingTransform(slot)
         let transform = PDFPreviewDrawing.slotTransform(slot).concatenating(placementTransform)
         let trim = PDFPreviewDrawing.localTrim(slot)
+        // Match the bleed's vector detail even when the preview has a low-zoom raster.
+        let useVector = page != nil && (tone != 0 || overlays.contains {
+            ($0 as? GeneratedBleedOverlay)?.mirrorsArtwork(in: slot) == true
+        })
         var localClip = trim
         if let clip = slot.artworkClip {
             let bounds = CGRect(x: clip.origin.x,y: clip.origin.y,width: clip.size.width,height: clip.size.height)
@@ -85,6 +120,8 @@ public enum PDFPlanRenderer {
             let art = phase == .underArtwork ? localClip.offsetBy(dx:-slot.artworkOffset.x,dy:-slot.artworkOffset.y) : localClip
             let placement = PDFSlotContext(slot:slot,reference:reference,repetition:repetition,trimRect:trim,artworkRect:art,sourcePage:page)
             for overlay in overlays where overlay.phase == phase {
+                let mirrors = (overlay as? GeneratedBleedOverlay)?.mirrorsArtwork(in: slot) == true
+                if pass == .mirrorBleed && !mirrors || pass == .artwork && mirrors { continue }
                 context.saveGState(); defer { context.restoreGState() }
                 try overlay.draw(in:context,placement:placement)
             }
@@ -93,32 +130,48 @@ public enum PDFPlanRenderer {
             context.saveGState(); defer { context.restoreGState() }
             context.concatenate(placementTransform)
             context.concatenate(PDFPreviewDrawing.slotTransform(slot))
+            if slot.artworkClip == nil { context.clip(to: trim) }
             context.translateBy(x:slot.artworkOffset.x,y:slot.artworkOffset.y)
             try extensionsFor(.underArtwork)
-            if slot.sourcePageNumber != nil {
+            if pass != .mirrorBleed && slot.sourcePageNumber != nil {
                 if let page,let scale = slot.rescale {
                     PDFRescaleDrawing.draw(page,scale:scale,in:context)
-                } else if let raster {
+                } else if let raster, !useVector {
                     let r = raster.normalizedArtworkBounds
                     context.draw(raster.cgImage,in:CGRect(x:r.minX*trim.width,y:r.minY*trim.height,width:r.width*trim.width,height:r.height*trim.height))
                 } else if let page { PDFPreviewDrawing.draw(page,in:context,rect:trim) }
             }
         }
         try artwork()
-        context.concatenate(PDFPreviewDrawing.slotTransform(slot))
-        try extensionsFor(.overArtwork)
+        if pass != .mirrorBleed {
+            if tone != 0, page != nil, slot.sourcePageNumber != nil {
+                context.saveGState()
+                context.setBlendMode(.normal)
+                let amount = ArtworkTone.clamped(tone)
+                context.setFillColor(CGColor(gray: amount > 0 ? 1 : 0,alpha: CGFloat(abs(amount))/100))
+                let bounds = slot.artworkClip.map {
+                    CGRect(x: $0.origin.x,y: $0.origin.y,width: $0.size.width,height: $0.size.height)
+                } ?? trim.applying(transform)
+                context.fill(bounds)
+                context.restoreGState()
+            }
+            context.concatenate(PDFPreviewDrawing.slotTransform(slot))
+            try extensionsFor(.overArtwork)
+        }
     }
     /// Context units are sheet millimetres. Only document content and selected plan marks are drawn.
     public static func drawSide(_ side: Side,sheet: Sheet,document: CGPDFDocument,in context: CGContext,
                                 sheetIndex: Int,kind: SideKind,repetition: Int,options: PDFRenderOptions,
-                                overlays: [any PDFSlotOverlay] = [],controlMarks: ExportMarks = .none) throws {
+                                overlays: [any PDFSlotOverlay] = [],controlMarks: ExportMarks = .none,tone: ArtworkTone? = nil) throws {
         let serials: [any PDFSlotOverlay] = [GangSerialOverlay(sheet: sheet)]
+        try drawMirrorBleed(side,document: document,in: context,sheetIndex: sheetIndex,kind: kind,
+                            repetition: repetition,overlays: overlays)
         for (index,slot) in side.slots.enumerated() {
             try Task.checkCancellation()
             let page = slot.sourcePageNumber.flatMap { document.page(at: $0) }
             if slot.sourcePageNumber != nil && page == nil { throw PDFExportError.missingPage(slot.sourcePageNumber!) }
             try drawSlot(slot,page: page,in: context,reference: SlotReference(sheet: sheetIndex,side: kind,slot: index),
-                         repetition: repetition,overlays: overlays+serials)
+                         repetition: repetition,overlays: overlays+serials,pass: .artwork,tone: tone?.value(for: slot,on: kind) ?? 0)
         }
         drawMarks(side.marks,sheetSize: sheet.size,in: context,options: options)
         if options.punch { drawPunchMarks(side.punchMarks,in:context) }
@@ -145,7 +198,7 @@ public enum PDFPlanRenderer {
         for mark in marks where options.shows(mark.kind) {
             let color: CGColor
             switch mark.kind {
-            case .crop,.sharedCut: color = CGColor(gray: 0,alpha: 1)
+            case .crop,.sharedCut,.internalCut: color = CGColor(gray: 0,alpha: 1)
             case .fold,.pageLabel: color = CGColor(red: 0,green: 0.35,blue: 0.85,alpha: 1)
             case .bleed: color = CGColor(red: 0.9,green: 0.08,blue: 0.1,alpha: 1)
             case .safeArea: color = CGColor(red: 0,green: 0.55,blue: 0.2,alpha: 1)

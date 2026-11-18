@@ -28,7 +28,7 @@ final class ProductionWorkspaceTests: XCTestCase {
     }
     private func settle(_ model: Workspace) async throws {
         for _ in 0..<500 {
-            if !model.loading && !model.planning && !model.autoArranging && !model.samplingBleed { return }
+            if !model.loading && !model.planning && !model.autoArranging { return }
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTFail("Workspace did not settle")
@@ -103,6 +103,10 @@ final class ProductionWorkspaceTests: XCTestCase {
         try await settle(workspace)
         let rgb = try XCTUnwrap(workspace.preflightRows.first { $0.id.contains("rgb") })
         XCTAssertEqual(rgb.pages,[1,2]); XCTAssertEqual(rgb.severity,.notice)
+        XCTAssertTrue(rgb.isColor)
+        XCTAssertTrue(workspace.preflightRows.contains { $0.id.contains("bleed") })
+        workspace.enableMissingBleed()
+        try await settle(workspace)
         XCTAssertFalse(workspace.preflightRows.contains { $0.id.contains("bleed") })
         workspace.setProduction(.offset)
         try await settle(workspace)
@@ -111,6 +115,7 @@ final class ProductionWorkspaceTests: XCTestCase {
         try await settle(workspace)
         let bleed = try XCTUnwrap(workspace.preflightRows.first { $0.id.contains("bleed") })
         XCTAssertEqual(bleed.pages,[1,2])
+        XCTAssertFalse(bleed.isColor)
         XCTAssertTrue(workspace.canExportNow)
     }
     func testAllProductionSettingsRoundtripAndVersionFiveMigrationKeepsLegacyPairs() async throws {

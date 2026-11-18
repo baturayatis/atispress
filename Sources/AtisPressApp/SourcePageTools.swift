@@ -7,15 +7,20 @@ struct SourcePageTools:View {
     @ObservedObject var model:Workspace
     var body:some View {
         VStack(alignment:.leading,spacing:6) {
+            if model.canSeparateArtwork {
+                Button(model.project.sourcePreparation?.separation == nil ? "Akıllı İş Ayırma…" : "Bölgeleri ve yüzleri düzenle…") {
+                    model.showingArtworkSeparation = true
+                }.inspectorTarget("separate").help("PDF bölgelerini seçin, düzeltin ve işlere atayın.")
+            }
             if let split=model.suggestedPageSplit {
                 Text("Bu sayfa birden fazla kart içeriyor gibi görünüyor (\(split.columns) × \(split.rows)).").font(.system(size:12))
                 HStack {Button("Sayfayı böl") {model.showingPageSplit=true};Button("Olduğu gibi kullan",action:model.dismissPageSplitSuggestion)}
             }
-            if model.canSplitSource {Button("Sayfa birden fazla ürün içeriyor") {model.showingPageSplit=true}}
+            if model.canSplitSource {Button("Sayfa birden fazla ürün içeriyor") {model.showingPageSplit=true}.inspectorTarget("split")}
             if model.canInspectSourceGuides,let input=model.preparationInput {
                 if input.guides.count>0 {
                     Text(input.guides.count>model.hiddenSourceGuideCount ? "Dosyada baskıya girebilecek kılavuz çizgileri var (\(input.guides.count-model.hiddenSourceGuideCount) çizgi)":"Dosyadaki kılavuz çizgileri gizlendi").font(.system(size:12)).foregroundStyle(DesignSystem.warning)
-                    Button("Kılavuz çizgileri…") {model.showingSourceGuides=true}
+                    Button("Kılavuz çizgileri…") {model.showingSourceGuides=true}.inspectorTarget("guides")
                 } else if input.guides.rasterFramesSuspected {
                     Text("Raster görüntü içinde kılavuz benzeri çerçeveler saptandı; ayrı çizgi olarak gizlenemez.").font(.system(size:12)).foregroundStyle(DesignSystem.warning)
                 }

@@ -120,10 +120,7 @@ public enum SmartAutoLayout {
                     next.gang?.mode = .automatic; next.gang?.blocks = []
                     for i in next.gang?.jobs.indices ?? 0..<0 {
                         next.gang?.jobs[i].allowRotation = true; next.gang?.jobs[i].bleed = next.settings.bleed
-                        let job = next.gang!.jobs[i]
-                        var generated = next.settings.generatedBleed
-                        generated.enabled = [job.front,job.back].compactMap { $0 }.contains { ($0.availableBleed ?? 0)<job.bleed }
-                        next.gang?.jobs[i].generatedBleed = generated
+                        next.gang?.jobs[i].generatedBleed = next.settings.generatedBleed
                     }
                 }
                 let plan = ImpositionPlanner.plan(next)
@@ -290,7 +287,7 @@ public enum SmartAutoLayout {
         set(.exportTargetSize,\.exportMarks.targetSize,5)
         set(.exportPatchSize,\.exportMarks.patchSize,5)
         set(.exportBarSide,\.exportMarks.barSide,.gripper)
-        set(.generatedEnabled,\.settings.generatedBleed.enabled,p.pages.contains { ($0.availableBleed ?? 0) <= 0 || ($0.availableBleed ?? 0) < p.settings.bleed })
+        set(.generatedEnabled,\.settings.generatedBleed.enabled,false)
         set(.generatedMethod,\.settings.generatedBleed.method,.automatic)
         set(.generatedTolerance,\.settings.generatedBleed.tolerance,0.02)
         set(.generatedColor,\.settings.generatedBleed.color,.cmyk(0,0,0,0))

@@ -42,9 +42,30 @@ enum InspectorSection: String, CaseIterable, Identifiable {
         }
     }
 }
+enum TeamPDFImport: String, CaseIterable, Identifiable {
+    case ask, team, asIs
+
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .ask: return "Her seferinde sor"
+        case .team: return "Takım olarak diz"
+        case .asIs: return "Olduğu gibi kullan"
+        }
+    }
+
+    static let defaultsKey = "atispress.pdfImport.multiPage"
+}
+
 @MainActor
 final class UsabilitySettings: ObservableObject {
     private let defaults: UserDefaults
+    @Published var teamPDFImport: TeamPDFImport {
+        didSet {
+            if teamPDFImport == .ask { defaults.removeObject(forKey: TeamPDFImport.defaultsKey) }
+            else { defaults.set(teamPDFImport.rawValue, forKey: TeamPDFImport.defaultsKey) }
+        }
+    }
     @Published var mode: InspectorMode { didSet { defaults.set(mode.rawValue,forKey:"atispress.ui.mode"); if mode == .simple { search = "" } } }
     @Published var search = ""
     @Published var searchFocusRequest = 0
@@ -56,15 +77,83 @@ final class UsabilitySettings: ObservableObject {
     @Published private var collapsed: Set<String> { didSet { defaults.set(Array(collapsed),forKey:"atispress.ui.collapsed") } }
     @Published var railVisible=true {didSet {defaults.set(railVisible,forKey:"atispress.ui.rail");if !railVisible {inspectorCollapsed=false}}}
     @Published var inspectorCollapsed=false {didSet {defaults.set(inspectorCollapsed,forKey:"atispress.ui.inspectorCollapsed");if inspectorCollapsed {railVisible=true} else {flyoutPanel=nil}}}
+    private static let inspectorWidthKey = "atispress.ui.inspectorWidth"
+    private static let inspectorSectionsKey = "atispress.ui.inspectorSections"
+    private static let favoritesExpandedKey = "atispress.ui.inspectorFavoritesExpanded"
+
+    @Published private(set) var inspectorWidth: CGFloat {
+        didSet { defaults.set(Double(inspectorWidth), forKey: Self.inspectorWidthKey) }
+    }
+
+    func setInspectorWidth(_ width: CGFloat) {
+        let preferred = WorkspaceColumnLayout.preferredWidth(width)
+        if inspectorWidth != preferred { inspectorWidth = preferred }
+    }
+
+    @Published var inspectorFavoritesExpanded: Bool {
+        didSet { defaults.set(inspectorFavoritesExpanded, forKey: Self.favoritesExpandedKey) }
+    }
+
     @Published var activePanel:InspectorPanel = .job {didSet {defaults.set(activePanel.rawValue,forKey:"atispress.ui.activePanel")}}
     @Published var flyoutPanel:InspectorPanel?
-    func jump(_ panel:InspectorPanel) {
-        activePanel=panel
-        if inspectorCollapsed {flyoutPanel=panel}
+    struct GroupRequest: Equatable {
+        let group: InspectorGroup
+        let controlID: String?
+        private let id = UUID()
+
+        init(_ group: InspectorGroup, controlID: String?) {
+            self.group = group
+            self.controlID = controlID
+        }
+    }
+
+    private static let inspectorFavoritesKey = "atispress.ui.inspectorFavorites"
+    @Published private(set) var inspectorFavorites: [String] {
+        didSet { defaults.set(inspectorFavorites, forKey: Self.inspectorFavoritesKey) }
+    }
+
+    func toggleInspectorFavorite(_ id: String) {
+        guard InspectorSearchEntry.byID[id] != nil else { return }
+        if let index = inspectorFavorites.firstIndex(of: id) { inspectorFavorites.remove(at: index) }
+        else { inspectorFavorites.append(id) }
+    }
+
+    @Published private var groupExpansion: [InspectorGroup: Bool] {
+        didSet {
+            let values = Dictionary(uniqueKeysWithValues: groupExpansion.map { ($0.key.rawValue, $0.value) })
+            defaults.set(values, forKey: Self.inspectorSectionsKey)
+        }
+    }
+    @Published private(set) var groupRequest: GroupRequest?
+
+    func isGroupExpanded(_ group: InspectorGroup, in panel: InspectorPanel, for project: Project) -> Bool {
+        groupExpansion[group] ?? panel.initiallyExpanded(group, for: project)
+    }
+
+    func setGroupExpanded(_ group: InspectorGroup, _ expanded: Bool) {
+        if groupExpansion[group] != expanded { groupExpansion[group] = expanded }
+    }
+
+    func jump(_ panel: InspectorPanel, opening group: InspectorGroup? = nil, controlID: String? = nil) {
+        activePanel = panel
+        if let group { setGroupExpanded(group, true) }
+        groupRequest = group.map { GroupRequest($0, controlID: controlID) }
+        if inspectorCollapsed { flyoutPanel = panel }
     }
     init(defaults:UserDefaults = .standard) {
         self.defaults = defaults
-        activePanel=defaults.string(forKey:"atispress.ui.activePanel").flatMap(InspectorPanel.init(rawValue:)) ?? .job
+        inspectorWidth = WorkspaceColumnLayout.preferredWidth(CGFloat(defaults.double(forKey: Self.inspectorWidthKey)))
+        inspectorFavoritesExpanded = defaults.object(forKey: Self.favoritesExpandedKey) as? Bool ?? true
+        let sections = defaults.dictionary(forKey: Self.inspectorSectionsKey) ?? [:]
+        groupExpansion = Dictionary(uniqueKeysWithValues: sections.compactMap { key, value in
+            guard let group = InspectorGroup(rawValue: key), let expanded = value as? Bool else { return nil }
+            return (group, expanded)
+        })
+        var seen = Set<String>()
+        inspectorFavorites = (defaults.stringArray(forKey: Self.inspectorFavoritesKey) ?? [])
+            .filter { InspectorSearchEntry.byID[$0] != nil && seen.insert($0).inserted }
+        teamPDFImport = defaults.string(forKey: TeamPDFImport.defaultsKey).flatMap(TeamPDFImport.init(rawValue:)) ?? .ask
+        activePanel=defaults.string(forKey:"atispress.ui.activePanel").flatMap(InspectorPanel.restoring) ?? .job
         railVisible=defaults.object(forKey:"atispress.ui.rail") as? Bool ?? true
         inspectorCollapsed=(defaults.object(forKey:"atispress.ui.rail") as? Bool ?? true) && defaults.bool(forKey:"atispress.ui.inspectorCollapsed")
         collapsedCards = Set(defaults.stringArray(forKey:"atispress.workflow.collapsedCards") ?? [])

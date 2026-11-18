@@ -12,7 +12,6 @@ struct InspectorEditMemory {
     var counts:[String:Int] = [:]
     var coverSelections:[String:CoverSelection] = [:]
     var customGutters:[String:Double] = [:]
-    var bleedOrigins:[String:(amount:Double,enabled:Bool)] = [:]
     var layoutSerials:[String:[SerialField]] = [:]
     var lastMappedSerials:[SerialField]?
 }
@@ -64,7 +63,7 @@ extension Workspace {
     var workflowWastePercent:Double {
         get { workflowWaste.percent }
         set {
-            let key = inspectorMemoryKey+(selectedGangJob?.id.uuidString ?? "global")
+            let key = inspectorMemoryKey+(project.team == nil ? selectedGangJob?.id.uuidString ?? "global" : "team")
             let remembered = inspectorMemory.wasteOrigins[key], original = remembered ?? workflowWaste
             if remembered == nil,newValue != original.percent { inspectorMemory.wasteOrigins[key] = original }
             var value = workflowWaste

@@ -225,12 +225,13 @@ final class AllSheetsDocument: NSView {
     override var isFlipped: Bool { true }
     @discardableResult func updateGeometry() -> Bool {
         guard let model else { return false }
-        guard lastSheets != model.displaySheets || lastOptions != model.overlays || lastMarks != model.project.exportMarks || lastSource !== model.source || lastFocus != model.ui.focusedArea || lastSheetInfo != model.project.sheetInfo || lastGeneratedBleed != model.plan.generatedBleed || lastBleedAmount != model.project.settings.bleed || lastProduction != model.project.autoLayout?.production else { return false }
-        let geometryChanged = lastSheets.map { $0.size } != model.displaySheets.map { $0.size } || lastSheets.map { $0.repeatCount } != model.displaySheets.map { $0.repeatCount } || lastSheets.map { $0.hasContent(on:.back) } != model.displaySheets.map { $0.hasContent(on:.back) }
+        let backs = model.displaySheets.map(model.showsBackInPreview)
+        guard geometry.backs != backs || lastSheets != model.displaySheets || lastOptions != model.overlays || lastMarks != model.project.exportMarks || lastSource !== model.source || lastFocus != model.ui.focusedArea || lastSheetInfo != model.project.sheetInfo || lastGeneratedBleed != model.plan.generatedBleed || lastBleedAmount != model.project.settings.bleed || lastProduction != model.project.autoLayout?.production else { return false }
+        let geometryChanged = lastSheets.map { $0.size } != model.displaySheets.map { $0.size } || lastSheets.map { $0.repeatCount } != model.displaySheets.map { $0.repeatCount } || geometry.backs != backs
         lastSheetInfo = model.project.sheetInfo; lastGeneratedBleed = model.plan.generatedBleed; lastBleedAmount = model.project.settings.bleed; lastProduction = model.project.autoLayout?.production
         lastFocus = model.ui.focusedArea
         lastSheets = model.displaySheets; lastOptions = model.overlays; lastMarks = model.project.exportMarks; lastSource = model.source
-        geometry = SideScrollGeometry(heights: model.displaySheets.map { $0.size.height*PDFPreviewDrawing.pointsPerMM+64+headerHeight },repetitions:model.displaySheets.map { max(1,$0.repeatCount) },backs:model.displaySheets.map { $0.hasContent(on:.back) })
+        geometry = SideScrollGeometry(heights: model.displaySheets.map { $0.size.height*PDFPreviewDrawing.pointsPerMM+64+headerHeight },repetitions:model.displaySheets.map { max(1,$0.repeatCount) },backs:backs)
         let width = (model.displaySheets.map { $0.size.width*PDFPreviewDrawing.pointsPerMM+64 }.max() ?? 500)
         setFrameSize(NSSize(width:width,height:geometry.totalHeight))
         // Only the visible rows carry PDF documents, canvases and edge caches.
@@ -258,7 +259,7 @@ final class AllSheetsDocument: NSView {
         let previous = scroll.suppressReporting; scroll.suppressReporting = true
         headerHeight = height
         geometry = SideScrollGeometry(heights:model.displaySheets.map { $0.size.height*PDFPreviewDrawing.pointsPerMM+64+height },
-                                      repetitions:model.displaySheets.map { max(1,$0.repeatCount) },backs:model.displaySheets.map { $0.hasContent(on:.back) })
+                                      repetitions:model.displaySheets.map { max(1,$0.repeatCount) },backs:model.displaySheets.map(model.showsBackInPreview))
         rows.values.forEach { $0.removeFromSuperview() }; rows.removeAll()
         setFrameSize(NSSize(width:frame.width,height:geometry.totalHeight))
         scroll.documentView?.scroll(NSPoint(x:0,y:geometry.origin(location)+offset))
@@ -287,7 +288,7 @@ final class AllSheetsDocument: NSView {
                 label.stringValue = headerText(location,sheet:sheet)
                 label.frame = NSRect(x:20,y:row.frame.height-headerHeight,width:frame.width-40,height:headerHeight-4)
             }
-            canvas.configure(sheet:sheet,side:location.side == .front ? sheet.front : sheet.back,source:model.source,overlays:model.overlays,highlighted:[],sheetIndex:location.sheet,kind:location.side,generatedBleed:model.plan.generatedBleed,controlMarks:model.project.exportMarks,bleedAmount:model.project.settings.bleed,info:model.sheetInfoText(sheet:sheet,number:model.plan.sheets.prefix(location.sheet).reduce(0) { $0+$1.repeatCount }+location.repetition+1,kind:location.side))
+            canvas.configure(sheet:sheet,side:location.side == .front ? sheet.front : sheet.back,source:model.source,overlays:model.overlays,highlighted:[],sheetIndex:location.sheet,kind:location.side,generatedBleed:model.plan.generatedBleed,controlMarks:model.project.exportMarks,bleedAmount:model.project.settings.bleed,info:model.sheetInfoText(sheet:sheet,number:model.plan.sheets.prefix(location.sheet).reduce(0) { $0+$1.repeatCount }+location.repetition+1,kind:location.side),tone:model.project.settings.tone)
         }
         for location in wanted where rows[location] == nil {
             let index = location.sheet
@@ -303,7 +304,7 @@ final class AllSheetsDocument: NSView {
                 canvas.connectSerialEditing(model)
                 canvas.focusArea = model.ui.focusedArea
                 canvas.repetition = location.repetition
-                canvas.configure(sheet:sheet,side:kind == .front ? sheet.front : sheet.back,source:model.source,overlays:model.overlays,highlighted:[],sheetIndex:index,kind:kind,generatedBleed:model.plan.generatedBleed,controlMarks:model.project.exportMarks,bleedAmount:model.project.settings.bleed,info:model.sheetInfoText(sheet:sheet,number:model.plan.sheets.prefix(index).reduce(0) { $0+$1.repeatCount }+location.repetition+1,kind:kind))
+                canvas.configure(sheet:sheet,side:kind == .front ? sheet.front : sheet.back,source:model.source,overlays:model.overlays,highlighted:[],sheetIndex:index,kind:kind,generatedBleed:model.plan.generatedBleed,controlMarks:model.project.exportMarks,bleedAmount:model.project.settings.bleed,info:model.sheetInfoText(sheet:sheet,number:model.plan.sheets.prefix(index).reduce(0) { $0+$1.repeatCount }+location.repetition+1,kind:kind),tone:model.project.settings.tone)
                 canvas.setFrameOrigin(NSPoint(x:0,y:0))
                 row.addSubview(canvas)
             }

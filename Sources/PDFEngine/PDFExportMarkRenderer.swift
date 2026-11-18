@@ -20,6 +20,7 @@ public enum PDFExportMarkRenderer {
         for mark in side.marks {
             let selected: Bool
             switch mark.kind {
+            case .internalCut: selected = true
             case .crop: selected = settings.crop || settings.fullCut
             case .sharedCut: selected = sheet.gangLayout == nil ? settings.crop || settings.fullCut : settings.fullCut
             case .fold: selected = settings.fold
@@ -39,15 +40,16 @@ public enum PDFExportMarkRenderer {
             }
             let paperLo = horizontal ? paper.minX : paper.minY, paperHi = horizontal ? paper.maxX : paper.maxY
             if fixed < (horizontal ? paper.minY : paper.minX) || fixed > (horizontal ? paper.maxY : paper.maxX) {
-                outside = true; continue
+                if mark.kind != .internalCut { outside = true }
+                continue
             }
-            if lo < paperLo || hi > paperHi { outside = true }
+            if mark.kind != .internalCut && (lo < paperLo || hi > paperHi) { outside = true }
             var intervals = [(max(lo,paperLo),min(hi,paperHi))].filter { $0.1 > $0.0 }
             for box in boxes where fixed >= (horizontal ? box.minY : box.minX) && fixed <= (horizontal ? box.maxY : box.maxX) {
                 let a = horizontal ? box.minX : box.minY, b = horizontal ? box.maxX : box.maxY
                 intervals = intervals.flatMap { l,h -> [(Double,Double)] in
                     guard b > l && a < h else { return [(l,h)] }
-                    blocked = true
+                    if mark.kind != .internalCut { blocked = true }
                     return [(l,min(h,a)),(max(l,b),h)].filter { $0.1-$0.0 > 0.001 }
                 }
             }
@@ -56,7 +58,23 @@ public enum PDFExportMarkRenderer {
                                    end: horizontal ? Point(h,fixed) : Point(fixed,h)))
             }
         }
+        let internalCuts = mergedInternalCuts(output.filter { $0.kind == .internalCut })
+        output.removeAll { $0.kind == .internalCut }
+        output += internalCuts
         var warnings: [String] = []
+        let requested = side.marks.filter { $0.kind == .internalCut }
+        for horizontal in [true, false] where !requested.isEmpty {
+            func positions(_ marks: [Mark]) -> Set<Double> {
+                Set(marks.compactMap { mark in
+                    guard (mark.start.y == mark.end.y) == horizontal else { return nil }
+                    return ((horizontal ? mark.start.y : mark.start.x) * 10_000).rounded()
+                })
+            }
+            if !positions(requested).isSubset(of: positions(internalCuts)) {
+                warnings.append("Bazı iç kesim konumları için tabakada baskı dışı boşluk yok.")
+                break
+            }
+        }
         if blocked { warnings.append("İşaretler için ara boşluk yetersiz: taşma/artwork ile çakışan bölümler çıkarıldı.") }
         if outside { warnings.append("İşaretler tabaka sınırını aşıyor: tabaka dışındaki bölümler çıkarıldı.") }
         if settings.safeArea || settings.bleed || settings.fullCut {
@@ -64,8 +82,32 @@ public enum PDFExportMarkRenderer {
         }
         return Geometry(segments: output,warnings: warnings)
     }
+    // Collinear ticks from neighboring copies share a single stroke.
+    private static func mergedInternalCuts(_ marks: [Mark]) -> [Mark] {
+        var result: [Mark] = []
+        for horizontal in [true, false] {
+            var runs: [(fixed: Double, lo: Double, hi: Double)] = []
+            for mark in marks where (mark.start.y == mark.end.y) == horizontal {
+                if horizontal { runs.append((mark.start.y, mark.start.x, mark.end.x)) }
+                else { runs.append((mark.start.x, mark.start.y, mark.end.y)) }
+            }
+            runs.sort { a, b in a.fixed == b.fixed ? a.lo < b.lo : a.fixed < b.fixed }
+            var merged: [(Double, Double, Double)] = []
+            for run in runs {
+                if let last = merged.last, abs(last.0 - run.0) < 0.000001,
+                   run.1 <= last.2 + 0.000001, run.2 >= last.1 - 0.000001 {
+                    merged[merged.count - 1] = (last.0, min(last.1, run.1), max(last.2, run.2))
+                } else { merged.append(run) }
+            }
+            result += merged.map { fixed, lo, hi in
+                Mark(kind: .internalCut, start: horizontal ? Point(lo, fixed) : Point(fixed, lo),
+                     end: horizontal ? Point(hi, fixed) : Point(fixed, hi))
+            }
+        }
+        return result
+    }
     public static func draw(side: Side,sheet: Sheet,in context: CGContext,settings: ExportMarks,info: String,kind: SideKind = .front) {
-        guard !side.punchMarks.isEmpty || settings.crop || settings.fold || settings.bleed || settings.safeArea || settings.pageNumbers || settings.sheetInfo || settings.fullCut || settings.colorBar || settings.registrationTargets else { return }
+        guard !side.punchMarks.isEmpty || side.marks.contains(where: { $0.kind == .internalCut }) || settings.crop || settings.fold || settings.bleed || settings.safeArea || settings.pageNumbers || settings.sheetInfo || settings.fullCut || settings.colorBar || settings.registrationTargets else { return }
         context.saveGState(); defer { context.restoreGState() }
         let width = max(0.01,settings.lineWidth.isFinite ? settings.lineWidth : 0.25)/PDFPreviewDrawing.pointsPerMM
         let color = CGColor(colorSpace: CGColorSpaceCreateDeviceCMYK(),components:

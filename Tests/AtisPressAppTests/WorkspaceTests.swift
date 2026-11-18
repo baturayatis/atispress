@@ -240,7 +240,7 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("invalid.pdf").path))
     }
 
-    func testGeneratedBleedWarmsSourceCacheAndKeepsPlanSettingsSnapshot() async throws {
+    func testGeneratedBleedUsesVectorWithoutWarmingSourceCache() async throws {
         let model = Workspace()
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString,isDirectory: true)
         try FileManager.default.createDirectory(at: folder,withIntermediateDirectories: false)
@@ -257,17 +257,16 @@ final class WorkspaceTests: XCTestCase {
         model.setMode(.stepAndRepeat)
         model.open(input,confirmChanges: false)
         for _ in 0..<300 {
-            if model.source != nil && !model.planning && !model.samplingBleed { break }
+            if model.source != nil && !model.planning { break }
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTAssertTrue(model.plan.generatedBleed.enabled)
         XCTAssertEqual(model.plan.generatedBleed.method,.automatic)
-        let first = try XCTUnwrap(model.source?.edgeSamples.cached(page: 1))
-        XCTAssertTrue(model.bleedSampleSummary?.contains("RGB") == true)
+        XCTAssertNil(model.source?.edgeSamples.cached(page: 1))
         XCTAssertTrue(model.canExportNow)
         model.project.settings.generatedBleed.tolerance = 0.1
         try await settle(model)
-        XCTAssertTrue(model.source?.edgeSamples.cached(page: 1) === first)
+        XCTAssertNil(model.source?.edgeSamples.cached(page: 1))
         model.project.settings.generatedBleed.method = .solidColor
         model.project.settings.generatedBleed.color = .cmyk(1,0,0,0)
         try await settle(model)

@@ -7,6 +7,7 @@ struct PreflightRow: Identifiable {
     var severity: PDFPreflightFinding.Severity
     var pages: [Int]
     var explanation: String
+    var isColor: Bool = false
     var text: String {
         var parts: [String] = [],start: Int?,end: Int?
         for page in pages {
@@ -78,11 +79,29 @@ extension Workspace {
             if visible>0 {findings.append(PDFPreflightFinding("source-guides",page:1,"Dosyada baskıya girebilecek kılavuz çizgileri var (\(visible) çizgi)"))}
             if input.guides.rasterFramesSuspected {findings.append(PDFPreflightFinding("raster-guides",page:1,"Kılavuz benzeri çerçeveler raster görüntünün parçası; ayrı çizgi olarak gizlenemez."))}
         }
+        if let tone = project.settings.tone {
+            var tonedPages: [String: Set<Int>] = [:]
+            for sheet in plan.sheets {
+                for (side, slots) in [(SideKind.front,sheet.front.slots),(.back,sheet.back.slots)] {
+                    for slot in slots {
+                        guard let page = slot.sourcePageNumber else { continue }
+                        let face = slot.itemSide ?? side
+                        let value = tone.value(forPage: page,side: face)
+                        guard value != 0 else { continue }
+                        let label = face == .front ? "Ön" : "Arka"
+                        tonedPages["\(label) yüz ton ayarı \(value > 0 ? "+" : "")\(value) uygulanıyor.",default: []].insert(page)
+                    }
+                }
+            }
+            for (label, pages) in tonedPages {
+                findings += pages.map { PDFPreflightFinding("tone",page: $0,severity: .notice,label) }
+            }
+        }
         var groups: [String:PreflightRow] = [:]
         for var finding in findings {
             if finding.code == "rgb",project.autoLayout?.production != .offset { finding.severity = .notice }
             let key = finding.severity.rawValue+finding.code+finding.explanation
-            if groups[key] == nil { groups[key] = PreflightRow(id: key,severity: finding.severity,pages: [],explanation: finding.explanation) }
+            if groups[key] == nil { groups[key] = PreflightRow(id: key,severity: finding.severity,pages: [],explanation: finding.explanation,isColor: ["rgb","spot","ink"].contains(finding.code)) }
             if groups[key]?.pages.contains(finding.page) != true { groups[key]?.pages.append(finding.page) }
         }
         return groups.values.map { value in var row = value; row.pages.sort(); return row }.sorted {
@@ -93,14 +112,19 @@ extension Workspace {
 }
 struct PreflightView: View {
     @ObservedObject var model: Workspace
+    var colorOnly = false
     var body: some View {
-        GroupBox("Ön Kontrol") {
+        GroupBox(colorOnly ? "PDF renk bulguları" : "Ön Kontrol") {
             VStack(alignment: .leading,spacing: 7) {
-                Text(model.project.autoLayout?.production == .offset ? "Ofset: RGB bulgularını ve renk ayrımlarını kontrol edin." : "Dijital: RGB bulguları bilgilendirme amaçlıdır.")
-                    .font(.system(size:12))
+                if colorOnly {
+                    Text(model.project.autoLayout?.production == .offset
+                         ? "Ofset: RGB bulgularını ve renk ayrımlarını kontrol edin."
+                         : "Dijital: RGB bulguları bilgilendirme amaçlıdır.")
+                        .font(.system(size:12))
+                }
                 if model.source == nil { Text("PDF yüklenince otomatik incelenir.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1) }
                 else {
-                    ForEach(model.preflightRows) { row in
+                    ForEach(model.preflightRows.filter { $0.isColor == colorOnly }) { row in
                         Text(TRFormat.presentation(row.text)).font(.system(size:12)).foregroundStyle(row.severity == .warning ? Color.orange : DesignSystem.muted)
                             .textSelection(.enabled)
                     }

@@ -4,7 +4,7 @@ import ImpositionCore
 struct FireControlsView: View {
     @ObservedObject var model: Workspace
     private var waste: Binding<WasteSettings> {
-        Binding(get: { model.selectedGangJob?.waste ?? model.project.stepAndRepeat.waste ?? WasteSettings() },set: { value in if let id = model.selectedGangJob?.id { model.editGangJob(id) { $0.waste = value } } else { model.project.stepAndRepeat.waste = value } })
+        Binding(get: { model.workflowWaste }, set: { model.workflowWaste = $0 })
     }
     var body: some View {
         VStack(alignment: .leading,spacing: 6) {
@@ -13,21 +13,26 @@ struct FireControlsView: View {
                 Picker("Fire türü",selection: waste.mode) {
                     Text("Yüzde (%)").tag(WasteSettings.Mode.percent)
                     Text("Sabit adet").tag(WasteSettings.Mode.fixed)
-                }.labelsHidden().inspectorSetting(model,"Fire türü",SettingGuidance.detail("Fire türü"))
+                }.labelsHidden().inspectorTarget("wasteMode").inspectorSetting(model,"Fire türü",SettingGuidance.detail("Fire türü"))
             }
             HStack {
                 Text("Ek üretim payı").frame(maxWidth:.infinity,alignment:.leading)
                 if waste.wrappedValue.mode == .percent {
-                    DimensionInput("Fire",value:waste.percent,unit:"%",range:0...100)
+                    DimensionInput("Fire",value:waste.percent,unit:"%",range:0...100,inspectorID:"wasteAmount")
                 } else {
-                    IntegerInput(title:"Fire",value:waste.fixed)
+                    IntegerInput(title:"Fire",value:waste.fixed,inspectorID:"wasteAmount")
                 }
             }
-            Picker("Fire kopyalar",selection: waste.numberCopies) {
-                Text("Numarasız").tag(false); Text("Numaralı").tag(true)
-            }.pickerStyle(.segmented).inspectorSetting(model,"Fire kopyalar",SettingGuidance.detail("Fire kopyalar"))
-            if waste.wrappedValue.numberCopies {
-                Text("Seri aralığı fireyi içerir. Bitiş no, müşteri adedini belirler.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+            if model.project.team != nil {
+                Text("Fire her düzenin fiziksel tabaka adedine eklenir.").font(.system(size:12))
+                    .foregroundStyle(DesignSystem.muted)
+            } else {
+                Picker("Fire kopyalar",selection: waste.numberCopies) {
+                    Text("Numarasız").tag(false); Text("Numaralı").tag(true)
+                }.pickerStyle(.segmented).inspectorTarget("wasteCopies").inspectorSetting(model,"Fire kopyalar",SettingGuidance.detail("Fire kopyalar"))
+                if waste.wrappedValue.numberCopies {
+                    Text("Seri aralığı fireyi içerir. Bitiş no, müşteri adedini belirler.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                }
             }
             if let sheet = model.currentSheet,let summary = sheet.productionSummary { Text(summary).font(.system(size:12)).textSelection(.enabled) }
             else { Text("Fire, Adet üzerine eklenir; yüzde yukarı yuvarlanır.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1) }

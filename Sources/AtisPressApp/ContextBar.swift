@@ -163,7 +163,7 @@ struct ContextBar:View {
         GeometryReader { geometry in
             let layout=ContextPresentation.layout(controls,width:geometry.size.width)
             HStack(spacing:8) {
-                if !model.project.hasPanelItems {Text("PDF seçin");Spacer()}
+                if !model.project.hasPanelItems {Text(model.source==nil ? "PDF seçin":"Baskıya dahil sayfa yok");Spacer()}
                 else {
                     ForEach(layout.visible) {control in field(control).frame(width:control.width)}
                     Spacer(minLength:0)

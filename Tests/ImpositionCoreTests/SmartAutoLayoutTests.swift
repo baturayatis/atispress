@@ -47,7 +47,7 @@ final class SmartAutoLayoutTests: XCTestCase {
         XCTAssertEqual(result.project.sheet.margins,Insets(left: 10,right: 10,top: 10,bottom: 10))
         XCTAssertEqual(result.project.sheet.gripperWidth,0)
         XCTAssertEqual(result.project.sheet.gutter,2*result.project.settings.bleed)
-        XCTAssertTrue(result.project.settings.generatedBleed.enabled)
+        XCTAssertFalse(result.project.settings.generatedBleed.enabled)
         XCTAssertTrue(result.project.exportMarks.crop)
         XCTAssertGreaterThan(result.project.settings.cropMarkOffset,result.project.settings.bleed)
         XCTAssertGreaterThan(try XCTUnwrap(result.plan.sheets.first?.repeatLayout?.copiesPerSheet),1)

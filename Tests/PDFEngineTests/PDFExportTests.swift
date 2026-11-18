@@ -13,15 +13,16 @@ final class PDFExportTests: XCTestCase {
         addTeardownBlock { try? FileManager.default.removeItem(at: url) }
         return url
     }
-    private func fixture(in directory: URL,count: Int = 2,bleedBox: Bool = true,rotation: Int = 0) throws -> URL {
+    private func fixture(in directory: URL,count: Int = 2,bleedBox: Bool = true,rotation: Int = 0, malformedBleed: Bool = false) throws -> URL {
         let url = directory.appendingPathComponent("source.pdf")
         var media = CGRect(x: 5,y: 7,width: 20*unit+40,height: 30*unit+50)
         var trim = CGRect(x: 15,y: 27,width: 20*unit,height: 30*unit)
-        var bleed = trim.insetBy(dx: -8,dy: -8)
+        let bleed = trim.insetBy(dx: -8,dy: -8)
+        var declaredBleed = malformedBleed ? trim.insetBy(dx: 4*unit, dy: 4*unit) : bleed
         let context = try XCTUnwrap(CGContext(consumer: XCTUnwrap(CGDataConsumer(url: url as CFURL)),mediaBox: &media,nil))
         for number in 1...count {
             var boxes: [CFString:Any] = [kCGPDFContextTrimBox:NSData(bytes: &trim,length: MemoryLayout<CGRect>.size)]
-            if bleedBox { boxes[kCGPDFContextBleedBox] = NSData(bytes: &bleed,length: MemoryLayout<CGRect>.size) }
+            if bleedBox { boxes[kCGPDFContextBleedBox] = NSData(bytes: &declaredBleed,length: MemoryLayout<CGRect>.size) }
             context.beginPDFPage(boxes as CFDictionary)
             context.setFillColor(CGColor(gray: 0.7,alpha: 1)); context.fill(media)
             context.setFillColor(CGColor(colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,components: [1,0,1,1])!); context.fill(bleed)
@@ -186,9 +187,10 @@ final class PDFExportTests: XCTestCase {
             try saveQA(result.files[0],name: "cards-\(method)")
         }
     }
-    func testBleedIsPreservedWithTrimAnchorAndMediaFallback() async throws {
-        for explicit in [true,false] {
-            let folder = try directory(), input = try fixture(in: folder,count: 1,bleedBox: explicit)
+    func testArtworkUsesOnlyValidatedBleedAndKeepsTrimAnchor() async throws {
+        for (explicit, malformed) in [(true, false), (false, false), (true, true)] {
+            let folder = try directory(), input = try fixture(in: folder,count: 1,bleedBox: explicit,malformedBleed: malformed)
+            let valid = explicit && !malformed
             let source = try await PDFSource.open(input)
             let slot = Slot(sourcePageNumber: 1,origin: Point(10,10),size: source.pages[0].trimSize,
                             artworkClip: Rect(x: 6,y: 6,width: 28,height: 38))
@@ -196,9 +198,10 @@ final class PDFExportTests: XCTestCase {
             let file = folder.appendingPathComponent("bleed.pdf")
             _ = try PDFExporter.export(plan: plan,source: source,destination: .singlePDF(file),options: .artworkOnly)
             let bitmap = try render(XCTUnwrap(CGPDFDocument(file as CFURL)?.page(at: 1)))
-            assertColor(bitmap.rgb(9,25),[1,0,1]) // Outside trim, inside bleed.
+            assertColor(bitmap.rgb(9,25),valid ? [1,0,1] : [1,1,1]) // MediaBox alone cannot supply bleed.
             assertColor(bitmap.rgb(12,38),[0,0,0]) // Trim corner remains anchored at (10,10).
-            assertColor(bitmap.rgb(6.6,25),explicit ? [1,1,1] : [0.7,0.7,0.7])
+            assertColor(bitmap.rgb(6.6,25),[1,1,1])
+            XCTAssertEqual((source.pages[0].availableBleed ?? 0) > 0, valid)
             let image = await source.image(page: 1,pixels: 512)
             XCTAssertNotNil(image)
             let raster = try XCTUnwrap(source.cachedRaster(page: 1,pixels: 512))
@@ -206,9 +209,84 @@ final class PDFExportTests: XCTestCase {
             try PDFPlanRenderer.drawSlot(slot,page: nil,in: preview.context,reference: SlotReference(sheet: 0,side: .front,slot: 0),raster: raster)
             assertColor(preview.rgb(9,25),bitmap.rgb(9,25))
             assertColor(preview.rgb(12,38),bitmap.rgb(12,38))
-            try saveQA(file,name: explicit ? "bleed" : "media-fallback")
+            try saveQA(file,name: valid ? "bleed" : "trim-only")
         }
     }
+    func testRepeatedDuplexSharedAndSpacedCutsUseSameBleedGeometryInPreviewAndExport() async throws {
+        let folder = try directory(), input = try fixture(in: folder)
+        let source = try await PDFSource.open(input)
+        let document = try XCTUnwrap(CGPDFDocument(input as CFURL))
+        for gutter in [0.0, 2.0] {
+            var p = project(source, binding: .stepAndRepeat)
+            p.sheet = SheetSpec(size: Size(100, 70), gripperWidth: 0, gutter: gutter, orientation: .landscape)
+            p.stepAndRepeat = StepAndRepeatSettings(columns: 2, rows: 1, allowRotation: false, quantity: 2)
+            p.stepAndRepeat.pageLayout = PageLayoutSettings()
+            p.stepAndRepeat.pageLayout?.mode = .duplex
+            p.settings.bleed = 2.5
+            p.settings.cropMarkLength = 2
+            p.settings.cropMarkOffset = 3
+            let plan = ImpositionPlanner.plan(p)
+            let sheet = try XCTUnwrap(plan.sheets.first)
+            XCTAssertTrue(plan.canExport, "\(plan.issues)")
+            XCTAssertTrue(plan.hasBackContent)
+            let file = folder.appendingPathComponent("duplex-\(gutter).pdf")
+            _ = try PDFExporter.export(plan: plan, source: source, destination: .singlePDF(file), options: .artworkOnly)
+            let exported = try XCTUnwrap(CGPDFDocument(file as CFURL))
+            for (kind, side, pageNumber) in [(SideKind.front, sheet.front, 1), (.back, sheet.back, 2)] {
+                let slots = side.slots.sorted { $0.x < $1.x }
+                let left = slots[0], right = slots[1]
+                let trimEdge = left.x + left.size.width
+                let leftClip = try XCTUnwrap(left.artworkClip), rightClip = try XCTUnwrap(right.artworkClip)
+                XCTAssertLessThanOrEqual(leftClip.origin.x + leftClip.size.width, rightClip.origin.x + 0.000001)
+                XCTAssertTrue(side.marks.contains { $0.kind == .crop && abs($0.start.x - trimEdge) < 0.000001 && $0.start.x == $0.end.x })
+                let preview = try Bitmap(width: sheet.size.width, height: sheet.size.height)
+                try PDFPlanRenderer.drawSide(side, sheet: sheet, document: document, in: preview.context,
+                                             sheetIndex: 0, kind: kind, repetition: 0, options: .artworkOnly)
+                let printed = try render(XCTUnwrap(exported.page(at: pageNumber)))
+                let y = left.y + left.size.height/2
+                let color = colors[pageNumber-1]
+                assertColor(printed.rgb(left.x-1,y), [1,0,1])
+                assertColor(printed.rgb(trimEdge-1,y), [color.0,color.1,color.2])
+                assertColor(printed.rgb(trimEdge+1,y), gutter == 0 ? [color.0,color.1,color.2] : [1,0,1])
+                if gutter > 0 { assertColor(printed.rgb((trimEdge+right.x)/2,y), [1,1,1]) }
+                for x in [left.x-1,trimEdge-1,trimEdge+1,right.x+1,right.x+right.size.width+1] {
+                    assertColor(printed.rgb(x,y),preview.rgb(x,y))
+                }
+            }
+            for front in sheet.front.slots {
+                let back = try XCTUnwrap(sheet.back.slots.first { $0.copyIndex == front.copyIndex })
+                XCTAssertEqual(back.x, sheet.size.width-front.x-front.size.width, accuracy: 0.000001)
+                XCTAssertEqual(back.y, front.y, accuracy: 0.000001)
+            }
+        }
+    }
+
+    func testExplicitGenerationDoesNotFillTransparentPartOfValidSourceBleed() async throws {
+        let folder = try directory(), input = folder.appendingPathComponent("native.pdf")
+        var trim = CGRect(x: 10*unit, y: 10*unit, width: 20*unit, height: 30*unit)
+        var bleed = trim.insetBy(dx: -2*unit, dy: -2*unit)
+        var media = trim.insetBy(dx: -5*unit, dy: -5*unit)
+        let context = try XCTUnwrap(CGContext(consumer: XCTUnwrap(CGDataConsumer(url: input as CFURL)), mediaBox: &media, nil))
+        context.beginPDFPage([kCGPDFContextTrimBox: NSData(bytes: &trim, length: MemoryLayout<CGRect>.size),
+                              kCGPDFContextBleedBox: NSData(bytes: &bleed, length: MemoryLayout<CGRect>.size)] as CFDictionary)
+        context.setFillColor(CGColor(gray: 0, alpha: 1))
+        context.fill(trim)
+        context.endPDFPage()
+        context.closePDF()
+
+        let source = try await PDFSource.open(input)
+        let slot = Slot(sourcePageNumber: 1, origin: Point(10, 10), size: source.pages[0].trimSize,
+                        artworkClip: Rect(x: 6, y: 6, width: 28, height: 38))
+        let plan = ImpositionPlan(sheets: [Sheet(size: Size(45, 55), front: Side(slots: [slot]), back: Side())],
+                                  generatedBleed: GeneratedBleedSettings(enabled: true, method: .solidColor, color: .rgb(0, 1, 0)))
+        let exported = folder.appendingPathComponent("protected-bleed.pdf")
+        _ = try PDFExporter.export(plan: plan, source: source, destination: .singlePDF(exported), options: .artworkOnly)
+        let bitmap = try render(XCTUnwrap(CGPDFDocument(exported as CFURL)?.page(at: 1)))
+        assertColor(bitmap.rgb(9, 25), [1, 1, 1])
+        assertColor(bitmap.rgb(7, 25), [0, 1, 0])
+        assertColor(bitmap.rgb(11, 25), [0, 0, 0])
+    }
+
     func testRotatedSourceAndMirroredSlotsRetainBleed() async throws {
         let folder = try directory(), input = try fixture(in: folder,count: 1,rotation: 90)
         let source = try await PDFSource.open(input)
@@ -582,7 +660,8 @@ final class PDFExportTests: XCTestCase {
             // Even explicitly requesting blank backs cannot add them to a wholly simplex job.
             let result = try PDFExporter.export(plan: plan,source: source,destination: destination,marks: .none,includeBlankBacks: true)
             XCTAssertEqual(result.pageCount,3); XCTAssertEqual(result.sheetCount,3)
-            XCTAssertEqual(result.notes,["Arka yüz boş: çıktıya eklenmedi."])
+            XCTAssertTrue(result.notes.contains("Arka yüz boş: çıktıya eklenmedi."))
+            XCTAssertTrue(result.notes.contains { $0.contains("taşma payı eksik") })
             XCTAssertEqual(result.files.count,perSheet ? 3 : 1)
             for repetition in 0..<3 {
                 let document = try XCTUnwrap(PDFDocument(url: perSheet ? result.files[repetition] : output))
@@ -649,7 +728,8 @@ final class PDFExportTests: XCTestCase {
             let plan = ImpositionPlanner.plan(p)
             XCTAssertTrue(plan.hasBackContent)
             let result = try PDFExporter.export(plan: plan,source: source,destination: .singlePDF(folder.appendingPathComponent("backs-\(method).pdf")),marks: .none,includeBlankBacks: false)
-            XCTAssertEqual(result.pageCount,6); XCTAssertTrue(result.notes.isEmpty)
+            XCTAssertEqual(result.pageCount,6)
+            XCTAssertFalse(result.notes.contains("Arka yüz boş: çıktıya eklenmedi."))
             let pdf = try XCTUnwrap(PDFDocument(url: result.files[0]))
             if method == .sheetwise { XCTAssertTrue(pdf.page(at: 1)?.string?.contains("BACK-0001") == true) }
         }

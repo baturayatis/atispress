@@ -26,8 +26,88 @@ import PDFEngine
     }
     private func workspace() -> Workspace {Workspace(bookmarkCreator:{try $0.bookmarkData(options:.minimalBookmark,includingResourceValuesForKeys:nil,relativeTo:nil)})}
     private func settle(_ m:Workspace) async throws {
-        for _ in 0..<600 {if !m.loading && !m.planning && !m.samplingBleed && !m.preparingSource && !m.autoArranging {return};try await Task.sleep(for:.milliseconds(10))};XCTFail("Preparation did not settle")
+        for _ in 0..<600 {if !m.loading && !m.planning && !m.preparingSource && !m.autoArranging {return};try await Task.sleep(for:.milliseconds(10))};XCTFail("Preparation did not settle")
     }
+    func testArtworkSeparationPersistsAssignmentsAndExportsTheSameTeamPlan() async throws {
+        let (directory, url) = try fixture()
+        let model = workspace()
+        model.open(url, confirmChanges: false)
+        try await settle(model)
+        let classic = model.project
+        let oldURL = directory.appendingPathComponent("old.atispress")
+        try model.saveProject(as: oldURL)
+        var legacy = try ProjectDocument.decode(Data(contentsOf: oldURL))
+        legacy.version = 23
+        try legacy.encoded().write(to: oldURL)
+        let old = workspace()
+        try await old.loadProject(at: oldURL)
+        try await settle(old)
+        XCTAssertEqual(old.project, classic)
+        XCTAssertNil(old.project.sourcePreparation?.separation)
+
+        let input = try XCTUnwrap(model.preparationInput)
+        let proposals = input.guides.artworkCandidates(size: input.pages[0].trimSize)
+        XCTAssertEqual(proposals.count, 4, "Trim \(input.pages[0].trimSize), frames \(input.guides.learned.map(\.outer))")
+        XCTAssertTrue(proposals.allSatisfy { $0.assignment == nil })
+        _ = ArtworkSeparationView(model: model, input: input)
+        XCTAssertEqual(model.project, classic)
+
+        var draft = ArtworkSeparation()
+        let bleed = Insets(left: 3, right: 3, top: 3, bottom: 3)
+        draft.regions = [
+            ArtworkRegion(crop: Rect(x: 0, y: 0, width: 96, height: 56), bleed: bleed, assignment: SplitCell(product: 2)),
+            ArtworkRegion(crop: Rect(x: 96, y: 56, width: 96, height: 56), bleed: bleed, assignment: SplitCell(product: 2, side: .back)),
+            ArtworkRegion(crop: Rect(x: 96, y: 0, width: 88, height: 50), bleed: bleed, assignment: SplitCell(product: 7))
+        ]
+        model.basicQuantity = 2
+        var preparation = SourcePreparationSettings(sourceID: model.preparationSourceID)
+        var simplex = draft
+        simplex.regions.remove(at: 1)
+        preparation.separation = simplex
+        model.project.settings.turnMethod = .workAndTurn
+        try await model.applySourcePreparation(preparation)
+        try await settle(model)
+        XCTAssertEqual(model.project.settings.turnMethod, .sheetwise)
+        XCTAssertFalse(model.plan.hasBackContent)
+
+        preparation.separation = draft
+        try await model.applySourcePreparation(preparation)
+        try await settle(model)
+        XCTAssertNil(model.project.team)
+        XCTAssertEqual(model.project.gang?.jobs.map(\.splitProduct), [2, 7])
+        XCTAssertEqual(model.project.gang?.jobs.map { $0.back?.number }, [2, nil])
+        let jobIDs = model.project.gang?.jobs.map(\.id)
+
+        draft.asTeam = true
+        preparation.separation = draft
+        try await model.applySourcePreparation(preparation)
+        try await settle(model)
+        XCTAssertEqual(model.project.gang?.jobs.map(\.id), jobIDs)
+        XCTAssertEqual(model.project.team?.duplex, true)
+        XCTAssertTrue(model.plan.canExport, "\(model.plan.issues)")
+        XCTAssertEqual(model.plan.teamSummary?.pageCount, 3)
+        let saved = directory.appendingPathComponent("separated.atispress")
+        try model.saveProject(as: saved)
+        let file = try ProjectDocument.decode(Data(contentsOf: saved))
+        XCTAssertEqual(file.version, ProjectDocument.currentVersion)
+        XCTAssertEqual(file.state.project.sourcePreparation, preparation)
+        XCTAssertEqual(file.state.gangSources?.first?.reference.path, url.path)
+        XCTAssertEqual(file.state.gangSources?.first?.pageCount, 1)
+        let reopened = workspace()
+        try await reopened.loadProject(at: saved)
+        try await settle(reopened)
+        XCTAssertEqual(reopened.project, model.project)
+        XCTAssertEqual(reopened.plan.sheets, model.plan.sheets)
+        let prepared = try XCTUnwrap(reopened.source)
+        let plan = reopened.plan
+        let output = directory.appendingPathComponent("artwork.pdf")
+        let verification = try await Task.detached {
+            let exported = try PDFExporter.export(plan: plan, source: prepared, destination: .singlePDF(output), marks: .none)
+            return try ExportVerification.check(files: exported.files, plan: plan, source: prepared, marks: .none, includeBlankBacks: true)
+        }.value
+        XCTAssertTrue(verification.passed, "\(verification.differences)")
+    }
+
     func testConfirmedSplitCreatesProductsPersistsOriginalAndReopensSchema19() async throws {
         let (dir,url)=try fixture(),m=workspace();m.open(url,confirmChanges:false);try await settle(m)
         let original=m.project
@@ -60,7 +140,7 @@ import PDFEngine
         XCTAssertTrue(m.exportPreparationSummary.contains("4 kılavuz çizgisi gizlendi"))
         let file=dir.appendingPathComponent("split.atispress");try m.saveProject(as:file)
         let decoded=try ProjectDocument.decode(Data(contentsOf:file))
-        XCTAssertEqual(decoded.version,19);XCTAssertEqual(decoded.state.project.sourcePreparation,preparation)
+        XCTAssertEqual(decoded.version,ProjectDocument.currentVersion);XCTAssertEqual(decoded.state.project.sourcePreparation,preparation)
         XCTAssertEqual(decoded.state.gangSources?.first?.reference.path,url.path)
         XCTAssertEqual(decoded.state.gangSources?.first?.pageCount,1,"Stored reference counts original, never temporary cells")
         let opened=workspace();try await opened.loadProject(at:file);try await settle(opened)
@@ -130,7 +210,7 @@ import PDFEngine
         XCTAssertEqual(m.bleedResult(pages:pages,enabled:true,amount:3,settings:settings,adjacent:true),"Taşma: bloğun dış çevresinde (bitişik dizilim)")
         settings.color = .cmyk(0,0,0,0)
         XCTAssertEqual(m.bleedResult(pages:pages,enabled:true,amount:3,settings:settings,adjacent:false),"Taşma: kenar rengi beyaz, taşma beyaz çıkar")
-        XCTAssertTrue(m.bleedResult(pages:pages,enabled:false,amount:3,settings:settings,adjacent:false).hasPrefix("Taşma üretilemedi:"))
+        XCTAssertTrue(m.bleedResult(pages:pages,enabled:false,amount:3,settings:settings,adjacent:false).hasPrefix("Kaynak taşması eksik veya yok."))
         m.overlays = .artworkOnly;m.overlays.generatedBleedTint=true;XCTAssertTrue(m.hasPreviewGuides)
         for zoom in [0.04,0.25,1,2.5] {for backing in [1.0,2.0] {
             let width=SheetCanvasView.cropStrokeWidth(lineWidth:0.25,zoom:zoom,backing:backing)

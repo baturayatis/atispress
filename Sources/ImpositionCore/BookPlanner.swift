@@ -10,6 +10,7 @@ public enum BookPlanner {
         func issue(_ text: String,_ severity: ValidationIssue.Severity = .error) { issues.append(ValidationIssue(severity,.bookSettings,text)) }
         guard book.isValid else {
             var legacy = original; legacy.book = nil; legacy.coverMode = .included; legacy.pages = original.bookInteriorPages
+            legacy.internalCutJobs = nil
             var fallback = ImpositionPlanner.plan(legacy)
             fallback.issues.append(ValidationIssue(.error,.bookSettings,"Kâğıt kalınlığı pozitif, paylar ve kulaklar 0–500 mm olmalıdır; geçersiz değerler uygulanmadı.")); return fallback
         }
@@ -25,6 +26,7 @@ public enum BookPlanner {
         if original.coverMode == .included && domain.count<4 { issue("Dahil kapak için PDF’de en az dört kapak yüzü gerekir.") }
         if original.coverMode == .separate && (book.coverPDFPages.isEmpty || book.coverSourceID == nil) { issue("Ayrı kapak PDF’sini yükleyin.") }
         var body = original; body.book = nil; body.coverMode = .included; body.pages = original.bookInteriorPages; body.serialFields = []
+        body.internalCutJobs = nil
         var result = ImpositionPlanner.plan(body)
         if body.pages.isEmpty { issue("Kapaklar ayrıldıktan sonra iç sayfa kalmadı.") }
         let trim = body.pages.first?.trimSize ?? domain.first?.trimSize ?? Size(0,0)
@@ -99,6 +101,7 @@ public enum BookPlanner {
             template.stepAndRepeat.pageLayout = PageLayoutSettings(); template.stepAndRepeat.pageLayout?.mode = .duplex
             // Cover folds are contiguous: body signature gutter never opens a gap in the spine.
             template.sheet.gutter = 0
+            template.internalCutJobs = nil
             let imposed = ImpositionPlanner.plan(template)
             var coverInfo = info; coverInfo.section = .cover
             let leftFlap = original.binding == .perfectBound ? book.leftFlap : 0,rightFlap = original.binding == .perfectBound ? book.rightFlap : 0

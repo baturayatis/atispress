@@ -51,7 +51,7 @@ struct ProjectSource: Codable, Equatable {
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         guard let values = try? url.resourceValues(forKeys: [.fileSizeKey,.isRegularFileKey]),
               values.isRegularFile == true,Int64(values.fileSize ?? -1) == fileSize else { return false }
-        return allowRename || url.lastPathComponent == fileName
+        return allowRename || url.lastPathComponent.precomposedStringWithCanonicalMapping == fileName.precomposedStringWithCanonicalMapping
     }
 }
 
@@ -78,8 +78,19 @@ struct ProjectState: Codable, Equatable {
     var repeatGutter: Double
     var gangGutter: Double? = nil
     var linkedSources: [GangSourceReference]? = nil
+    var sourcePageCount:Int? = nil
 
     func validateSelection(pageCount: Int) throws {
+        if let items=project.pageItems {
+            let map=Dictionary(items.map{($0.id,$0)},uniquingKeysWith:{$1})
+            guard pageCount>=0,sourcePageCount==pageCount,map.count==items.count,Set(order)==Set(map.keys),Set(order).count==order.count,
+                  included.isSubset(of:Set(order)),items.allSatisfy({$0.id>0 && $0.copyNumber>0 && ($0.sourcePage.map{(1...max(1,pageCount)).contains($0)} ?? true) && $0.size.width.isFinite && $0.size.height.isFinite && $0.size.width>0 && $0.size.height>0}),
+                  project.pages==order.filter({included.contains($0)}).compactMap({map[$0]?.planningPage}) else {throw ProjectFileError.invalidSelection}
+            if let next=project.pageItemNextID {
+                guard next>0,next>(items.map(\.id).max() ?? 0) else {throw ProjectFileError.invalidSelection}
+            }
+            return
+        }
         guard order.count == pageCount,Set(order) == Set((0..<pageCount).map { $0+1 }),
               Set(order).count == order.count,
               included.isSubset(of: Set(order)),
@@ -89,7 +100,7 @@ struct ProjectState: Codable, Equatable {
     }
 }
 struct ProjectDocument: Codable, Equatable {
-    static let currentVersion = 19
+    static let currentVersion = 26
     var version: Int = currentVersion
     var state: ProjectState
     static func decode(_ data: Data) throws -> ProjectDocument {
@@ -107,13 +118,37 @@ struct ProjectDocument: Codable, Equatable {
         if header.version < 18, file.state.project.hasRescaling { file.state.project.migrateScaling() }
         guard file.state.source != nil || !(file.state.linkedSources ?? file.state.gangSources ?? []).isEmpty || file.state.order.isEmpty else { throw ProjectFileError.invalidSelection }
         let sources = file.state.linkedSources ?? file.state.gangSources ?? []
+        let preparation = file.state.project.sourcePreparation
+        let separatedCount = preparation?.separation.map { PDFSourcePreparation.products($0).reduce(0) { $0 + ($1.back == nil ? 1 : 2) } }
+        if let preparation, preparation.separation != nil && preparation.split != nil { throw ProjectFileError.invalidSelection }
+        if file.state.project.team != nil {
+            let project = file.state.project
+            guard project.binding == .gang, project.pageItems == nil, sources.count == 1,
+                  project.pages.count == (separatedCount ?? sources[0].pageCount),
+                  project.pages.enumerated().allSatisfy({ $0.element.number == $0.offset + 1 }),
+                  !(project.gang?.jobs.isEmpty ?? true) else { throw ProjectFileError.invalidSelection }
+        }
+        for item in file.state.project.pageItems ?? [] {
+            if let id=item.sourceID {
+                guard let source=sources.first(where:{$0.id==id}),let local=item.localPage,local>0,item.sourcePage != nil else {throw ProjectFileError.invalidSelection}
+                let count:Int
+                if let preparation, preparation.sourceID == id {
+                    count = separatedCount ?? preparation.split.map {
+                        PDFSourcePreparation.products($0).reduce(0) { $0 + ($1.back == nil ? 1 : 2) }
+                    } ?? source.pageCount
+                } else { count = source.pageCount }
+                guard local<=count else {throw ProjectFileError.invalidSelection}
+            } else if item.localPage != nil {throw ProjectFileError.invalidSelection}
+            if item.side == .front || item.side == .back {guard item.pairID != nil else {throw ProjectFileError.invalidSelection}}
+        }
+
         guard Set(sources.map(\.id)).count == sources.count,sources.allSatisfy({ $0.pageCount > 0 }),
               (file.state.project.gang?.jobs ?? []).allSatisfy({ job in sources.contains { $0.id==job.sourceID } }) else { throw ProjectFileError.invalidSelection }
-        if let preparation=file.state.project.sourcePreparation,preparation.split != nil {
+        if let preparation=file.state.project.sourcePreparation,preparation.hasPreparedProducts {
             guard sources.contains(where:{$0.id==preparation.sourceID}) else {throw ProjectFileError.invalidSelection}
         }
         if let id = file.state.project.book?.coverSourceID, !sources.contains(where: { $0.id==id }) { throw ProjectFileError.invalidSelection }
-        try file.state.validateSelection(pageCount: file.state.order.count)
+        try file.state.validateSelection(pageCount: file.state.sourcePageCount ?? file.state.order.count)
         return file
     }
     func encoded() throws -> Data {

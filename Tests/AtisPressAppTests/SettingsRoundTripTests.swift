@@ -229,19 +229,19 @@ import PDFEngine
         XCTAssertEqual(m.bookSettings.selection,selection)
         XCTAssertEqual(ImpositionPlanner.plan(m.project).sheets,book.sheets)
     }
-    func testBleedAmountLinkageCanBeRevertedWithoutChangingGuides() {
+    func testBleedAmountCanBeRevertedWithoutEnablingGenerationOrChangingGuides() {
         for mode in [BindingMethod.stepAndRepeat,.gang,.saddleStitch,.spiral] {
             let m = Workspace(); m.project = fixture(mode)
             m.editableGeneratedBleed.enabled = false
             let amount = m.workflowBleed, plan = ImpositionPlanner.plan(m.project), overlays = m.overlays
             m.workflowBleed = amount+0.5
-            XCTAssertTrue(m.editableGeneratedBleed.enabled)
+            XCTAssertFalse(m.editableGeneratedBleed.enabled)
             m.workflowBleed = amount
             XCTAssertFalse(m.editableGeneratedBleed.enabled)
             XCTAssertEqual(ImpositionPlanner.plan(m.project).sheets,plan.sheets)
             XCTAssertEqual(m.overlays,overlays)
-            m.workflowBleed = amount // Typing the same amount still activates generation.
-            XCTAssertTrue(m.editableGeneratedBleed.enabled)
+            m.workflowBleed = amount
+            XCTAssertFalse(m.editableGeneratedBleed.enabled)
         }
     }
 

@@ -11,7 +11,7 @@ public struct Point: Equatable, Sendable, Codable {
     public init(_ x: Double, _ y: Double) { self.x = x; self.y = y }
 }
 /// Axis-aligned bounds in sheet millimetres. Shared with every plan consumer.
-public struct Rect: Equatable, Sendable {
+public struct Rect: Equatable, Sendable, Codable {
     public var origin: Point
     public var size: Size
     public init(x: Double, y: Double, width: Double, height: Double) {
@@ -116,8 +116,44 @@ public struct GeneratedBleedSettings: Equatable, Sendable, Codable {
         tolerance.isFinite && (0...1).contains(tolerance) && color.components.allSatisfy { $0.isFinite && (0...1).contains($0) }
     }
 }
+public struct ArtworkTone: Equatable, Sendable, Codable {
+    public struct Faces: Equatable, Sendable, Codable {
+        public var front: Int?
+        public var back: Int?
+        public init(front: Int? = nil, back: Int? = nil) {
+            self.front = front; self.back = back
+        }
+        public subscript(_ side: SideKind) -> Int? {
+            get { side == .front ? front : back }
+            set { if side == .front { front = newValue } else { back = newValue } }
+        }
+    }
+    public var job = Faces()
+    public var pages: [Int: Faces] = [:]
+    public init() {}
+    public static func clamped(_ value: Int) -> Int { min(50,max(-50,value)) }
+
+    public func value(forPage page: Int, side: SideKind) -> Int {
+        Self.clamped(pages[page]?[side] ?? job[side] ?? 0)
+    }
+    public func value(for slot: Slot, on side: SideKind) -> Int {
+        guard let page = slot.sourcePageNumber else { return 0 }
+        return value(forPage: page,side: slot.itemSide ?? side)
+    }
+    public mutating func set(_ value: Int?, page: Int?, side: SideKind) {
+        let value = value.map(Self.clamped)
+        if let page {
+            var faces = pages[page] ?? Faces()
+            faces[side] = value
+            pages[page] = faces == Faces() ? nil : faces
+        } else {
+            job[side] = value == 0 ? nil : value
+        }
+    }
+}
 public struct ImpositionSettings: Equatable, Sendable, Codable {
     public var bleed: Double
+    public var tone: ArtworkTone? = nil
     public var cropMarkLength: Double
     public var cropMarkOffset: Double
     public var safeAreaInset: Double
@@ -197,8 +233,15 @@ public struct Project: Equatable, Sendable, Codable {
     var bookCoverTemplate = false
     public var leafBinding: LeafBindingSettings? = nil
     public var alignment: BlockAlignment? = nil
+    public var previouslyHadBacks:Bool? = nil
+    public var pageItems:[PageListItem]? = nil
+    /// Monotonic occurrence allocation survives deletion and project reopening.
+    public var pageItemNextID:Int? = nil
     public var blankPlacement: BlankPlacement? = nil
     public var book: BookSettings? = nil
+    public var team:TeamSettings? = nil
+    /// Repeat jobs use their front occurrence ID. Other non-gang jobs use zero.
+    public var internalCutJobs: [Int: InternalCutMarks]? = nil
     public var gang: GangSettings? = nil
     public var sheetInfo: SheetInfoSettings? = nil
     public var includeBlankBacks: Bool? = nil
@@ -220,10 +263,13 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case sourcePreparation, scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case internalCutJobs, team, previouslyHadBacks, pageItemNextID, pageItems, sourcePreparation, scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        previouslyHadBacks = try c.decodeIfPresent(Bool.self,forKey:.previouslyHadBacks)
+        pageItemNextID = try c.decodeIfPresent(Int.self,forKey:.pageItemNextID)
+        pageItems = try c.decodeIfPresent([PageListItem].self,forKey:.pageItems)
         sourcePreparation = try c.decodeIfPresent(SourcePreparationSettings.self,forKey:.sourcePreparation)
         scaling = try c.decodeIfPresent(ScalingSettings.self,forKey:.scaling)
         rescaleJobs = try c.decodeIfPresent([RescaleJob].self,forKey:.rescaleJobs)
@@ -233,6 +279,8 @@ public struct Project: Equatable, Sendable, Codable {
         alignment = try c.decodeIfPresent(BlockAlignment.self,forKey:.alignment)
         blankPlacement = try c.decodeIfPresent(BlankPlacement.self,forKey:.blankPlacement)
         book = try c.decodeIfPresent(BookSettings.self,forKey:.book)
+        internalCutJobs = try c.decodeIfPresent([Int: InternalCutMarks].self, forKey: .internalCutJobs)
+        team = try c.decodeIfPresent(TeamSettings.self,forKey:.team)
         gang = try c.decodeIfPresent(GangSettings.self,forKey: .gang)
         sheetInfo = try c.decodeIfPresent(SheetInfoSettings.self,forKey: .sheetInfo)
         includeBlankBacks = try c.decodeIfPresent(Bool.self,forKey: .includeBlankBacks)
@@ -271,6 +319,9 @@ public struct Slot: Equatable, Sendable {
     public var bookRegion: String? = nil
     public var gangJobID: UUID? = nil
     public var gangBlockID: UUID? = nil
+    public var sourceID:UUID? = nil
+    public var localSourcePage:Int? = nil
+    public var insertedBlank = false
     public var sourcePageNumber: Int?
     public var origin: Point
     public var size: Size
@@ -294,7 +345,7 @@ public struct Slot: Equatable, Sendable {
     public var x: Double { origin.x }
     public var y: Double { origin.y }
 }
-public enum MarkKind: Sendable { case crop, fold, bleed, safeArea, pageLabel, margin, gripper, sharedCut }
+public enum MarkKind: Sendable { case crop, fold, bleed, safeArea, pageLabel, margin, gripper, sharedCut, internalCut }
 public struct Mark: Equatable, Sendable {
     public var kind: MarkKind
     public var start: Point
@@ -352,6 +403,7 @@ public struct ValidationIssue: Equatable, Sendable {
 }
 public struct ImpositionPlan: Sendable {
     public var sheets: [Sheet]
+    public var teamSummary:TeamSummary? = nil
     public var readingOrder: [Int?] = []
     public var blankPositions: [Int] = []
     public var signatureCount = 0
@@ -360,6 +412,7 @@ public struct ImpositionPlan: Sendable {
     public var groupedIssues: [ValidationIssue]? = nil
     public var addedBlankPages: Int
     public var signaturePageCount: Int
+    public var tone: ArtworkTone? = nil
     public var generatedBleed: GeneratedBleedSettings
     public var totalPressSheets: Int {
         sheets.reduce(0) { total,sheet in

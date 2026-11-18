@@ -125,10 +125,6 @@ extension ImpositionPlanner {
                     }
                 }
             }
-            if settings.generatedBleed.enabled && spec.gutter > 0 && spec.gutter < 2*settings.bleed {
-                plan.issues.append(ValidationIssue(.warning,.insufficientGutter,
-                    "İş \(job+1): ara boşluk iki taşma payından küçük; kesim ayrımını kontrol edin."))
-            }
             if spec.gutter == 0 && settings.bleed > 0 && grid.capacity > 1 {
                 plan.issues.append(ValidationIssue(.warning,.sharedCutBleed,
                     "İş \(job+1): ortak kesimde iç taşmalar kesim sınırında kırpılır; komşu tasarımları kontrol edin."))

@@ -49,11 +49,14 @@ public enum PDFExporter {
         let date = Date()
         let dateLabel = marks.sheetInfo && sheetInfo.date ? PDFSheetInfoContext.formattedDate(date) : ""
         var notes: [String] = PDFSerialCodeValidation.warnings(plan: plan)
+        notes += plan.displayIssues.filter { [.missingBleed, .sharedCutBleed, .insufficientGutter].contains($0.code) }.map(\.message)
         let bindingWarnings = PDFBindingStripInspector.warnings(plan:plan,url:source.url,cache:source.bindingStripCache)
         notes += Array(Set((plan.displayIssues.filter { $0.code == .bindingAllowance }+bindingWarnings).map(\.message))).sorted()
         let keepBlankBacks = plan.hasBackContent && includeBlankBacks
         var sheetCount = 0, pageCount = 0
         var omittedBacks = false
+        var internalCutOnly = ExportMarks.none
+        internalCutOnly.lineWidth = marks.lineWidth
         for sheet in plan.sheets {
             let hasBack = sheet.hasContent(on: .back) || keepBlankBacks
             let faces = hasBack ? 2 : 1
@@ -62,6 +65,10 @@ public enum PDFExporter {
             sheetCount += sheet.repeatCount
             omittedBacks = omittedBacks || !hasBack
             for warning in PDFColorControlRenderer.geometry(sheet: sheet,settings: marks).warnings where !notes.contains(warning) { notes.append(warning) }
+            for side in [sheet.front] + (faces == 2 ? [sheet.back] : []) where side.marks.contains(where: { $0.kind == .internalCut }) {
+                let warnings = PDFExportMarkRenderer.geometry(side: side, sheet: sheet, settings: internalCutOnly).warnings
+                for warning in warnings where !notes.contains(warning) { notes.append(warning) }
+            }
             if marks.sheetInfo {
                 let sides: [(SideKind,Side)] = hasBack ? [(.front,sheet.front),(.back,sheet.back)] : [(.front,sheet.front)]
                 for (kind,side) in sides {
@@ -80,8 +87,11 @@ public enum PDFExporter {
                 if let number = slot.sourcePageNumber, number < 1 || number > document.numberOfPages { throw PDFExportError.missingPage(number) }
             }
         }
-        let generated: [any PDFSlotOverlay] = (plan.generatedBleed.enabled || plan.sheets.contains { $0.generatedBleedByJob.values.contains { $0.enabled } }) ?
-            [GeneratedBleedOverlay(settings: plan.generatedBleed,cache: source.edgeSamples,sampleIfMissing: true,jobSettings: plan.sheets.first?.generatedBleedByJob ?? [:])] : []
+        let jobBleed = plan.sheets.reduce(into: [UUID: GeneratedBleedSettings]()) { settings, sheet in
+            settings.merge(sheet.generatedBleedByJob) { existing, _ in existing }
+        }
+        let generated: [any PDFSlotOverlay] = (plan.generatedBleed.enabled || jobBleed.values.contains { $0.enabled }) ?
+            [GeneratedBleedOverlay(settings: plan.generatedBleed,cache: source.edgeSamples,jobSettings: jobBleed)] : []
         let effectiveOverlays = generated+overlays
         let scope = destination.scopeURL
         let accessed = scope.startAccessingSecurityScopedResource()
@@ -177,7 +187,7 @@ public enum PDFExporter {
                         context.scaleBy(x: PDFPreviewDrawing.pointsPerMM,y: PDFPreviewDrawing.pointsPerMM)
                         context.clip(to: CGRect(x: 0,y: 0,width: sheet.size.width,height: sheet.size.height))
                         try PDFPlanRenderer.drawSide(side,sheet: sheet,document: document,in: context,sheetIndex: index,
-                                                     kind: kind,repetition: repetition,options: .artworkOnly,overlays: overlays)
+                                                     kind: kind,repetition: repetition,options: .artworkOnly,overlays: overlays,tone: plan.tone)
                         let info = marks.sheetInfo ? PDFSheetInfoContext(jobName: sheet.gangJobNames ?? jobName,date: date,
                             sheetNumber: firstPhysical+repetition,
                             totalSheets: totalSheets,side: kind,production: production).text(settings: sheetInfo,sheet: sheet,dateLabel: dateLabel) : ""

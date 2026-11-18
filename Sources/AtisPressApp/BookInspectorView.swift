@@ -11,7 +11,7 @@ struct BookInspectorView: View {
             VStack(alignment:.leading,spacing:10) {
                 if model.project.book == nil {
                     Text("Mevcut forma düzeni korunuyor. Kapak, sırt ve creep için ölçülmüş kâğıt bilgileriyle kitap ayarlarını açın.").font(.system(size:12))
-                    Button("Kitap ayarlarını aç",action:model.enableBookSettings)
+                    Button("Kitap ayarlarını aç",action:model.enableBookSettings).inspectorTarget(section == 0 ? "bookSettings" : nil)
                 } else {
                     if section==nil || section==0 {coverControls}
                     if section==nil || section==1 {
@@ -37,12 +37,12 @@ struct BookInspectorView: View {
                 Text("Dahil").tag(CoverMode.included)
                 Text("Ayrı bas").tag(CoverMode.excluded)
                 Text("Ayrı PDF").tag(CoverMode.separate)
-            }.pickerStyle(.segmented).inspectorSetting(model,"Kapak modu",SettingGuidance.detail("Kapak modu"))
+            }.pickerStyle(.segmented).inspectorTarget("coverMode").inspectorSetting(model,"Kapak modu",SettingGuidance.detail("Kapak modu"))
             if model.project.coverMode == .included {
                 Text("İlk iki / son iki sayfa otomatik kapaktır. Seçilen kapak yüzleri iç bloktan ayrılır ve bağımsız basılır.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
             }
             if model.project.coverMode == .separate {
-                if model.project.sourcePreparation?.split == nil {Button("Kapak PDF yükle…",action:model.chooseCoverPDF).disabled(model.source == nil || model.loading)}
+                if model.project.sourcePreparation?.hasPreparedProducts != true {Button("Kapak PDF yükle…",action:model.chooseCoverPDF).disabled(model.source == nil || model.loading)}
                 if let id = model.bookSettings.coverSourceID,let asset = model.gangAssets.first(where:{ $0.saved.id==id }) {
                     Text(asset.saved.reference.fileName).font(.system(size:12))
                 }
@@ -120,7 +120,7 @@ private struct PaperCaliperEditor: View {
             Picker("Kalınlık girişi",selection:$paper.input) {
                 Text("Mikron (µm)").tag(PaperCaliper.Input.microns)
                 Text("Gramaj × katsayı").tag(PaperCaliper.Input.grammage)
-            }.pickerStyle(.segmented).inspectorSetting(model,"Kalınlık girişi",SettingGuidance.detail("Kalınlık girişi"))
+            }.pickerStyle(.segmented).inspectorTarget(title == "İç kâğıt" ? "paperCaliper" : nil).inspectorSetting(model,"Kalınlık girişi",SettingGuidance.detail("Kalınlık girişi"))
             if paper.input == .microns { optional("Kalınlık (µm)",$paper.microns) }
             else {
                 optional("Gramaj (g/m²)",$paper.grammage)

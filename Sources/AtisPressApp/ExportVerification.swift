@@ -36,8 +36,8 @@ struct ExportVerification:Sendable {
                     var media = CGRect(origin:.zero,size:size)
                     guard let consumer = CGDataConsumer(data:data),let context = CGContext(consumer:consumer,mediaBox:&media,nil) else { throw PDFExportError.cannotCreatePDF }
                     context.beginPDFPage(nil); context.scaleBy(x:72/25.4,y:72/25.4)
-                    let generated:[any PDFSlotOverlay] = plan.generatedBleed.enabled || !sheet.generatedBleedByJob.isEmpty ? [GeneratedBleedOverlay(settings:plan.generatedBleed,cache:source.edgeSamples,sampleIfMissing:true,jobSettings:sheet.generatedBleedByJob)] : []
-                    try PDFPlanRenderer.drawSide(side,sheet:sheet,document:sourceDoc,in:context,sheetIndex:sheetIndex,kind:kind,repetition:repetition,options:.artworkOnly,overlays:generated)
+                    let generated:[any PDFSlotOverlay] = plan.generatedBleed.enabled || !sheet.generatedBleedByJob.isEmpty ? [GeneratedBleedOverlay(settings:plan.generatedBleed,cache:source.edgeSamples,jobSettings:sheet.generatedBleedByJob)] : []
+                    try PDFPlanRenderer.drawSide(side,sheet:sheet,document:sourceDoc,in:context,sheetIndex:sheetIndex,kind:kind,repetition:repetition,options:.artworkOnly,overlays:generated,tone:plan.tone)
                     PDFExportMarkRenderer.draw(side:side,sheet:sheet,in:context,settings:marks,info:"",kind:kind)
                     context.endPDFPage(); context.closePDF()
                     guard let provider = CGDataProvider(data:data),let expected = CGPDFDocument(provider)?.page(at:1) else { throw PDFExportError.cannotCreatePDF }

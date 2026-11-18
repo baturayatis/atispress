@@ -26,7 +26,7 @@ final class LeafWorkspaceTests: XCTestCase {
         // Native URL routing enqueues a MainActor task before starting the import.
         try await Task.sleep(for:.milliseconds(30))
         for _ in 0..<1500 {
-            if !model.loading && !model.planning && !model.autoArranging && !model.samplingBleed && !model.checkingBindingStrips { return }
+            if !model.loading && !model.planning && !model.autoArranging && !model.checkingBindingStrips { return }
             try await Task.sleep(for:.milliseconds(10))
         }
         XCTFail("Leaf workspace did not settle")

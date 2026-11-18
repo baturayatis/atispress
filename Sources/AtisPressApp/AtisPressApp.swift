@@ -85,13 +85,16 @@ struct AtisPressApp: App {
             CommandGroup(after:.toolbar) {
                 Toggle("Simge çubuğunu göster",isOn:Binding(get:{workspace.ui.railVisible},set:{workspace.ui.railVisible=$0}))
                 Toggle("Denetçiyi daralt",isOn:Binding(get:{workspace.ui.inspectorCollapsed},set:{workspace.ui.inspectorCollapsed=$0}))
-                Menu("Ayarlar bölümüne git") {
-                    ForEach(InspectorPanel.allCases) {panel in
-                        if panel.number<=9 {
-                        Button(panel.title) {workspace.ui.jump(panel)}
-                            .keyboardShortcut(KeyEquivalent(Character(String(panel.number))),modifiers:.command)
-                            .disabled(!InspectorPanel.visible(for:workspace.project).contains(panel))
-                        } else {Button(panel.title) {workspace.ui.jump(panel)}}
+                Menu("Sağ panele git") {
+                    ForEach(InspectorPanel.allCases) { panel in
+                        Button(panel.title) { workspace.ui.jump(panel) }
+                    }
+                    Divider()
+                    ForEach(InspectorPanel.shortcuts) { shortcut in
+                        let group = shortcut.destination(for: workspace.project)
+                        Button(group.title) { workspace.ui.jump(shortcut.panel, opening: group) }
+                            .keyboardShortcut(KeyEquivalent(shortcut.key), modifiers: shortcut.optionKey == nil ? .command : [.command,.option])
+                            .disabled(!shortcut.isAvailable(for: workspace.project))
                     }
                 }
                 Divider()
@@ -150,10 +153,14 @@ struct AtisPressApp: App {
                 Button("AtışPress Hakkında") { openWindow(id:"about") }
                 Button("Güncellemeleri denetle…") { UpdateChecker.shared.check(); openWindow(id:"updates") }
             }
+            CommandGroup(replacing: .appSettings) {
+                SettingsLink { Text("Ayarlar…") }.keyboardShortcut(",", modifiers: .command)
+            }
             CommandGroup(replacing: .appInfo) {
                 Button("AtışPress Hakkında") { openWindow(id:"about") }
             }
         }
+        Settings { TeamPDFImportSettings(settings: workspace.ui) }
         Window("Hata bildir…",id:"report") { HelpPanel(model:workspace,mode:"Hata bildir…") }
         Window("AtışPress Hakkında",id:"about") { HelpPanel(model:workspace,mode:"AtışPress Hakkında") }
         Window("Güncellemeleri denetle…",id:"updates") { UpdatePanel(model:workspace,checker:UpdateChecker.shared) }

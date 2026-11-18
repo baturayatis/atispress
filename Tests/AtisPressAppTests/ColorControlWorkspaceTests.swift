@@ -23,7 +23,7 @@ final class ColorControlWorkspaceTests: XCTestCase {
     }
     private func settle(_ workspace: Workspace) async throws {
         for _ in 0..<500 {
-            if !workspace.loading && !workspace.planning && !workspace.autoArranging && !workspace.samplingBleed { return }
+            if !workspace.loading && !workspace.planning && !workspace.autoArranging { return }
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTFail("Color settings did not settle")

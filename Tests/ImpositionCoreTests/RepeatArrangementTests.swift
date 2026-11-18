@@ -13,7 +13,7 @@ final class RepeatArrangementTests: XCTestCase {
         XCTAssertEqual(result.project.stepAndRepeat.arrangement,.adjacent)
         XCTAssertEqual(result.project.sheet.gutter,0)
         XCTAssertTrue(result.project.autoLayout!.automaticFields.contains(.gutter))
-        XCTAssertTrue(result.project.settings.generatedBleed.enabled)
+        XCTAssertFalse(result.project.settings.generatedBleed.enabled)
         XCTAssertTrue(result.plan.issues.contains { $0.code == .sharedCutBleed })
         let sheet = try XCTUnwrap(result.plan.sheets.first), layout = try XCTUnwrap(sheet.repeatLayout)
         let bleed = result.project.settings.bleed
