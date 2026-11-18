@@ -362,6 +362,7 @@ final class Workspace: ObservableObject {
                         let jobs=next.repeatJobs.enumerated().map {index,pair -> GangJob in
                             let sourceID=next.pageItems?.first{$0.id==pair.front.number}?.sourceID ?? fallback
                             var job=GangJob(sourceID:sourceID,name:pageListTitle(pair.front.number),front:pair.front,back:pair.back)
+                            job.internalCuts = next.internalCutJobs?[pair.front.number]
                             job.quantity=project.stepAndRepeat.quantity ?? 1000;job.waste=project.stepAndRepeat.waste ?? WasteSettings()
                             job.bleed=project.settings.bleed;job.generatedBleed=project.settings.generatedBleed
                             job.serialFields=project.serialFields.filter{$0.jobIndex==index}.map{var field=$0;field.id=UUID();field.jobIndex=0;return field}
@@ -446,6 +447,8 @@ final class Workspace: ObservableObject {
             let front = draft.pages[index]
             let back = step == 2 && index + 1 < draft.pages.count ? draft.pages[index + 1] : nil
             var job = GangJob(sourceID: sourceID, name: teamPageLabel(front, back), front: front, back: back)
+            job.internalCuts = draft.gang?.jobs.first { $0.front.number == front.number }?.internalCuts
+                ?? draft.internalCutJobs?[front.number]
             job.bleed = draft.settings.bleed
             job.generatedBleed = draft.settings.generatedBleed
             job.tint = (Double(index) * 0.61803398875 + 0.12).truncatingRemainder(dividingBy: 1)
@@ -537,6 +540,7 @@ final class Workspace: ObservableObject {
                     }
                     snapshot.team = nil
                     snapshot.gang = nil
+                    snapshot.internalCutJobs = nil
                     snapshot.pages = source.pages.map(\.sourcePage)
                     snapshot.pageItems = nil
                     snapshot.pageItemNextID = nil
@@ -1281,6 +1285,7 @@ extension Workspace {
             var f = pair.front; f.number += offset
             var b = pair.back; b?.number += offset
             var job = GangJob(sourceID:id,name: source.url.deletingPathExtension().lastPathComponent+" · \(index+1)",front:f,back:b)
+            job.internalCuts = baseline.internalCutJobs?[pair.front.number]
             job.quantity = baseline.stepAndRepeat.quantity ?? 1000
             job.waste = baseline.stepAndRepeat.waste ?? WasteSettings()
             job.bleed = baseline.settings.bleed; job.generatedBleed = baseline.settings.generatedBleed

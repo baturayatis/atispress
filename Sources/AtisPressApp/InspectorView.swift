@@ -97,6 +97,7 @@ struct InspectorView: View {
             case 2:ColorControlSizeView(model:model)
             case 3:ExportMarksView(model:model,inline:true,scope:.info)
             case 4:overlayControls
+            case 5:InternalCutMarksView(model: model)
             default:ExportMarksView(model:model,inline:true,scope:.printed)
             }
         case .serial:SerialInspectorView(model:model,compact:true,section:group)

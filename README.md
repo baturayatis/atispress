@@ -36,6 +36,18 @@ Sol listedeki **Düzen** seçicisi ilgili tabakanın önizlemesine gider.
 ve sayfaların yerleşimini değiştirebilirsiniz. Çakışmalar ve sığmayan
 bloklar dışa aktarmayı durdurur. Önizleme ve PDF çıktı aynı planı kullanır.
 
+## İç Kesim İşaretleri
+
+**İşaretler → İç Kesim** bölümünde işi seçin. Yatay ve dikey kesimi
+ayrı ayrı açabilirsiniz. **Orta** kesim ebadının yarısını kullanır.
+**Özel** konumlar yatay kesimde alt kenardan, dikey kesimde sol kenardan
+milimetre olarak ölçülür. Ölçüler ürünle birlikte döner.
+
+Önizleme ve PDF aynı kısa işaretleri kullanır. İşaretler kesim ve taşma
+alanlarının dışında kalan boşluklarda görünür. Komşu ürünlerin çakışan
+işaretleri birleşir. Normal kesim işaretleri kapalıyken de iç kesimler
+basılır. Kesim işareti uzunluğu sıfırsa iç kesim için 5 mm kullanılır.
+
 ## Sayfa listesi
 
 Sayfalar listesindeki … ve sağ tık menüsüyle çoğaltma, listeden silme,
@@ -52,7 +64,7 @@ Boş satırlar komşu sayfanın ölçüsünü alır ve kitap forma hesabına kat
 Kitapta sayfa sayısı ve eklenecek boşlar listede gösterilir.
 
 Liste kimlikleri, sırası, baskı seçimi, boşlar, kaynaklar ve Ön/Arka çiftleri
-.atispress şema 22 ile saklanır. Şema 1–21 projeleri açılır. Her işlem tek undo adımıdır. Önizleme ve çıktı ortak
+.atispress şema 23 ile saklanır. Şema 1–22 projeleri açılır. Her işlem tek undo adımıdır. Önizleme ve çıktı ortak
 planın aynı kaynak sayfa referanslarını kullanır.
 
 ### Başka PDF’lerden sayfa ekleme
@@ -112,7 +124,7 @@ kapsamı ve elle kontrol listesi [docs/STATUS.md](docs/STATUS.md) içindedir.
 Güncel uygulama sürümü **0.4.0 (build 6)**. Sürüm kaynağı
 `packaging/Info.plist`; Hakkında, tanı bilgisi ve güncelleme karşılaştırması
 aynı paket sürümünü kullanır. `swift run` için de 0.4.0 / 6 yedeği bulunur.
-Proje dosyası şeması bağımsızdır ve **22**’dir; eski projeler açılır.
+Proje dosyası şeması bağımsızdır ve **23**’tür; eski projeler açılır.
 
 **macOS 14 veya üzeri** gerekir. Intel ve Apple Silicon Mac’ler aynı universal
 uygulamayı kullanır.

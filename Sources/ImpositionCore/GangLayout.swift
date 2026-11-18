@@ -2,6 +2,7 @@ import Foundation
 
 public struct GangJob: Identifiable, Equatable, Codable, Sendable {
     public var splitProduct:Int? = nil
+    public var internalCuts: InternalCutMarks? = nil
     public var rescale: RescaleSettings? = nil
     public var id = UUID()
     public var sourceID: UUID

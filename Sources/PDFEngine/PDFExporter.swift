@@ -54,6 +54,8 @@ public enum PDFExporter {
         let keepBlankBacks = plan.hasBackContent && includeBlankBacks
         var sheetCount = 0, pageCount = 0
         var omittedBacks = false
+        var internalCutOnly = ExportMarks.none
+        internalCutOnly.lineWidth = marks.lineWidth
         for sheet in plan.sheets {
             let hasBack = sheet.hasContent(on: .back) || keepBlankBacks
             let faces = hasBack ? 2 : 1
@@ -62,6 +64,10 @@ public enum PDFExporter {
             sheetCount += sheet.repeatCount
             omittedBacks = omittedBacks || !hasBack
             for warning in PDFColorControlRenderer.geometry(sheet: sheet,settings: marks).warnings where !notes.contains(warning) { notes.append(warning) }
+            for side in [sheet.front] + (faces == 2 ? [sheet.back] : []) where side.marks.contains(where: { $0.kind == .internalCut }) {
+                let warnings = PDFExportMarkRenderer.geometry(side: side, sheet: sheet, settings: internalCutOnly).warnings
+                for warning in warnings where !notes.contains(warning) { notes.append(warning) }
+            }
             if marks.sheetInfo {
                 let sides: [(SideKind,Side)] = hasBack ? [(.front,sheet.front),(.back,sheet.back)] : [(.front,sheet.front)]
                 for (kind,side) in sides {

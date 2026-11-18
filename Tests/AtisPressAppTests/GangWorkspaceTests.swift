@@ -110,6 +110,40 @@ final class GangWorkspaceTests: XCTestCase {
         XCTAssertNil(opened.project.team)
     }
 
+    func testInternalCutSettingsRoundTripAndVersion22Defaults() async throws {
+        let directory = try folder()
+        let input = try pdf(directory, "cuts.pdf", Size(150, 50), pages: 2)
+        let workspace = model()
+        workspace.open(input)
+        try await settle(workspace)
+        let url = directory.appendingPathComponent("cuts.atispress")
+        try workspace.saveProject(as: url)
+        var legacy = try ProjectDocument.decode(Data(contentsOf: url))
+        legacy.version = 22
+        try legacy.encoded().write(to: url)
+        let reopened = model()
+        try await reopened.loadProject(at: url)
+        try await settle(reopened)
+        XCTAssertNil(reopened.project.internalCutJobs)
+        XCTAssertEqual(reopened.plan.sheets, workspace.plan.sheets)
+        var cuts = InternalCutMarks()
+        cuts.horizontal.enabled = true
+        cuts.vertical.enabled = true
+        cuts.vertical.position = .custom
+        cuts.vertical.offsets = [50, 100]
+        workspace.project.internalCutJobs = [1: cuts]
+        workspace.startTeam()
+        XCTAssertEqual(workspace.project.gang?.jobs.first?.internalCuts, cuts)
+        XCTAssertNil(workspace.project.gang?.jobs.last?.internalCuts)
+        try await settle(workspace)
+        try workspace.saveProject(as: url)
+        try await reopened.loadProject(at: url)
+        try await settle(reopened)
+        XCTAssertEqual(reopened.project, workspace.project)
+        XCTAssertEqual(reopened.plan.sheets, workspace.plan.sheets)
+        XCTAssertTrue(reopened.plan.sheets.flatMap { $0.front.marks }.contains { $0.kind == .internalCut })
+    }
+
     func testMultiplePDFsSettingsSerialsAndManualPlanRoundtripSchemaNine() async throws {
         let folder = try folder(),a = try pdf(folder,"cards.pdf",Size(55,35),pages:2),b = try pdf(folder,"labels.pdf",Size(30,45))
         let workspace = model(); workspace.setMode(.gang); workspace.addGangPDFs([a,b]); try await settle(workspace)

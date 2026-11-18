@@ -191,6 +191,21 @@ extension Project {
                 }
             }
         }
+        if let cuts = old.internalCutJobs, binding == .stepAndRepeat {
+            var updated = cuts.filter { key, _ in key == 0 || newJobs.contains { $0.front.number == key } }
+            for (index, job) in oldJobs.enumerated() {
+                guard let settings = cuts[job.front.number] else { continue }
+                if let next = jobIndex(index), updated[newJobs[next].front.number] == nil {
+                    updated[newJobs[next].front.number] = settings
+                }
+                for copy in copies {
+                    if let key = copy[job.front.number], newJobs.contains(where: { $0.front.number == key }) {
+                        updated[key] = settings
+                    }
+                }
+            }
+            internalCutJobs = updated.isEmpty ? nil : updated
+        }
         var original=old;original.migrateScaling()
         if var scaling=original.scaling {
             scaling.overrides=original.scaling!.overrides.flatMap {value -> [ScalingOverride] in

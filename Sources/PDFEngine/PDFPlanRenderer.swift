@@ -38,6 +38,7 @@ public struct PDFRenderOptions: Equatable, Sendable, Codable {
     public func shows(_ kind: MarkKind) -> Bool {
         switch kind {
         case .crop,.sharedCut: return crop
+        case .internalCut: return false
         case .fold: return fold
         case .bleed: return bleed
         case .safeArea: return safeArea
@@ -145,7 +146,7 @@ public enum PDFPlanRenderer {
         for mark in marks where options.shows(mark.kind) {
             let color: CGColor
             switch mark.kind {
-            case .crop,.sharedCut: color = CGColor(gray: 0,alpha: 1)
+            case .crop,.sharedCut,.internalCut: color = CGColor(gray: 0,alpha: 1)
             case .fold,.pageLabel: color = CGColor(red: 0,green: 0.35,blue: 0.85,alpha: 1)
             case .bleed: color = CGColor(red: 0.9,green: 0.08,blue: 0.1,alpha: 1)
             case .safeArea: color = CGColor(red: 0,green: 0.55,blue: 0.2,alpha: 1)

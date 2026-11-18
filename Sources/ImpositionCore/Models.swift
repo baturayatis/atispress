@@ -204,6 +204,8 @@ public struct Project: Equatable, Sendable, Codable {
     public var blankPlacement: BlankPlacement? = nil
     public var book: BookSettings? = nil
     public var team:TeamSettings? = nil
+    /// Repeat jobs use their front occurrence ID. Other non-gang jobs use zero.
+    public var internalCutJobs: [Int: InternalCutMarks]? = nil
     public var gang: GangSettings? = nil
     public var sheetInfo: SheetInfoSettings? = nil
     public var includeBlankBacks: Bool? = nil
@@ -225,7 +227,7 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case team, previouslyHadBacks, pageItemNextID, pageItems, sourcePreparation, scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case internalCutJobs, team, previouslyHadBacks, pageItemNextID, pageItems, sourcePreparation, scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -241,6 +243,7 @@ public struct Project: Equatable, Sendable, Codable {
         alignment = try c.decodeIfPresent(BlockAlignment.self,forKey:.alignment)
         blankPlacement = try c.decodeIfPresent(BlankPlacement.self,forKey:.blankPlacement)
         book = try c.decodeIfPresent(BookSettings.self,forKey:.book)
+        internalCutJobs = try c.decodeIfPresent([Int: InternalCutMarks].self, forKey: .internalCutJobs)
         team = try c.decodeIfPresent(TeamSettings.self,forKey:.team)
         gang = try c.decodeIfPresent(GangSettings.self,forKey: .gang)
         sheetInfo = try c.decodeIfPresent(SheetInfoSettings.self,forKey: .sheetInfo)
@@ -306,7 +309,7 @@ public struct Slot: Equatable, Sendable {
     public var x: Double { origin.x }
     public var y: Double { origin.y }
 }
-public enum MarkKind: Sendable { case crop, fold, bleed, safeArea, pageLabel, margin, gripper, sharedCut }
+public enum MarkKind: Sendable { case crop, fold, bleed, safeArea, pageLabel, margin, gripper, sharedCut, internalCut }
 public struct Mark: Equatable, Sendable {
     public var kind: MarkKind
     public var start: Point
