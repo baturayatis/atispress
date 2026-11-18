@@ -112,19 +112,20 @@ struct InspectorView: View {
         case .serialRange: SerialInspectorView(model:model,compact:true,section:2)
         case .serialAppearance: SerialInspectorView(model:model,compact:true,section:3)
         case .serialPosition: SerialInspectorView(model:model,compact:true,section:4)
+        case .production: productionControl
         case .tone: ToneControls(model: model)
-        case .colorControls:
-            ExportMarksView(model:model,inline:true,scope:.colorControls)
-            previewColorControl
+        case .colorControls: ExportMarksView(model:model,inline:true,scope:.colorControls)
         case .colorSizes: ColorControlSizeView(model:model,scope:.scale)
         case .colorInfo:
             PreflightView(model:model,colorOnly:true).inspectorTarget("colorInfo")
         case .registration:
             ExportMarksView(model:model,inline:true,scope:.registration)
-            previewRegistrationControl
             ColorControlSizeView(model:model,scope:.registration)
         case .sheetInfo: ExportMarksView(model:model,inline:true,scope:.info)
-        case .preview: overlayControls
+        case .preview:
+            overlayControls
+            previewColorControl
+            previewRegistrationControl
         case .cost: CostingView(model:model,store:prices,inline:true,section:0)
         case .labor: CostingView(model:model,store:prices,inline:true,section:1)
         case .result: CostingView(model:model,store:prices,inline:true,section:2)
@@ -239,11 +240,14 @@ struct InspectorView: View {
                 }.padding(DesignSystem.Space.md).frame(maxWidth:.infinity,alignment:.leading)
                     .foregroundStyle(DesignSystem.success).background(DesignSystem.successSurface,in:RoundedRectangle(cornerRadius:DesignSystem.Radius.control))
             }
-            Picker("Üretim",selection:Binding(get:{ model.project.autoLayout?.production ?? .digital },set:model.setProduction)) {
-                Text("Dijital").tag(ProductionType.digital); Text("Ofset").tag(ProductionType.offset)
-            }.pickerStyle(.segmented).inspectorTarget("production")
 
         }
+    }
+    private var productionControl: some View {
+        Picker("Üretim",selection:Binding(get:{ model.project.autoLayout?.production ?? .digital },set:model.setProduction)) {
+            Text("Dijital").tag(ProductionType.digital)
+            Text("Ofset").tag(ProductionType.offset)
+        }.pickerStyle(.segmented).inspectorTarget("production")
     }
     private var workflowBleed:some View {
         VStack(alignment:.leading,spacing:DesignSystem.Space.md) {

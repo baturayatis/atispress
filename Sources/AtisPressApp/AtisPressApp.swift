@@ -93,7 +93,7 @@ struct AtisPressApp: App {
                     ForEach(InspectorPanel.shortcuts) { shortcut in
                         let group = shortcut.destination(for: workspace.project)
                         Button(group.title) { workspace.ui.jump(shortcut.panel, opening: group) }
-                            .keyboardShortcut(KeyEquivalent(Character(String(shortcut.id))), modifiers: .command)
+                            .keyboardShortcut(KeyEquivalent(shortcut.key), modifiers: shortcut.optionKey == nil ? .command : [.command,.option])
                             .disabled(!shortcut.isAvailable(for: workspace.project))
                     }
                 }

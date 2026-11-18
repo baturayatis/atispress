@@ -56,16 +56,23 @@ import PDFEngine
         XCTAssertEqual(fields.count,Set(fields).count)
     }
 
-    func testTenProductionTabsPreserveNumberShortcutsAndRouteExistingControls() {
+    func testSidebarSeparatesPressAndColorAndPreservesNumberShortcuts() {
         let model = Workspace(uiDefaults: defaults())
         let tabs = InspectorPanel.allCases
-        XCTAssertEqual(tabs.map(\.title), ["İş", "Tabaka", "Montaj", "Ölçüler", "Kesim", "İş Ayır", "Seri No", "Renk", "Fiyat", "Çıktı"])
+        XCTAssertEqual(tabs.map(\.title), ["İş", "Tabaka", "Montaj", "Ölçüler", "Kesim", "İş Ayır", "Seri No", "Baskı", "Renk", "Fiyat", "Çıktı"])
         XCTAssertEqual(InspectorPanel.neighbor(of: .job, step: -1, visible: tabs), .job)
         XCTAssertEqual(InspectorPanel.neighbor(of: .sheet, step: 1, visible: tabs), .montage)
         XCTAssertEqual(InspectorPanel.neighbor(of: .cut, step: 1, visible: tabs), .separation)
         XCTAssertEqual(InspectorPanel.neighbor(of: .output, step: 1, visible: tabs), .output)
-        XCTAssertEqual(InspectorPanel.shortcuts.map(\.id), Array(1...9))
-        XCTAssertEqual(InspectorPanel.shortcuts.map(\.group), [.jobBasics, .paper, .edges, .bleed, .printedMarks, .serialFields, .scale, .binding, .cost])
+        XCTAssertEqual(InspectorPanel.shortcuts.prefix(9).map(\.id), Array(1...9))
+        XCTAssertEqual(InspectorPanel.shortcuts.prefix(9).map(\.group), [.jobBasics, .paper, .edges, .bleed, .printedMarks, .serialFields, .scale, .binding, .cost])
+        let addedShortcuts = InspectorPanel.shortcuts.suffix(2)
+        XCTAssertEqual(addedShortcuts.map(\.panel),[.press,.color])
+        XCTAssertEqual(addedShortcuts.map(\.group),[.production,.tone])
+        XCTAssertEqual(addedShortcuts.map(\.displayShortcut),["⌥⌘B","⌥⌘R"])
+        XCTAssertTrue(addedShortcuts.allSatisfy { $0.isAvailable(for: model.project) })
+        XCTAssertEqual(InspectorPanel.neighbor(of: .press,step: 1,visible: tabs),.color)
+        XCTAssertEqual(InspectorPanel.neighbor(of: .color,step: -1,visible: tabs),.press)
         var book = Workspace.newProject()
         book.binding = .saddleStitch
         let bindingShortcut = InspectorPanel.shortcuts[7]
@@ -81,14 +88,15 @@ import PDFEngine
         XCTAssertEqual(InspectorRegistry.owner(editor: "InternalCutMarksView", path: "internalCutJobs"), .cut)
         XCTAssertEqual(InspectorRegistry.owner(.exportCrop), .cut)
         XCTAssertEqual(InspectorRegistry.owner(.exportColorBar), .color)
-        XCTAssertEqual(InspectorRegistry.owner(.exportSheetInfo), .output)
-        XCTAssertEqual(InspectorRegistry.owner(.exportTargets), .cut)
-        XCTAssertEqual(InspectorRegistry.owner(.exportTargetSize), .cut)
+        XCTAssertEqual(InspectorRegistry.owner(.exportSheetInfo), .press)
+        XCTAssertEqual(InspectorRegistry.owner(.exportTargets), .press)
+        XCTAssertEqual(InspectorRegistry.owner(.exportTargetSize), .press)
         XCTAssertTrue(InspectorPanel.sheet.groups(for: model.project).contains(.preview))
-        XCTAssertTrue(InspectorPanel.cut.groups(for: model.project).contains(.registration))
+        XCTAssertEqual(InspectorPanel.cut.groups(for: model.project),[.printedMarks,.internalCuts,.cutMeasures])
+        XCTAssertEqual(InspectorPanel.press.groups(for: model.project),[.production,.registration,.sheetInfo])
         XCTAssertEqual(InspectorRegistry.owner(.columns), .montage)
         XCTAssertEqual(InspectorPanel.color.groups(for: model.project), [.tone, .colorControls, .colorSizes, .colorInfo])
-        XCTAssertEqual(InspectorPanel.output.groups(for: model.project), [.output, .sheetInfo, .preflight])
+        XCTAssertEqual(InspectorPanel.output.groups(for: model.project), [.output, .preflight])
         XCTAssertEqual(InspectorPanel.montage.groups(for: model.project), [.products, .placement, .jobFaces])
         model.setMode(.gang)
         XCTAssertEqual(InspectorPanel.montage.groups(for: model.project), [.products, .placement])
@@ -101,7 +109,7 @@ import PDFEngine
     func testDisclosureDefaultsShortcutOpeningAndLegacyPanelMigration() throws {
         let store = defaults()
         for (legacy, panel): (String, InspectorPanel) in [("edges", .dimensions), ("bleed", .dimensions),
-            ("scaling", .dimensions), ("marks", .cut), ("binding", .montage), ("color", .color), ("press", .color)] {
+            ("scaling", .dimensions), ("marks", .cut), ("binding", .montage), ("color", .color), ("press", .press)] {
             store.set(legacy, forKey: "atispress.ui.activePanel")
             XCTAssertEqual(UsabilitySettings(defaults: store).activePanel, panel)
         }
@@ -286,7 +294,7 @@ import PDFEngine
         let rail=try String(contentsOf:root.appendingPathComponent("Sources/AtisPressApp/InspectorRail.swift"))
         XCTAssertTrue(rail.contains(".accessibilityLabel(panel.title"));XCTAssertTrue(rail.contains(".onMoveCommand"));XCTAssertTrue(rail.contains(".focusable()"))
         let app=try String(contentsOf:root.appendingPathComponent("Sources/AtisPressApp/AtisPressApp.swift"))
-        XCTAssertTrue(app.contains("KeyEquivalent(Character(String(shortcut.id)))"))
+        XCTAssertTrue(app.contains("KeyEquivalent(shortcut.key)"))
         for key in ["e","o"] {XCTAssertTrue(app.contains("keyboardShortcut(\""+key+"\")"))}
         XCTAssertTrue(app.contains("Simge çubuğunu göster"))
     }
@@ -318,7 +326,7 @@ extension IconPanelTests {
                 }
             }
             XCTAssertTrue(seen.isSuperset(of: [.method, .placement, .scale, .internalCuts, .separation,
-                                              .serialContent, .tone, .colorControls, .preview, .colorSizes, .colorInfo, .registration, .sheetInfo, .preflight]))
+                                              .serialContent, .production, .tone, .colorControls, .preview, .colorSizes, .colorInfo, .registration, .sheetInfo, .preflight]))
             XCTAssertEqual(seen.contains(.cover), model.project.isBooklet || model.project.isLeafBinding)
         }
     }

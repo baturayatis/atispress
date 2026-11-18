@@ -94,7 +94,7 @@ struct InspectorRail:View {
     private func item(_ panel:InspectorPanel) -> some View {
         let selected=model.ui.activePanel==panel
         let shortcuts = InspectorPanel.shortcuts.filter { $0.panel == panel && $0.isAvailable(for: model.project) }
-        let shortcutHelp = shortcuts.map { "⌘"+String($0.id) }.joined(separator: ", ")
+        let shortcutHelp = shortcuts.map(\.displayShortcut).joined(separator: ", ")
         return Button {model.ui.jump(panel)} label: {
             VStack(spacing:3) {
                 ZStack(alignment:.topTrailing) {

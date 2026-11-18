@@ -30,25 +30,37 @@ final class InspectorSearchTests: XCTestCase {
         XCTAssertEqual(InspectorSearchEntry.byID.count, entries.count)
     }
 
-    func testExistingFavoritesOpenRedistributedTools() throws {
+    func testFormerPressToolsAndFavoritesOpenEachControlInItsNewPanel() throws {
         let store = preferences()
-        let ids = ["artworkTone","colorBar","targets","sheetInfo","previewCrop","previewColor","colorInfo"]
+        let destinations: [(String, InspectorPanel, InspectorGroup)] = [
+            ("production",.press,.production), ("targets",.press,.registration),
+            ("targetSize",.press,.registration), ("sheetInfo",.press,.sheetInfo),
+            ("artworkTone",.color,.tone), ("colorBar",.color,.colorControls),
+            ("patchSize",.color,.colorSizes), ("barSide",.color,.colorSizes), ("colorInfo",.color,.colorInfo),
+            ("previewCrop",.sheet,.preview), ("previewFold",.sheet,.preview), ("previewPunch",.sheet,.preview),
+            ("previewBleed",.sheet,.preview), ("previewSafe",.sheet,.preview), ("previewNumbers",.sheet,.preview),
+            ("previewSheet",.sheet,.preview), ("previewGripper",.sheet,.preview),
+            ("previewColor",.sheet,.preview), ("previewTargets",.sheet,.preview),
+            ("crop",.cut,.printedMarks)
+        ]
+        let ids = destinations.map { $0.0 }
         store.set(ids, forKey: "atispress.ui.inspectorFavorites")
         store.set("press", forKey: "atispress.ui.activePanel")
         let model = Workspace(uiDefaults: store)
-        XCTAssertEqual(model.ui.activePanel,.color)
+        XCTAssertEqual(model.ui.activePanel,.press)
         XCTAssertEqual(model.ui.inspectorFavorites,ids)
+        model.setMode(.spiral)
+        model.project.exportMarks.colorBar = true
+        model.project.exportMarks.registrationTargets = true
         let before = try ProjectDocument(state: model.state).encoded()
-        for (id, panel, group) in [
-            ("artworkTone",InspectorPanel.color,InspectorGroup.tone), ("colorBar",.color,.colorControls),
-            ("targets",.cut,.registration), ("sheetInfo",.output,.sheetInfo), ("previewCrop",.sheet,.preview),
-            ("previewColor",.color,.colorControls), ("colorInfo",.color,.colorInfo)
-        ] {
+        for (id, panel, group) in destinations {
             let entry = try XCTUnwrap(InspectorSearchEntry.byID[id])
-            XCTAssertTrue(model.openInspectorControl(entry))
-            XCTAssertEqual(model.ui.activePanel,panel)
-            XCTAssertTrue(model.ui.isGroupExpanded(group,in: panel,for: model.project))
+            XCTAssertTrue(model.openInspectorControl(entry),id)
+            XCTAssertEqual(model.ui.activePanel,panel,id)
+            XCTAssertTrue(model.ui.isGroupExpanded(group,in: panel,for: model.project),id)
             XCTAssertEqual(model.ui.groupRequest?.controlID,id)
+            let owners = InspectorPanel.allCases.filter { $0.groups(for: model.project).contains(group) }
+            XCTAssertEqual(owners,[panel],id)
         }
         XCTAssertEqual(try ProjectDocument(state: model.state).encoded(),before)
     }

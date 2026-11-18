@@ -2,7 +2,7 @@ import Foundation
 import ImpositionCore
 
 enum InspectorPanel: String, CaseIterable, Identifiable, Codable {
-    case job, sheet, montage, dimensions, cut, separation, serial, color, price, output
+    case job, sheet, montage, dimensions, cut, separation, serial, press, color, price, output
 
     var id: String { rawValue }
 
@@ -15,6 +15,7 @@ enum InspectorPanel: String, CaseIterable, Identifiable, Codable {
         case .cut: return "Kesim"
         case .separation: return "İş Ayır"
         case .serial: return "Seri No"
+        case .press: return "Baskı"
         case .color: return "Renk"
         case .price: return "Fiyat"
         case .output: return "Çıktı"
@@ -25,9 +26,10 @@ enum InspectorPanel: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .dimensions: return "Kenar, maşa, taşma ve hedef ebat ayarları."
         case .sheet: return "Baskı tabakası ve önizleme kılavuzları."
-        case .cut: return "Kesim ve diz işaretleri, iç kesimler ve işaret ölçüleri."
+        case .cut: return "Kesim işaretleri, iç kesimler ve işaret ölçüleri."
+        case .press: return "Üretim türü, diz işaretleri ve tabaka bilgi şeridi."
         case .color: return "Ton, renk skalası ve PDF renk bilgileri."
-        case .output: return "PDF çıktısı, tabaka bilgi şeridi ve ön kontrol."
+        case .output: return "PDF çıktısı ve ön kontrol."
         case .separation: return "PDF bölgelerini, sayfa bölmeyi ve kaynak kılavuzlarını düzenleyin."
         case .montage: return "Yüz eşlemesini, yerleşimi ve cilt ayrıntılarını ayarlayın."
         default: return title
@@ -43,6 +45,7 @@ enum InspectorPanel: String, CaseIterable, Identifiable, Codable {
         case .cut: return "crop"
         case .separation: return "rectangle.split.2x2"
         case .serial: return "number.square"
+        case .press: return "printer"
         case .color: return "paintpalette"
         case .price: return "turkishlirasign.circle"
         case .output: return "square.and.arrow.up"
@@ -54,7 +57,6 @@ enum InspectorPanel: String, CaseIterable, Identifiable, Codable {
         case "edges", "bleed", "scaling": return .dimensions
         case "marks": return .cut
         case "binding": return .montage
-        case "press": return .color
         default: return Self(rawValue: key)
         }
     }
@@ -81,7 +83,9 @@ enum InspectorPanel: String, CaseIterable, Identifiable, Codable {
         .init(3, .dimensions, .edges), .init(4, .dimensions, .bleed),
         .init(5, .cut, .printedMarks), .init(6, .serial, .serialFields),
         .init(7, .dimensions, .scale), .init(8, .montage, .binding),
-        .init(9, .price, .cost)
+        .init(9, .price, .cost),
+        .init(10, .press, .production, optionKey: "b"),
+        .init(11, .color, .tone, optionKey: "r")
     ]
 }
 
@@ -89,11 +93,15 @@ struct InspectorShortcut: Identifiable {
     let id: Int
     let panel: InspectorPanel
     let group: InspectorGroup
+    let optionKey: Character?
+    var key: Character { optionKey ?? Character(String(id)) }
+    var displayShortcut: String { (optionKey == nil ? "⌘" : "⌥⌘") + String(key).uppercased() }
 
-    init(_ id: Int, _ panel: InspectorPanel, _ group: InspectorGroup) {
+    init(_ id: Int, _ panel: InspectorPanel, _ group: InspectorGroup, optionKey: Character? = nil) {
         self.id = id
         self.panel = panel
         self.group = group
+        self.optionKey = optionKey
     }
 
     func isAvailable(for project: Project) -> Bool {
@@ -110,7 +118,7 @@ enum InspectorGroup: String, Identifiable, Hashable {
     case binding, cover, bookPaper, spine, blanks
     case edges, bleed, generatedBleed, scale, printedMarks, internalCuts, cutMeasures, separation
     case serialFields, serialContent, serialRange, serialAppearance, serialPosition
-    case tone, colorControls, colorSizes, colorInfo, registration, sheetInfo, preview
+    case production, tone, colorControls, colorSizes, colorInfo, registration, sheetInfo, preview
     case cost, labor, result, quote, priceLibrary, output, preflight
 
     var id: Self { self }
@@ -147,6 +155,7 @@ enum InspectorGroup: String, Identifiable, Hashable {
         case .serialRange: return "Aralık"
         case .serialAppearance: return "Görünüm"
         case .serialPosition: return "Konum"
+        case .production: return "Üretim"
         case .tone: return "Ton"
         case .colorControls: return "Renk skalası"
         case .colorSizes: return "Skala ölçüleri"
@@ -203,8 +212,6 @@ enum InspectorRegistry {
     static func owner(editor:String,path:String) -> InspectorPanel {
         if path.hasPrefix("model.overlays.") {
             if editor == "LeafInspectorView" { return .montage }
-            if path == "model.overlays.colorBar" { return .color }
-            if path == "model.overlays.registrationTargets" { return .cut }
             return .sheet
         }
         switch editor {
@@ -213,16 +220,16 @@ enum InspectorRegistry {
         case "RescaleInspectorView","ScaleWindowView":return .dimensions
         case "SourcePageTools":return .separation
         case "TeamInspectorView","GangInspectorView":return .montage
-        case "ColorControlSizeView":return path == "exportMarks.targetSize" ? .cut : .color
+        case "ColorControlSizeView":return path == "exportMarks.targetSize" ? .press : .color
         case "PreviewLayersView":return .sheet
         case "InternalCutMarksView":return .cut
         case "PricingView":return .price
         case "ExportMarksView":
             if path == "includeBlankBacks" { return .output }
             if path == "exportMarks.colorBar" { return .color }
-            if ["exportMarks.sheetInfo",
+            if ["exportMarks.registrationTargets", "exportMarks.sheetInfo",
                 "keyPath.date", "keyPath.production", "keyPath.sheetNumber", "keyPath.sheetSize",
-                "keyPath.showJobName", "keyPath.side", "model.infoJobName"].contains(path) { return .output }
+                "keyPath.showJobName", "keyPath.side", "model.infoJobName"].contains(path) { return .press }
             return .cut
         case "FireControlsView","PresetInspectorView":return .job
         default:
@@ -241,10 +248,10 @@ enum InspectorRegistry {
         case .cropLength,.cropOffset,.safeArea:return .cut
         case .exportCrop,.exportFold,.exportFullCut,.exportLineWidth,.exportColor:return .cut
         case .exportColorBar,.exportPatchSize,.exportBarSide:return .color
-        case .exportTargets,.exportTargetSize:return .cut
+        case .exportTargets,.exportTargetSize:return .press
         case .columns,.rows,.allowRotation:return .montage
         case .exportBleed,.exportSafeArea,.exportPageNumbers:return .cut
-        case .exportSheetInfo:return .output
+        case .exportSheetInfo:return .press
         case .marginLeft,.marginRight,.marginTop,.marginBottom,.gripperEdge,.gripperWidth,.gutter,.alignment:return .dimensions
         default:return .sheet
         }
@@ -266,12 +273,13 @@ extension InspectorPanel {
             if project.binding == .stepAndRepeat { return [.products, .placement, .jobFaces] }
             return [.products, .placement]
         case .dimensions: return [.edges, .bleed, .scale, .generatedBleed]
-        case .cut: return [.printedMarks, .internalCuts, .cutMeasures, .registration]
+        case .cut: return [.printedMarks, .internalCuts, .cutMeasures]
         case .separation: return [.separation]
         case .serial: return [.serialFields, .serialContent, .serialRange, .serialAppearance, .serialPosition]
+        case .press: return [.production, .registration, .sheetInfo]
         case .color: return [.tone, .colorControls, .colorSizes, .colorInfo]
         case .price: return [.cost, .labor, .result, .quote, .priceLibrary]
-        case .output: return [.output, .sheetInfo, .preflight]
+        case .output: return [.output, .preflight]
         }
     }
 
