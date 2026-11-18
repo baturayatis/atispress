@@ -43,11 +43,13 @@ doygunluğu ayarlayın. **Özgün / Düzenlenmiş** önizlemeyi değiştirir.
 Çıktı ayarlanmış değerleri kullanır. **Sıfırla** seçili işin değerlerini kaldırır.
 
 Klasik PDF nesne tablolarındaki sayfa düzeyi 8 bit RGB ve gri tonlamalı
-görseller, ham veya Flate biçimindeyse düzenlenebilir. RGB ve gri ICC
-profilleri kaynak görsele bağlı kalır. Gri görsellerde doygunluk etkisizdir.
-CMYK, spot, JPEG/JPX, maskeli ve Form içindeki görseller renk düzenleme
-aşamasında korunur. Atlanan içerikler için uyarı gösterilir. PDF’nin
-tamamı rasterleştirilmez. Özgün dosya ile metin ve vektör çizimleri korunur.
+görseller ham, Flate veya desteklenen JPEG (DCT) biçimindeyse düzenlenebilir.
+Düzenlenmiş JPEG örnekleri kayıpsız Flate akışına yazılır. PDF’de atanmış
+RGB ve gri ICC profilleri korunur. Gri görsellerde doygunluk etkisizdir.
+ICC profili yalnızca JPEG’e gömülü olan veya PDF profiliyle uyuşmayan
+görseller atlanır. Özel DCT dönüşümleri, CMYK, spot, JPEG 2000, maskeli ve
+Form içindeki görseller de düzenleme dışında kalır ve uyarı gösterilir.
+Özgün PDF, metin ve vektör çizimleri korunur.
 
 ## Akıllı İş Ayırma
 

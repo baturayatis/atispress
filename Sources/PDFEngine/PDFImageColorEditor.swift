@@ -157,10 +157,11 @@ struct PDFImageColorEditor {
 
     private func adjusted(_ stream: CGPDFStreamRef, dictionary: CGPDFDictionaryRef, resources: CGPDFDictionaryRef,
                           adjustment: ImageColorAdjustment, warnings: inout Set<String>) throws -> Data? {
-        guard let components = Self.components(dictionary, resources: resources) else {
+        guard let colorSpace = Self.colorSpace(dictionary, resources: resources) else {
             warnings.insert("CMYK, spot ve desteklenmeyen renk uzayları özgün renkleriyle kullanıldı.")
             return nil
         }
+        let components = colorSpace.components
         if components == 1 && adjustment.saturation != 1 {
             warnings.insert("Doygunluk gri tonlamalı görsellere uygulanmadı.")
             if adjustment.brightness == 0 && adjustment.contrast == 1 { return nil }
@@ -183,14 +184,30 @@ struct PDFImageColorEditor {
         let filter = Self.name("Filter", in: dictionary)
         var filterObject: CGPDFObjectRef?
         let hasFilter = CGPDFDictionaryGetObject(dictionary, "Filter", &filterObject)
+        var filterArray: CGPDFArrayRef?, dct: UnsafePointer<CChar>?
+        let arrayDCT = CGPDFDictionaryGetArray(dictionary, "Filter", &filterArray) &&
+            filterArray.map { CGPDFArrayGetCount($0) == 1 && CGPDFArrayGetName($0, 0, &dct) } == true &&
+            dct.map { String(cString: $0) == "DCTDecode" } == true
         var format = CGPDFDataFormat.raw
-        guard !hasFilter || filter == "FlateDecode",
-              let bytes = CGPDFStreamCopyData(stream, &format), format == .raw,
-              CFDataGetLength(bytes) == width * height * components else {
-            warnings.insert("JPEG, JPEG 2000 ve desteklenmeyen sıkıştırmalar özgün renkleriyle kullanıldı.")
-            return nil
+        var data: Data
+        if filter == "DCTDecode" || arrayDCT {
+            guard Self.supportsDCTParameters(dictionary, components: components),
+                  let bytes = CGPDFStreamCopyData(stream, &format), format == .jpegEncoded,
+                  let samples = try PDFJPEGImageSamples.decode(bytes as Data, width: width, height: height,
+                                                              components: components, pdfICC: colorSpace.profile) else {
+                warnings.insert("Desteklenmeyen, bozuk veya ICC profili uyuşmayan JPEG görseller özgün renkleriyle kullanıldı.")
+                return nil
+            }
+            data = samples
+        } else {
+            guard !hasFilter || filter == "FlateDecode",
+                  let bytes = CGPDFStreamCopyData(stream, &format), format == .raw,
+                  CFDataGetLength(bytes) == width * height * components else {
+                warnings.insert("JPEG 2000, çoklu filtreli veya desteklenmeyen sıkıştırmalı görseller özgün renkleriyle kullanıldı.")
+                return nil
+            }
+            data = Data(bytes as Data)
         }
-        var data = Data(bytes as Data)
         try data.withUnsafeMutableBytes { (bytes: UnsafeMutableRawBufferPointer) in
             let samples = bytes.bindMemory(to: UInt8.self)
             func adjusted(_ sample: Double) -> UInt8 {
@@ -220,15 +237,35 @@ struct PDFImageColorEditor {
         return compressed
     }
 
-    private static func components(_ image: CGPDFDictionaryRef, resources: CGPDFDictionaryRef) -> Int? {
+    private static func supportsDCTParameters(_ image: CGPDFDictionaryRef, components: Int) -> Bool {
+        var object: CGPDFObjectRef?
+        guard CGPDFDictionaryGetObject(image, "DecodeParms", &object), let object else { return true }
+        var parameters = object
+        var array: CGPDFArrayRef?
+        if CGPDFObjectGetValue(object, .array, &array), let array {
+            var element: CGPDFObjectRef?
+            guard CGPDFArrayGetCount(array) == 1, CGPDFArrayGetObject(array, 0, &element), let value = element else { return false }
+            parameters = value
+        }
+        if CGPDFObjectGetType(parameters) == .null { return true }
+        var dictionary: CGPDFDictionaryRef?
+        guard CGPDFObjectGetValue(parameters, .dictionary, &dictionary), let dictionary else { return false }
+        if CGPDFDictionaryGetCount(dictionary) == 0 { return true }
+        var transform: CGPDFInteger = 0
+        return CGPDFDictionaryGetCount(dictionary) == 1 &&
+            CGPDFDictionaryGetInteger(dictionary, "ColorTransform", &transform) &&
+            transform == (components == 1 ? 0 : 1)
+    }
+
+    private static func colorSpace(_ image: CGPDFDictionaryRef, resources: CGPDFDictionaryRef) -> (components: Int, profile: Data?)? {
         var object: CGPDFObjectRef?
         guard CGPDFDictionaryGetObject(image, "ColorSpace", &object), let object else { return nil }
         var space = object
         var named: UnsafePointer<CChar>?
         if CGPDFObjectGetValue(space, .name, &named), let named {
             switch String(cString: named) {
-            case "DeviceRGB": return 3
-            case "DeviceGray": return 1
+            case "DeviceRGB": return (3, nil)
+            case "DeviceGray": return (1, nil)
             default:
                 guard let spaces = dictionary("ColorSpace", in: resources) else { return nil }
                 var resolved: CGPDFObjectRef?
@@ -237,8 +274,8 @@ struct PDFImageColorEditor {
                 var value: UnsafePointer<CChar>?
                 if CGPDFObjectGetValue(space, .name, &value), let value {
                     switch String(cString: value) {
-                    case "DeviceRGB": return 3
-                    case "DeviceGray": return 1
+                    case "DeviceRGB": return (3, nil)
+                    case "DeviceGray": return (1, nil)
                     default: return nil
                     }
                 }
@@ -256,7 +293,7 @@ struct PDFImageColorEditor {
         let profileData = profile as Data
         guard String(decoding: profileData[36..<40], as: UTF8.self) == "acsp" else { return nil }
         let signature = String(decoding: profileData[16..<20], as: UTF8.self)
-        return (count == 3 && signature == "RGB ") || (count == 1 && signature == "GRAY") ? count : nil
+        return (count == 3 && signature == "RGB ") || (count == 1 && signature == "GRAY") ? (count, profileData) : nil
     }
 
     private static func name(_ key: String, in dictionary: CGPDFDictionaryRef) -> String? {

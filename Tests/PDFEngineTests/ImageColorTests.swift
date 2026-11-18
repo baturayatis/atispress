@@ -1,5 +1,7 @@
 import XCTest
 import PDFKit
+import ImageIO
+import UniformTypeIdentifiers
 import ImpositionCore
 @testable import PDFEngine
 
@@ -9,10 +11,6 @@ final class ImageColorTests: XCTestCase {
     }
 
     private func fixture() throws -> URL {
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
-        let url = folder.appendingPathComponent("images.pdf")
         let icc = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB)?.copyICCData()) as Data
         let rgb = Data([80, 40, 20])
         let image = "/Type /XObject /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 /ColorSpace"
@@ -32,6 +30,14 @@ final class ImageColorTests: XCTestCase {
             Data("<< /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 0.75 0.5 0] /N 1 >>".utf8),
             stream("/Type /XObject /Subtype /Form /BBox [0 0 1 1]", Data("/RGB Do".utf8))
         ]
+        return try writePDF(objects)
+    }
+
+    private func writePDF(_ objects: [Data]) throws -> URL {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("images.pdf")
         var data = Data("%PDF-1.4\n".utf8)
         var offsets: [Int] = []
         for (i, object) in objects.enumerated() {
@@ -117,14 +123,6 @@ final class ImageColorTests: XCTestCase {
         XCTAssertTrue(imposed.string?.contains("Vector proof") == true)
         XCTAssertEqual(try Data(contentsOf: url), original)
 
-        // Sample the same image from the adjusted source and the exported slot.
-        func pixel(_ page: CGPDFPage, _ point: CGPoint) throws -> UInt8 {
-            let context = try XCTUnwrap(CGContext(data: nil, width: 3, height: 3, bitsPerComponent: 8, bytesPerRow: 3,
-                                                   space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue))
-            context.translateBy(x: 1.5 - point.x, y: 1.5 - point.y)
-            context.drawPDFPage(page)
-            return try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)[4]
-        }
         let printed = try XCTUnwrap(CGPDFDocument(output as CFURL)?.page(at: 1))
         let scale = PDFPreviewDrawing.pointsPerMM
         func outputPixel(_ point: CGPoint) throws -> UInt8 {
@@ -136,6 +134,142 @@ final class ImageColorTests: XCTestCase {
         for point in [CGPoint(x: 110, y: 25), CGPoint(x: 65, y: 25), CGPoint(x: 155, y: 25), CGPoint(x: 20, y: 75)] {
             XCTAssertEqual(try outputPixel(point), try pixel(adjusted, point), accuracy: 3)
         }
+    }
+
+    private func pixel(_ page: CGPDFPage, _ point: CGPoint) throws -> UInt8 {
+        let context = try XCTUnwrap(CGContext(data: nil, width: 3, height: 3, bitsPerComponent: 8, bytesPerRow: 3,
+                                               space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue))
+        context.translateBy(x: 1.5 - point.x, y: 1.5 - point.y)
+        context.drawPDFPage(page)
+        return try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)[4]
+    }
+
+    private func jpeg(samples: [UInt8], components: Int, profile: Data? = nil) throws -> Data {
+        let width = 8, height = 8
+        let data = Data((0..<(width * height)).flatMap { i in
+            let start = i < width * height / 2 ? 0 : components
+            return Array(samples[start..<(start + components)])
+        })
+        let provider = try XCTUnwrap(CGDataProvider(data: data as CFData))
+        let space = components == 1 ? CGColorSpaceCreateDeviceGray() : CGColorSpaceCreateDeviceRGB()
+        let image = try XCTUnwrap(CGImage(width: width, height: height, bitsPerComponent: 8,
+                                         bitsPerPixel: components * 8, bytesPerRow: width * components, space: space,
+                                         bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+                                         provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+        let buffer = NSMutableData()
+        let encoder = try XCTUnwrap(CGImageDestinationCreateWithData(buffer, UTType.jpeg.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(encoder, image, [kCGImageDestinationLossyCompressionQuality: 1.0] as CFDictionary)
+        XCTAssertTrue(CGImageDestinationFinalize(encoder))
+        let encoded = buffer as Data
+
+        // Control ICC independently of the encoder's platform defaults.
+        var result = Data([0xff, 0xd8])
+        if let profile {
+            let length = 16 + profile.count
+            result.append(contentsOf: [0xff, 0xe2, UInt8(length >> 8), UInt8(length & 255)])
+            result.append(contentsOf: "ICC_PROFILE\0".utf8)
+            result.append(contentsOf: [1, 1])
+            result.append(profile)
+        }
+        var offset = 2
+        while encoded[offset + 1] != 0xda {
+            let marker = encoded[offset + 1]
+            let length = Int(encoded[offset + 2]) * 256 + Int(encoded[offset + 3])
+            let end = offset + length + 2
+            if marker != 0xe2 { result.append(encoded[offset..<end]) }
+            offset = end
+        }
+        result.append(encoded[offset...])
+        return result
+    }
+
+    func testDCTRGBGrayAndICCSharePreviewAndExportWithVectorText() async throws {
+        let profile = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB)?.copyICCData()) as Data
+        let rgb = try jpeg(samples: [90, 40, 30, 180, 110, 90], components: 3, profile: profile)
+        let gray = try jpeg(samples: [65, 150], components: 1)
+        let plain = try jpeg(samples: [90, 40, 30, 180, 110, 90], components: 3)
+        let imageDictionary = "/Type /XObject /Subtype /Image /Width 8 /Height 8 /BitsPerComponent 8"
+        let url = try writePDF([
+            Data("<< /Type /Catalog /Pages 2 0 R >>".utf8),
+            Data("<< /Type /Pages /Count 1 /Kids [3 0 R] >>".utf8),
+            Data("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 140] /Resources << /Font << /F 5 0 R >> /XObject << /RGB 6 0 R /Gray 7 0 R /Plain 9 0 R /Custom 10 0 R /Embedded 11 0 R >> >> /Contents 4 0 R >>".utf8),
+            stream("", Data("q 36 0 0 56 8 15 cm /RGB Do Q q 36 0 0 56 55 15 cm /Gray Do Q q 36 0 0 56 100 15 cm /Plain Do Q q 36 0 0 56 145 15 cm /Custom Do Q q 36 0 0 26 145 82 cm /Embedded Do Q BT /F 14 Tf 15 100 Td (Vector JPEG proof) Tj ET".utf8)),
+            Data("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".utf8),
+            stream("\(imageDictionary) /ColorSpace [/ICCBased 8 0 R] /Filter /DCTDecode", rgb),
+            stream("\(imageDictionary) /ColorSpace /DeviceGray /Filter [/DCTDecode] /DecodeParms [<< /ColorTransform 0 >>]", gray),
+            stream("/N 3", profile),
+            stream("\(imageDictionary) /ColorSpace /DeviceRGB /Filter /DCTDecode /DecodeParms << /ColorTransform 1 >>", plain),
+            stream("\(imageDictionary) /ColorSpace /DeviceRGB /Filter /DCTDecode /DecodeParms << /ColorTransform 0 >>", plain),
+            stream("\(imageDictionary) /ColorSpace /DeviceRGB /Filter /DCTDecode", rgb)
+        ])
+        let original = try Data(contentsOf: url)
+        let source = try await PDFSource.open(url)
+        var slot = Slot(sourcePageNumber: 1, origin: Point(8, 12), size: source.pages[0].trimSize)
+        var adjustment = ImageColorAdjustment()
+        adjustment.brightness = 0.20
+        adjustment.contrast = 1.15
+        adjustment.saturation = 0
+        slot.imageColor = adjustment
+        let plan = ImpositionPlan(sheets: [Sheet(size: Size(110, 85), front: Side(slots: [slot]), back: Side())])
+        let variants = try PDFColorVariants.prepare(source: source, plan: plan)
+        let preview = try XCTUnwrap(variants.page(for: slot), "\(variants.warnings)")
+        let beforeDoc = try XCTUnwrap(CGPDFDocument(url as CFURL))
+        let before = try XCTUnwrap(beforeDoc.page(at: 1))
+        let imageNames = try names(preview)
+        XCTAssertTrue(imageNames.prefix(3).allSatisfy { $0.hasPrefix("AtisPressColor") }, "\(variants.warnings)")
+        XCTAssertEqual(Array(imageNames.suffix(2)), ["Custom", "Embedded"])
+        XCTAssertEqual(try samples(image(preview, name: "Custom")), plain)
+        XCTAssertEqual(try samples(image(preview, name: "Embedded")), rgb)
+        XCTAssertTrue(variants.warnings.contains { $0.contains("JPEG") })
+        XCTAssertTrue(variants.warnings.contains { $0.contains("Doygunluk") })
+
+        let rgbStream = try displayedImage(preview, at: 0)
+        let rgbDict = try XCTUnwrap(CGPDFStreamGetDictionary(rgbStream))
+        var spaces: CGPDFArrayRef?, preservedProfile: CGPDFStreamRef?, filter: UnsafePointer<CChar>?
+        XCTAssertTrue(CGPDFDictionaryGetArray(rgbDict, "ColorSpace", &spaces))
+        XCTAssertTrue(CGPDFArrayGetStream(try XCTUnwrap(spaces), 1, &preservedProfile))
+        XCTAssertEqual(try samples(XCTUnwrap(preservedProfile)), profile)
+        XCTAssertTrue(CGPDFDictionaryGetName(rgbDict, "Filter", &filter))
+        XCTAssertEqual(filter.map { String(cString: $0) }, "FlateDecode")
+        let rgbSamples = try samples(rgbStream)
+        XCTAssertEqual(rgbSamples.count, 192)
+        XCTAssertEqual(rgbSamples[0], rgbSamples[1])
+        XCTAssertEqual(rgbSamples[1], rgbSamples[2])
+        XCTAssertLessThan(rgbSamples[0], rgbSamples[191])
+        let graySamples = try samples(displayedImage(preview, at: 1))
+        XCTAssertEqual(graySamples.count, 64)
+        XCTAssertEqual(graySamples[0], 107, accuracy: 2)
+        XCTAssertEqual(graySamples[63], 204, accuracy: 2)
+
+        let output = url.deletingLastPathComponent().appendingPathComponent("dct-output.pdf")
+        let report = try PDFExporter.export(plan: plan, source: source, destination: .singlePDF(output), marks: .none)
+        XCTAssertTrue(report.notes.contains { $0.contains("JPEG") })
+        XCTAssertTrue(try XCTUnwrap(PDFDocument(url: output)).string?.contains("Vector JPEG proof") == true)
+        XCTAssertEqual(try Data(contentsOf: url), original)
+        let outputDoc = try XCTUnwrap(CGPDFDocument(output as CFURL))
+        let printed = try XCTUnwrap(outputDoc.page(at: 1))
+        let pt = PDFPreviewDrawing.pointsPerMM
+        for x in [20.0, 67, 112] {
+            for y in [26.0, 60] {
+                let p = CGPoint(x: x, y: y)
+                XCTAssertGreaterThan(try pixel(preview, p), try pixel(before, p))
+                XCTAssertEqual(try pixel(preview, p), try pixel(printed, CGPoint(x: x + pt * slot.x, y: y + pt * slot.y)), accuracy: 3)
+            }
+        }
+        XCTAssertLessThan(try pixel(preview, CGPoint(x: 67, y: 60)), try pixel(preview, CGPoint(x: 67, y: 26)))
+    }
+
+    func testDCTRejectsMismatchedDimensionsAndUnsupportedSamplePrecision() throws {
+        let jpeg = try jpeg(samples: [65, 150], components: 1)
+        XCTAssertNil(try PDFJPEGImageSamples.decode(jpeg, width: 7, height: 8, components: 1, pdfICC: nil))
+        XCTAssertNil(try PDFJPEGImageSamples.decode(jpeg, width: 8, height: 8, components: 3, pdfICC: nil))
+
+        var non8Bit = jpeg
+        let marker = try XCTUnwrap(non8Bit.range(of: Data([0xff, 0xc0])))
+        non8Bit[marker.upperBound + 2] = 12
+        XCTAssertNil(try PDFJPEGImageSamples.decode(non8Bit, width: 8, height: 8, components: 1, pdfICC: nil))
+
+        XCTAssertNil(try PDFJPEGImageSamples.decode(jpeg.prefix(10), width: 8, height: 8, components: 1, pdfICC: nil))
     }
 
     func testSamePageCanUseDifferentJobAdjustmentsAndResetIsOriginal() async throws {
