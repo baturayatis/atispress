@@ -11,7 +11,7 @@ struct PresetInspectorView: View {
                 Picker("Hazır ayar",selection:$model.selectedPresetID) {
                     Text("Seçiniz").tag(nil as UUID?)
                     ForEach(model.presets) { Text($0.name).tag(Optional($0.id)) }
-                }
+                }.inspectorTarget("preset")
                 Button("Hazır ayar uygula") { if let selected { model.applyPreset(selected) } }.disabled(selected == nil)
                 LabeledContent("Hazır ayar adı") { TextField("Ad",text:$name).textFieldStyle(.roundedBorder) }
                 Button("Yeni hazır ayar kaydet") { run { _ = try model.savePreset(name:name); name = "" } }.disabled(name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)

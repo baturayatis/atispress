@@ -134,7 +134,7 @@ struct ScalingSizeRow:View {
     var body:some View {
         VStack(alignment:.leading,spacing:4) {
             Text(model.scalingSizeText).font(.callout).fixedSize(horizontal:false,vertical:true)
-            Button(model.project.hasRescaling ? "Değiştir" : "Ebadı değiştir…") { model.openScaleWindow() }.disabled(model.scalingRows.isEmpty)
+            Button(model.project.hasRescaling ? "Değiştir" : "Ebadı değiştir…") { model.openScaleWindow() }.disabled(model.scalingRows.isEmpty).inspectorTarget("scale")
         }
     }
 }

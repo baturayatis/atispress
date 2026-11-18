@@ -15,7 +15,7 @@ struct GangInspectorView: View {
                 })) {
                     Text("Otomatik giyotin").tag(GangSettings.Mode.automatic)
                     Text("Elle yerleştir").tag(GangSettings.Mode.manual)
-                }.pickerStyle(.segmented).inspectorSetting(model,"Düzen",SettingGuidance.detail("Düzen"))
+                }.pickerStyle(.segmented).inspectorSetting(model,"Düzen",SettingGuidance.detail("Düzen")).inspectorTarget("gangMode")
                 Text("Her iş bir dikdörtgen ızgara bloğudur. Bitişik kesimde boşluk 0; aralıklı düzende boşluk en az 2 × taşma olmalı.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
                 if let job = model.selectedGangJob {
                     LabeledContent("İş adı") { TextField("Ad",text:binding(job,\.name)) }

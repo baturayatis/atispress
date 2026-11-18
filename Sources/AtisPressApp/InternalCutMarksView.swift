@@ -69,15 +69,15 @@ struct InternalCutMarksView: View {
 
     private func editor(_ settings: Binding<InternalCutMarks>, size: Size) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            direction("Yatay kesim", from: "Alt kenardan", length: size.height, value: settings.horizontal)
-            direction("Dikey kesim", from: "Sol kenardan", length: size.width, value: settings.vertical)
+            direction("Yatay kesim", inspectorID: "horizontalCut", from: "Alt kenardan", length: size.height, value: settings.horizontal)
+            direction("Dikey kesim", inspectorID: "verticalCut", from: "Sol kenardan", length: size.width, value: settings.vertical)
         }
     }
 
-    private func direction(_ title: String, from edge: String, length: Double,
+    private func direction(_ title: String, inspectorID: String, from edge: String, length: Double,
                            value: Binding<InternalCutMarks.Direction>) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Toggle(title, isOn: value.enabled)
+            Toggle(title, isOn: value.enabled).inspectorTarget(inspectorID)
             if value.wrappedValue.enabled {
                 Picker("Konum", selection: Binding(
                     get: { value.wrappedValue.position },

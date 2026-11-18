@@ -79,8 +79,8 @@ struct PricingView: View {
                     }
                 }
                 HStack {
-                    Button("Tablo dışa aktar…") { exportTable() }
-                    Button("Tablo içe aktar…") { importTable() }
+                    Button("Tablo dışa aktar…") { exportTable() }.inspectorTarget("priceExport")
+                    Button("Tablo içe aktar…") { importTable() }.inspectorTarget("priceImport")
                 }
                 if let error = store.error { Text(error).foregroundStyle(DesignSystem.error) }
                 Text("Kâğıt: seçilen KDV oranıyla netleştirilir. Baskı ve işçilik fiyatları KDV hariçtir. İçe aktarma kitaplığı değiştirir; önce dışa aktararak yedekleyebilirsiniz.").font(.system(size:12))
@@ -138,13 +138,13 @@ struct CostingView: View {
                 }
                 Text("Boş bırakılan kâr/KDV kitaplıktan alınır. Kitaplık: kâr \(store.library.margin.map { "\($0)%" } ?? "girilmedi"), KDV \(store.library.vat.map { "\($0)%" } ?? "girilmedi")").font(.system(size:12))
                 if model.project.isBooklet || model.project.isLeafBinding { LabeledContent("Yayın adedi (adet)") { OptionalIntegerInput(title:"Yayın adedi",value:settings.copies,unit:"adet") } }
-                LabeledContent("Ek fire (tabaka)") { IntegerInput(title:"Ek fire",value:settings.extraWasteSheets,unit:"tabaka") }
+                LabeledContent("Ek fire (tabaka)") { IntegerInput(title:"Ek fire",value:settings.extraWasteSheets,unit:"tabaka",inspectorID:"extraWaste") }
                 Text("Plan + fire: \(result.sheets) tabaka · Satış adedi: \(result.quantity)")
                 if model.planning { Text("Plan hesaplanıyor…").foregroundStyle(DesignSystem.warning) }
                 }
                 if section==nil || section==2 {
                 breakdown(result)
-                Button("Tabaka karşılaştır") { comparison = EconomicSheets.compare(project:model.project,library:store.library) }.disabled(model.planning)
+                Button("Tabaka karşılaştır") { comparison = EconomicSheets.compare(project:model.project,library:store.library) }.disabled(model.planning).inspectorTarget("compareSheets")
                 ForEach(comparison) { row in
                     HStack {
                         VStack(alignment:.leading) {
@@ -171,7 +171,7 @@ struct CostingView: View {
                 Picker(title,selection:Binding<UUID?>(get:{ value.wrappedValue?.id },set:{ value.wrappedValue = $0.map(PriceSelection.init) })) {
                     Text("girilmedi").tag(nil as UUID?)
                     ForEach(store.library.entries.filter { kind == nil ? ($0.kind == .digital || $0.kind == .offset) : $0.kind == kind }) { Text($0.name + " · " + $0.kind.rawValue).tag(Optional($0.id)) }
-                }
+                }.inspectorTarget(kind == .paper ? "paperCost" : "printingCost")
                 if value.wrappedValue != nil {
                     overrideEditor(Binding(get:{ value.wrappedValue! },set:{ value.wrappedValue = $0 }))
                 }
@@ -203,7 +203,7 @@ struct CostingView: View {
     private var quoteEditor: some View {
         GroupBox("Teklif PDF’i") {
             VStack(alignment:.leading) {
-                LabeledContent("Firma adı (isteğe bağlı)") { TextField("Firma adı (isteğe bağlı)",text:settings.quote.company) }
+                LabeledContent("Firma adı (isteğe bağlı)") { TextField("Firma adı (isteğe bağlı)",text:settings.quote.company).inspectorTarget("quoteCompany") }
                 HStack {
                     Button("Logo seç…") {
                         let p = NSOpenPanel(); p.allowedContentTypes = [.png,.jpeg,.pdf]
@@ -212,9 +212,9 @@ struct CostingView: View {
                     if settings.quote.logo.wrappedValue != nil { Button("Logoyu kaldır") { settings.quote.logo.wrappedValue = nil } }
                 }
                 LabeledContent("İş adı") { TextField("İş adı",text:settings.quote.jobName) }
-                LabeledContent("Geçerlilik süresi") { TextField("Geçerlilik süresi",text:settings.quote.validity) }
+                LabeledContent("Geçerlilik süresi") { TextField("Geçerlilik süresi",text:settings.quote.validity).inspectorTarget("quoteValidity") }
                 VStack(alignment:.leading) { Text("Not"); TextField("Teklif notu",text:settings.quote.note,axis:.vertical).lineLimit(3...6) }
-                Toggle("Ayrıntılı maliyet dökümünü ekle",isOn:settings.quote.showCosts)
+                Toggle("Ayrıntılı maliyet dökümünü ekle",isOn:settings.quote.showCosts).inspectorTarget("quoteBreakdown")
                 Button("Teklif PDF’i dışa aktar…") { exportQuote() }.disabled(result.sale == nil || model.planning || settings.wrappedValue.quote.validity.trimmingCharacters(in:.whitespaces).isEmpty)
                 if settings.wrappedValue.quote.validity.isEmpty { Text("Geçerlilik süresi girilmedi").foregroundStyle(DesignSystem.muted) }
             }

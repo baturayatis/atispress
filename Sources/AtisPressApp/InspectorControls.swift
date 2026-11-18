@@ -7,10 +7,23 @@ struct DimensionInput:View {
     var enabled = true
     var unit = "mm"
     var range:ClosedRange<Double> = -1000000...1000000
-    init(_ title:String,value:Binding<Double>,unit:String = "mm",range:ClosedRange<Double> = -1000000...1000000,enabled:Bool = true) { self.enabled = enabled; self.title = title; _value = value; self.unit = unit; self.range = range }
+    var inspectorID: String?
+    var onFocus: ((Bool) -> Void)?
+
+    init(_ title: String, value: Binding<Double>, unit: String = "mm",
+         range: ClosedRange<Double> = -1000000...1000000, enabled: Bool = true,
+         inspectorID: String? = nil, onFocus: ((Bool) -> Void)? = nil) {
+        self.title = title
+        _value = value
+        self.unit = unit
+        self.range = range
+        self.enabled = enabled
+        self.inspectorID = inspectorID
+        self.onFocus = onFocus
+    }
     var body:some View {
         HStack(spacing:6) {
-            TextField(title,value:$value,format:TRFormat.detail).multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width:72).accessibilityLabel(title).disabled(!enabled).opacity(enabled ? 1 : 0.45)
+            TextField(title,value:$value,format:TRFormat.detail).multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder).frame(width:72).accessibilityLabel(title).inspectorTarget(inspectorID, onFocus: onFocus).disabled(!enabled).opacity(enabled ? 1 : 0.45)
             Text(unit).font(.system(size:12)).foregroundStyle(DesignSystem.muted).fixedSize().frame(width:32,alignment:.leading)
             Stepper(title,value:$value,in:range,step:0.5).labelsHidden().fixedSize()
         }.fixedSize()
@@ -51,9 +64,10 @@ struct IntegerInput:View {
     let title:String
     @Binding var value:Int
     var unit = "adet"
+    var inspectorID: String? = nil
     var body:some View {
         HStack(spacing:6) {
-            TextField(title,value:$value,format:.number.locale(TRFormat.locale)).textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing).frame(width:72)
+            TextField(title,value:$value,format:.number.locale(TRFormat.locale)).textFieldStyle(.roundedBorder).multilineTextAlignment(.trailing).frame(width:72).inspectorTarget(inspectorID)
             Text(unit).font(.system(size:12)).foregroundStyle(DesignSystem.muted)
             Stepper(title,onIncrement:{ value += 1 },onDecrement:{ value -= 1 }).labelsHidden().fixedSize()
         }

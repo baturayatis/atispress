@@ -5,16 +5,21 @@ import ImpositionCore
 struct OrientationPicker:View {
     let title:String
     @Binding var selection:Orientation
-    init(_ title:String,selection:Binding<Orientation>) { self.title = title; _selection = selection }
+    var inspectorID: String?
+    init(_ title:String,selection:Binding<Orientation>,inspectorID: String? = nil) {
+        self.title = title; _selection = selection; self.inspectorID = inspectorID
+    }
     var body:some View {
         HStack(spacing:DesignSystem.Space.sm) {
             Text(title)
-            OrientationSegments(selection:$selection).frame(height:26)
+            OrientationSegments(selection:$selection, inspectorID: inspectorID).frame(height:26)
         }
     }
 }
 private struct OrientationSegments:NSViewRepresentable {
     @Binding var selection:Orientation
+    var inspectorID: String?
+    @Environment(\.inspectorTargetContext) private var inspectorContext
     private let values:[Orientation] = [.auto,.landscape,.portrait]
     func makeCoordinator() -> Coordinator { Coordinator(selection:$selection) }
     func makeNSView(context:Context) -> NSSegmentedControl {
@@ -29,10 +34,17 @@ private struct OrientationSegments:NSViewRepresentable {
         return control
     }
     func updateNSView(_ control:NSSegmentedControl,context:Context) {
+        if let request = inspectorContext?.request, let inspectorID, request.controlID == inspectorID, context.coordinator.lastRequest != request {
+            context.coordinator.lastRequest = request
+            DispatchQueue.main.async { [weak control] in
+                if let control { control.window?.makeFirstResponder(control) }
+            }
+        }
         context.coordinator.selection = $selection
         control.selectedSegment = values.firstIndex(of:selection) ?? 0
     }
     final class Coordinator:NSObject {
+        var lastRequest: UsabilitySettings.GroupRequest?
         var selection:Binding<Orientation>
         init(selection:Binding<Orientation>) { self.selection = selection }
         @objc func changed(_ sender:NSSegmentedControl) {

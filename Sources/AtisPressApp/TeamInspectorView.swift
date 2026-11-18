@@ -13,14 +13,14 @@ struct TeamInspectorView: View {
                     Picker("Baskı", selection: Binding(get: { model.project.team?.duplex ?? false }, set: model.setTeamDuplex)) {
                         Text("Tek yüz").tag(false)
                         Text("Çift yüz").tag(true)
-                    }.pickerStyle(.segmented)
+                    }.pickerStyle(.segmented).inspectorTarget("teamDuplex")
                 }
                 Toggle("90° döndürmeye izin ver", isOn: Binding(
                     get: { model.project.team?.allowRotation ?? true },
                     set: { value in
                         model.project.team?.allowRotation = value
                         model.project.team?.manualLayouts = nil
-                    }))
+                    })).inspectorTarget("teamRotation")
                 if model.project.sourcePreparation?.separation == nil, model.project.team?.duplex == true, let job = model.selectedGangJob {
                     pagePicker(job, side: .front)
                     pagePicker(job, side: .back)
@@ -31,7 +31,7 @@ struct TeamInspectorView: View {
                 })) {
                     Text("Otomatik").tag(false)
                     Text("Elle yerleştir").tag(true)
-                }.pickerStyle(.segmented)
+                }.pickerStyle(.segmented).inspectorTarget("teamPlacement")
                 if let plates = model.project.team?.manualLayouts, plates.indices.contains(model.sheetIndex) {
                     placementControls(plates[model.sheetIndex])
                 }

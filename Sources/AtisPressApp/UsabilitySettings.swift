@@ -81,9 +81,24 @@ final class UsabilitySettings: ObservableObject {
     @Published var flyoutPanel:InspectorPanel?
     struct GroupRequest: Equatable {
         let group: InspectorGroup
+        let controlID: String?
         private let id = UUID()
 
-        init(_ group: InspectorGroup) { self.group = group }
+        init(_ group: InspectorGroup, controlID: String?) {
+            self.group = group
+            self.controlID = controlID
+        }
+    }
+
+    private static let inspectorFavoritesKey = "atispress.ui.inspectorFavorites"
+    @Published private(set) var inspectorFavorites: [String] {
+        didSet { defaults.set(inspectorFavorites, forKey: Self.inspectorFavoritesKey) }
+    }
+
+    func toggleInspectorFavorite(_ id: String) {
+        guard InspectorSearchEntry.byID[id] != nil else { return }
+        if let index = inspectorFavorites.firstIndex(of: id) { inspectorFavorites.remove(at: index) }
+        else { inspectorFavorites.append(id) }
     }
 
     @Published private var groupExpansion: [InspectorGroup: Bool] = [:]
@@ -97,14 +112,17 @@ final class UsabilitySettings: ObservableObject {
         groupExpansion[group] = expanded
     }
 
-    func jump(_ panel: InspectorPanel, opening group: InspectorGroup? = nil) {
+    func jump(_ panel: InspectorPanel, opening group: InspectorGroup? = nil, controlID: String? = nil) {
         activePanel = panel
         if let group { setGroupExpanded(group, true) }
-        groupRequest = group.map(GroupRequest.init)
+        groupRequest = group.map { GroupRequest($0, controlID: controlID) }
         if inspectorCollapsed { flyoutPanel = panel }
     }
     init(defaults:UserDefaults = .standard) {
         self.defaults = defaults
+        var seen = Set<String>()
+        inspectorFavorites = (defaults.stringArray(forKey: Self.inspectorFavoritesKey) ?? [])
+            .filter { InspectorSearchEntry.byID[$0] != nil && seen.insert($0).inserted }
         teamPDFImport = defaults.string(forKey: TeamPDFImport.defaultsKey).flatMap(TeamPDFImport.init(rawValue:)) ?? .ask
         activePanel=defaults.string(forKey:"atispress.ui.activePanel").flatMap(InspectorPanel.restoring) ?? .job
         railVisible=defaults.object(forKey:"atispress.ui.rail") as? Bool ?? true
