@@ -3,7 +3,6 @@ import SwiftUI
 struct InspectorSearchView: View {
     @ObservedObject var model: Workspace
     @FocusState private var searchFocused: Bool
-    @State private var favoritesExpanded = true
 
     var body: some View {
         let results = InspectorSearchEntry.matches(model.ui.search).filter { $0.canOpen(in: model) }
@@ -27,7 +26,10 @@ struct InspectorSearchView: View {
                     rows(results, limit: 6)
                 }
             } else {
-                DisclosureGroup("Favoriler", isExpanded: $favoritesExpanded) {
+                DisclosureGroup("Favoriler", isExpanded: Binding(
+                    get: { model.ui.inspectorFavoritesExpanded },
+                    set: { model.ui.inspectorFavoritesExpanded = $0 }
+                )) {
                     let entries = model.ui.inspectorFavorites.compactMap { InspectorSearchEntry.byID[$0] }
                     if entries.isEmpty {
                         Text("Bir ayarı arayıp yıldız ile ekleyin.").foregroundStyle(.secondary).padding(.top, 4)

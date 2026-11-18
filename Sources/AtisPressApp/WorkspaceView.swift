@@ -17,13 +17,12 @@ struct WorkspaceView: View {
             VStack(spacing:0) {
                 ContextBar(model:model)
                 Divider()
-                HSplitView {
-                    sidebar.frame(minWidth:210,idealWidth:230,maxWidth:270)
-                    center.frame(minWidth:500,maxWidth:.infinity,maxHeight:.infinity)
-                    InspectorDock(model:model,prices:prices)
-                        .frame(minWidth:model.ui.inspectorCollapsed ? 72 : (model.ui.railVisible ? 422 : 350),
-                               idealWidth:model.ui.inspectorCollapsed ? 72 : DesignSystem.inspectorWidth+72,
-                               maxWidth:model.ui.inspectorCollapsed ? 72 : 432)
+                WorkspaceSplitView(settings: model.ui, windowWidth: geometry.size.width) {
+                    sidebar
+                } preview: {
+                    center
+                } tools: {
+                    InspectorDock(model: model, prices: prices)
                 }.frame(height:max(0,geometry.size.height-57))
             }
         }

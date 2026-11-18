@@ -77,6 +77,23 @@ final class UsabilitySettings: ObservableObject {
     @Published private var collapsed: Set<String> { didSet { defaults.set(Array(collapsed),forKey:"atispress.ui.collapsed") } }
     @Published var railVisible=true {didSet {defaults.set(railVisible,forKey:"atispress.ui.rail");if !railVisible {inspectorCollapsed=false}}}
     @Published var inspectorCollapsed=false {didSet {defaults.set(inspectorCollapsed,forKey:"atispress.ui.inspectorCollapsed");if inspectorCollapsed {railVisible=true} else {flyoutPanel=nil}}}
+    private static let inspectorWidthKey = "atispress.ui.inspectorWidth"
+    private static let inspectorSectionsKey = "atispress.ui.inspectorSections"
+    private static let favoritesExpandedKey = "atispress.ui.inspectorFavoritesExpanded"
+
+    @Published private(set) var inspectorWidth: CGFloat {
+        didSet { defaults.set(Double(inspectorWidth), forKey: Self.inspectorWidthKey) }
+    }
+
+    func setInspectorWidth(_ width: CGFloat) {
+        let preferred = WorkspaceColumnLayout.preferredWidth(width)
+        if inspectorWidth != preferred { inspectorWidth = preferred }
+    }
+
+    @Published var inspectorFavoritesExpanded: Bool {
+        didSet { defaults.set(inspectorFavoritesExpanded, forKey: Self.favoritesExpandedKey) }
+    }
+
     @Published var activePanel:InspectorPanel = .job {didSet {defaults.set(activePanel.rawValue,forKey:"atispress.ui.activePanel")}}
     @Published var flyoutPanel:InspectorPanel?
     struct GroupRequest: Equatable {
@@ -101,7 +118,12 @@ final class UsabilitySettings: ObservableObject {
         else { inspectorFavorites.append(id) }
     }
 
-    @Published private var groupExpansion: [InspectorGroup: Bool] = [:]
+    @Published private var groupExpansion: [InspectorGroup: Bool] {
+        didSet {
+            let values = Dictionary(uniqueKeysWithValues: groupExpansion.map { ($0.key.rawValue, $0.value) })
+            defaults.set(values, forKey: Self.inspectorSectionsKey)
+        }
+    }
     @Published private(set) var groupRequest: GroupRequest?
 
     func isGroupExpanded(_ group: InspectorGroup, in panel: InspectorPanel, for project: Project) -> Bool {
@@ -109,7 +131,7 @@ final class UsabilitySettings: ObservableObject {
     }
 
     func setGroupExpanded(_ group: InspectorGroup, _ expanded: Bool) {
-        groupExpansion[group] = expanded
+        if groupExpansion[group] != expanded { groupExpansion[group] = expanded }
     }
 
     func jump(_ panel: InspectorPanel, opening group: InspectorGroup? = nil, controlID: String? = nil) {
@@ -120,6 +142,13 @@ final class UsabilitySettings: ObservableObject {
     }
     init(defaults:UserDefaults = .standard) {
         self.defaults = defaults
+        inspectorWidth = WorkspaceColumnLayout.preferredWidth(CGFloat(defaults.double(forKey: Self.inspectorWidthKey)))
+        inspectorFavoritesExpanded = defaults.object(forKey: Self.favoritesExpandedKey) as? Bool ?? true
+        let sections = defaults.dictionary(forKey: Self.inspectorSectionsKey) ?? [:]
+        groupExpansion = Dictionary(uniqueKeysWithValues: sections.compactMap { key, value in
+            guard let group = InspectorGroup(rawValue: key), let expanded = value as? Bool else { return nil }
+            return (group, expanded)
+        })
         var seen = Set<String>()
         inspectorFavorites = (defaults.stringArray(forKey: Self.inspectorFavoritesKey) ?? [])
             .filter { InspectorSearchEntry.byID[$0] != nil && seen.insert($0).inserted }

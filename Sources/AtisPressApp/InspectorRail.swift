@@ -20,9 +20,23 @@ struct InspectorDock:View {
     @ObservedObject var prices:PricingStore
     var body:some View {
         HStack(spacing:0) {
-            if !model.ui.inspectorCollapsed {InspectorView(model:model,prices:prices).frame(minWidth:320,idealWidth:DesignSystem.inspectorWidth,maxWidth:.infinity)}
+            if !model.ui.inspectorCollapsed {
+                VStack(spacing: 0) {
+                    if !model.ui.railVisible {
+                        HStack {
+                            Spacer()
+                            InspectorVisibilityButton(settings: model.ui)
+                        }.padding(.horizontal, 12).padding(.top, 8)
+                    }
+                    InspectorView(model: model, prices: prices)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(DesignSystem.card)
+            }
             if model.ui.railVisible {
-                Divider()
+                if !model.ui.inspectorCollapsed {
+                    Rectangle().fill(DesignSystem.border).frame(width: WorkspaceColumnLayout.separatorWidth)
+                }
                 InspectorRail(model:model,prices:prices)
             }
         }.onChange(of: model.ui.revealedSection, initial: true) { _, section in
@@ -60,13 +74,13 @@ struct InspectorRail:View {
     private var panels:[InspectorPanel] {InspectorPanel.allCases}
     var body:some View {
         VStack(spacing:2) {
-            header
+            InspectorVisibilityButton(settings: model.ui)
             Divider()
             ForEach(panels) {panel in
                 item(panel).focused($focused,equals:panel)
             }
             Spacer(minLength:4)
-        }.padding(.horizontal,2).frame(width:72).background(DesignSystem.card)
+        }.padding(.horizontal,2).frame(width:WorkspaceColumnLayout.railWidth).background(DesignSystem.card)
             .onMoveCommand {direction in
                 let step=direction == .down ? 1 : direction == .up ? -1 : 0
                 guard let next=InspectorPanel.neighbor(of:focused ?? model.ui.activePanel,step:step,visible:panels) else {return}
@@ -76,15 +90,6 @@ struct InspectorRail:View {
             .popover(item:Binding(get:{model.ui.flyoutPanel},set:{model.ui.flyoutPanel=$0}),arrowEdge:.leading) {panel in
                 InspectorView(model:model,prices:prices,only:panel).frame(width:350,height:720)
             }
-    }
-    private var header:some View {
-        Image(systemName:model.ui.inspectorCollapsed ? "sidebar.right" : "sidebar.trailing")
-            .frame(width:68,height:32).contentShape(Rectangle())
-            .onTapGesture(count:2) {model.ui.inspectorCollapsed.toggle()}
-            .focusable().onKeyPress(.return) {model.ui.inspectorCollapsed.toggle();return .handled}
-            .help("Denetçiyi daralt veya aç · çift tıklayın")
-            .accessibilityElement(children:.ignore).accessibilityLabel("Denetçiyi daralt veya aç")
-            .accessibilityAddTraits(.isButton).accessibilityAction {model.ui.inspectorCollapsed.toggle()}
     }
     private func item(_ panel:InspectorPanel) -> some View {
         let selected=model.ui.activePanel==panel
@@ -106,5 +111,27 @@ struct InspectorRail:View {
             .accessibilityValue(model.panelHasIndicator(panel) ? "Manuel ayar veya uyarı var" : "")
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityIdentifier("rail.section."+panel.rawValue)
+    }
+}
+
+
+private struct InspectorVisibilityButton: View {
+    @ObservedObject var settings: UsabilitySettings
+    private var title: String { settings.inspectorCollapsed ? "Aç" : "Daralt" }
+    private var description: String { settings.inspectorCollapsed ? "Ayar panelini aç" : "Ayar panelini daralt" }
+
+    var body: some View {
+        Button {
+            settings.inspectorCollapsed.toggle()
+        } label: {
+            Label(title, systemImage: settings.inspectorCollapsed ? "sidebar.right" : "sidebar.trailing")
+                .font(.system(size: 12))
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .padding(.vertical, 4)
+        .help(description)
+        .accessibilityLabel(description)
+        .accessibilityIdentifier("sidebar.visibility")
     }
 }
