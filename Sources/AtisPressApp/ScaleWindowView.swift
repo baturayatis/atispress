@@ -86,7 +86,7 @@ extension Workspace {
         context.scaleBy(x:factor,y:factor)
         var slot = Slot(sourcePageNumber:number,origin:Point(0,0),size:settings.target,rotation:0)
         slot.rescale = ArtworkRescale(source:sourceSize,settings:settings)
-        try? PDFPlanRenderer.drawSlot(slot,page:page,in:context,reference:SlotReference(sheet:0,side:.front,slot:0),overlays:[GeneratedBleedOverlay(settings:GeneratedBleedSettings(enabled:true),cache:source.edgeSamples,sampleIfMissing:true)])
+        try? PDFPlanRenderer.drawSlot(slot,page:page,in:context,reference:SlotReference(sheet:0,side:.front,slot:0),overlays:[GeneratedBleedOverlay(settings:GeneratedBleedSettings(enabled:true),cache:source.edgeSamples)])
         return context.makeImage().map { NSImage(cgImage:$0,size:NSSize(width:w,height:h)) }
     }
     func applyScaleWindow(_ settings:RescaleSettings?,all:Bool,row:Int) {

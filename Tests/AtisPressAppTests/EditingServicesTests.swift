@@ -26,7 +26,7 @@ final class EditingServicesTests: XCTestCase {
     private func settle(_ m: Workspace) async throws {
         try await Task.sleep(for:.milliseconds(25))
         for _ in 0..<1500 {
-            if !m.loading && !m.planning && !m.autoArranging && !m.samplingBleed && !m.checkingBindingStrips { return }
+            if !m.loading && !m.planning && !m.autoArranging && !m.checkingBindingStrips { return }
             try await Task.sleep(for:.milliseconds(10))
         }
         XCTFail("Editing state did not settle")

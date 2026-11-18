@@ -91,7 +91,7 @@ public enum PDFExporter {
             settings.merge(sheet.generatedBleedByJob) { existing, _ in existing }
         }
         let generated: [any PDFSlotOverlay] = (plan.generatedBleed.enabled || jobBleed.values.contains { $0.enabled }) ?
-            [GeneratedBleedOverlay(settings: plan.generatedBleed,cache: source.edgeSamples,sampleIfMissing: true,jobSettings: jobBleed)] : []
+            [GeneratedBleedOverlay(settings: plan.generatedBleed,cache: source.edgeSamples,jobSettings: jobBleed)] : []
         let effectiveOverlays = generated+overlays
         let scope = destination.scopeURL
         let accessed = scope.startAccessingSecurityScopedResource()

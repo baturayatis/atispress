@@ -26,7 +26,7 @@ import PDFEngine
     }
     private func workspace() -> Workspace {Workspace(bookmarkCreator:{try $0.bookmarkData(options:.minimalBookmark,includingResourceValuesForKeys:nil,relativeTo:nil)})}
     private func settle(_ m:Workspace) async throws {
-        for _ in 0..<600 {if !m.loading && !m.planning && !m.samplingBleed && !m.preparingSource && !m.autoArranging {return};try await Task.sleep(for:.milliseconds(10))};XCTFail("Preparation did not settle")
+        for _ in 0..<600 {if !m.loading && !m.planning && !m.preparingSource && !m.autoArranging {return};try await Task.sleep(for:.milliseconds(10))};XCTFail("Preparation did not settle")
     }
     func testArtworkSeparationPersistsAssignmentsAndExportsTheSameTeamPlan() async throws {
         let (directory, url) = try fixture()

@@ -66,13 +66,6 @@ final class GeneratedBleedTests: XCTestCase {
         _ = try PDFExporter.export(plan: plan,source: source,destination: .singlePDF(url),options: .artworkOnly)
         let document = try XCTUnwrap(CGPDFDocument(url as CFURL)),bitmap = try Bitmap(plan.sheets[0].size)
         bitmap.context.scaleBy(x: 1/ppmm,y: 1/ppmm); bitmap.context.drawPDFPage(try XCTUnwrap(document.page(at: 1)))
-        if let path = ProcessInfo.processInfo.environment["ATISPRESS_GENERATED_QA"] {
-            let folder = URL(fileURLWithPath: path,isDirectory: true)
-            try FileManager.default.createDirectory(at: folder,withIntermediateDirectories: true)
-            try Data(contentsOf: url).write(to: folder.appendingPathComponent(name+".pdf"))
-            let image = try XCTUnwrap(bitmap.context.makeImage())
-            try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png,properties: [:])).write(to: folder.appendingPathComponent(name+".png"))
-        }
         return (document,bitmap)
     }
     func testUniformAndVariedEdgesUseStripRangeAndKeepEdgePixels() async throws {
@@ -147,17 +140,124 @@ final class GeneratedBleedTests: XCTestCase {
         let first = plan.sheets[0].front.slots[0]
         assertColor(bitmap.color(first.x+34,first.y+10),[1,1,1]) // Clear gutter between two 3 mm bleed bands.
     }
-    func testMirrorDiffersFromEdgeStretchAndNeverChangesTrim() async throws {
+    func testAutomaticAndMirrorBothPreserveEdgeDepthAndTrim() async throws {
         let folder = try folder(), source = try await PDFSource.open(fixture([.depth],in: folder))
         var p = project(source); p.stepAndRepeat.columns = 1; p.stepAndRepeat.rows = 1
         let automatic = ImpositionPlanner.plan(p), (_,a) = try output(automatic,source: source,in: folder,name: "depth-edge")
         p.settings.generatedBleed.method = .mirror
         let mirrored = ImpositionPlanner.plan(p), (_,b) = try output(mirrored,source: source,in: folder,name: "mirror")
         let slot = automatic.sheets[0].front.slots[0]
-        assertColor(a.color(slot.x-0.35,slot.y+5),[0.85,0.1,0.05])
+        assertColor(a.color(slot.x-0.35,slot.y+5),[0,0,0])
         assertColor(b.color(slot.x-0.35,slot.y+5),[0,0,0])
         assertColor(a.color(slot.x+10,slot.y+5),b.color(slot.x+10,slot.y+5))
     }
+    private func oxygenFixture(in folder: URL, size: Size) throws -> URL {
+        let url = folder.appendingPathComponent("oxygen-vector-fixture.pdf")
+        var trim = CGRect(x: 5*ppmm, y: 5*ppmm, width: size.width*ppmm, height: size.height*ppmm)
+        var media = trim.insetBy(dx: -5*ppmm, dy: -5*ppmm)
+        var bleed = CGRect(x: trim.minX-ppmm, y: trim.minY, width: trim.width+ppmm, height: trim.height)
+        let context = try XCTUnwrap(CGContext(consumer: XCTUnwrap(CGDataConsumer(url: url as CFURL)), mediaBox: &media, nil))
+        for color in [BleedColor.rgb(0.12,0.35,0.8), .rgb(0.83,0.24,0.16)] {
+            context.beginPDFPage([kCGPDFContextTrimBox: NSData(bytes: &trim, length: MemoryLayout<CGRect>.size),
+                                  kCGPDFContextBleedBox: NSData(bytes: &bleed, length: MemoryLayout<CGRect>.size)] as CFDictionary)
+            context.translateBy(x: trim.minX, y: trim.minY)
+            context.scaleBy(x: ppmm, y: ppmm)
+            context.setFillColor(GeneratedBleedOverlay.cgColor(.rgb(0,0.7,0.25)))
+            context.fill(CGRect(x: -1, y: 0, width: 1, height: size.height))
+            context.setFillColor(GeneratedBleedOverlay.cgColor(color))
+            context.fill(CGRect(x: 0, y: 0, width: size.width, height: size.height))
+            context.setFillColor(CGColor(gray: 0, alpha: 1))
+            context.fill(CGRect(x: 1, y: 1, width: 1, height: 1))
+            context.fill(CGRect(x: 1, y: 2.5, width: 1, height: size.height - 3))
+            context.endPDFPage()
+        }
+        context.closePDF()
+        return url
+    }
+
+    func testOxygenSizedDuplexUsesVectorBleedAtThreeAndTenMillimeters() async throws {
+        let folder = try folder()
+        let input = try oxygenFixture(in: folder, size: Size(86.7,54))
+        let source = try await PDFSource.open(input), original = try XCTUnwrap(CGPDFDocument(input as CFURL))
+        for amount in [3.0,10.0] {
+            var p = project(source,gutter: 2)
+            p.pages = source.pages.map(\.sourcePage)
+            p.sheet.size = Size(240,95)
+            p.settings.bleed = amount
+            p.stepAndRepeat = StepAndRepeatSettings(columns: 2, rows: 1, allowRotation: false, quantity: 2)
+            p.stepAndRepeat.pageLayout = PageLayoutSettings()
+            p.stepAndRepeat.pageLayout?.mode = .duplex
+            let plan = ImpositionPlanner.plan(p), sheet = try XCTUnwrap(plan.sheets.first)
+            XCTAssertTrue(plan.canExport, "\(plan.issues)")
+            let (export, _) = try output(plan,source: source,in: folder,name: "oxygen-\(amount)")
+            XCTAssertEqual(export.numberOfPages,2)
+            let data = try Data(contentsOf: folder.appendingPathComponent("oxygen-\(amount).pdf"))
+            XCTAssertNil(data.range(of: Data("/Subtype /Image".utf8)))
+            for (side, kind, number) in [(sheet.front, SideKind.front, 1), (sheet.back, .back, 2)] {
+                let preview = try Bitmap(sheet.size), printed = try Bitmap(sheet.size)
+                try PDFPlanRenderer.drawSide(side, sheet: sheet, document: original, in: preview.context,
+                                             sheetIndex: 0, kind: kind, repetition: 0, options: .artworkOnly,
+                                             overlays: [GeneratedBleedOverlay(settings: plan.generatedBleed, cache: source.edgeSamples)])
+                printed.context.scaleBy(x: 1/ppmm, y: 1/ppmm)
+                printed.context.drawPDFPage(try XCTUnwrap(export.page(at: number)))
+                let sorted = side.slots.sorted { $0.x < $1.x }
+                let left = sorted[0], right = sorted[1]
+                XCTAssertEqual(right.x-left.x-left.size.width, 2*amount+2, accuracy: 0.001)
+                for slot in sorted {
+                    XCTAssertEqual(slot.size.width,86.7,accuracy:0.001)
+                    XCTAssertEqual(slot.size.height,54,accuracy:0.001)
+                    let transform = PDFPreviewDrawing.slotTransform(slot)
+                    func actual(_ x: Double,_ y: Double) -> [Double] {
+                        let point = CGPoint(x:x,y:y).applying(transform)
+                        let color = printed.color(point.x,point.y)
+                        assertColor(color, preview.color(point.x,point.y))
+                        return color
+                    }
+                    let base = number == 1 ? [0.12,0.35,0.8] : [0.83,0.24,0.16]
+                    assertColor(actual(-0.45,15),[0,0.7,0.25]) // Real source bleed.
+                    assertColor(actual(-1.5,15),[0,0,0]) // Reflected depth, not the edge pixel.
+                    assertColor(actual(-amount+0.35,15),base)
+                    assertColor(actual(-1.5,-1.5),[0,0,0]) // Both axes reflected in the corner.
+                    assertColor(actual(-amount+0.35,-amount+0.35),base)
+                    assertColor(actual(86.7+amount-0.35,54+amount-0.35),base)
+                    assertColor(actual(10,15),base)
+                    // Detect gaps independently of antialiasing differences at vector ink edges.
+                    func assertCovered(_ x: Double,_ y: Double) {
+                        let point = CGPoint(x:x,y:y).applying(transform)
+                        for bitmap in [preview,printed] {
+                            XCTAssertLessThan(bitmap.color(point.x,point.y).min() ?? 1,0.9)
+                        }
+                    }
+                    for x in stride(from: -amount+0.2, to: 86.7+amount-0.15, by: 0.61) {
+                        for y in [-amount+0.22,54+amount-0.22] { assertCovered(x,y) }
+                    }
+                    for y in stride(from: 0.25, to: 54, by: 0.61) {
+                        for x in [-amount+0.22,86.7+amount-0.22] { assertCovered(x,y) }
+                    }
+                }
+                assertColor(printed.color((left.x+left.size.width+right.x)/2,left.y+15),[1,1,1])
+            }
+        }
+        XCTAssertNil(source.edgeSamples.cached(page:1))
+        XCTAssertNil(source.edgeSamples.cached(page:2))
+    }
+
+    func testReflectionRepeatsWhenTrimIsNarrowerThanBleed() async throws {
+        let folder = try folder(), input = try oxygenFixture(in: folder, size: Size(4,5))
+        let source = try await PDFSource.open(input)
+        let slot = Slot(sourcePageNumber: 1,origin: Point(15,15),size: source.pages[0].trimSize,
+                        artworkClip: Rect(x: 5,y: 5,width: 24,height: 25))
+        let plan = ImpositionPlan(sheets: [Sheet(size: Size(35,35),front: Side(slots: [slot]),back: Side())],
+                                  generatedBleed: GeneratedBleedSettings(enabled: true))
+        let (_,bitmap) = try output(plan,source: source,in: folder,name: "reflect-repeat")
+        for distance in [1.5,6.5,9.5] {
+            assertColor(bitmap.color(slot.x-distance,slot.y+3),[0,0,0])
+        }
+        for d in stride(from: 1.1,to: 10,by: 0.11) {
+            XCTAssertLessThan(bitmap.color(slot.x-d,slot.y+2.2).min() ?? 1,0.9)
+        }
+    }
+
     func testNativeCMYKCanBeSampledAndEmittedAsCMYKVectorFills() async throws {
         let folder = try folder(), source = try await PDFSource.open(fixture([.cmyk],in: folder))
         try await source.prepareGeneratedBleed(pages: [1])

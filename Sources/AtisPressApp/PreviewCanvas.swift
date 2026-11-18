@@ -117,7 +117,6 @@ final class SheetCanvasView: NSView {
     private var colorControls: PDFColorControlRenderer.Geometry?
     private var generatedOverlay: GeneratedBleedOverlay?
     private var vectorDocument: CGPDFDocument?
-    private var edgeTask: Task<Void,Never>?
     private var loading = Set<Int>()
     private var failedRasters = Set<Int>()
     private var dragPoint: CGPoint?
@@ -130,12 +129,11 @@ final class SheetCanvasView: NSView {
             name: NSScrollView.didEndLiveMagnifyNotification,object: nil)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    deinit { edgeTask?.cancel(); NotificationCenter.default.removeObserver(self) }
+    deinit { NotificationCenter.default.removeObserver(self) }
     @objc private func magnificationEnded() { needsDisplay = true }
     override var isOpaque: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     func configure(sheet: Sheet,side: Side,source: PDFSource?,overlays: PreviewOverlays,highlighted: Set<Int>,sheetIndex: Int = 0,kind: SideKind = .front,generatedBleed: GeneratedBleedSettings = GeneratedBleedSettings(),controlMarks: ExportMarks = .none,bleedAmount: Double = 3,info:String = "") {
-        let edgesChanged = self.source !== source || self.side.slots != side.slots || self.generatedOverlay?.settings != generatedBleed
         if self.source !== source {
             self.source = source; loading = []; failedRasters = []
             vectorDocument = source.flatMap { CGPDFDocument($0.url as CFURL) }
@@ -159,33 +157,6 @@ final class SheetCanvasView: NSView {
         let farX = max(width,side.slots.map { $0.x+$0.size.width }.max() ?? width),farY = max(height,side.slots.map { $0.y+$0.size.height }.max() ?? height)
         let newSize = NSSize(width: farX*pointsPerMM+originX+padding,height: farY*pointsPerMM+originY+padding)
         if frame.size != newSize { setFrameSize(newSize) }
-        if edgesChanged {
-            edgeTask?.cancel()
-            if let source,generatedOverlay != nil {
-                let numbers = Array(Set(side.slots.compactMap(\.sourcePageNumber)))
-                let scales = side.slots.compactMap { slot -> (Int,ArtworkRescale)? in
-                    guard let n = slot.sourcePageNumber,let scale = slot.rescale else { return nil }; return (n,scale)
-                }
-                edgeTask = Task { @MainActor [weak self] in
-                    do {
-                        try await source.prepareGeneratedBleed(pages:numbers)
-                        try Task.checkCancellation()
-                        if !scales.isEmpty {
-                            let url = source.url,cache = source.edgeSamples
-                            try await Task.detached(priority:.userInitiated) {
-                                guard let document = CGPDFDocument(url as CFURL) else { return }
-                                for (number,scale) in scales {
-                                    try Task.checkCancellation()
-                                    if let page = document.page(at:number) { _ = try cache.samples(for:page,rescale:scale) }
-                                }
-                            }.value
-                        }
-                        guard !Task.isCancelled,self?.source === source else { return }
-                        self?.needsDisplay = true
-                    } catch { }
-                }
-            }
-        }
         needsDisplay = true
     }
     func fit() {
@@ -289,11 +260,6 @@ final class SheetCanvasView: NSView {
             for slot in side.slots {
                 let settings=slot.gangJobID.flatMap {sheet.generatedBleedByJob[$0]} ?? generatedOverlay?.settings
                 guard let settings,settings.enabled,let clip=slot.artworkClip else {continue}
-                if settings.method != .solidColor {
-                    guard let number=slot.sourcePageNumber,let cache=source?.edgeSamples else {continue}
-                    if let scale=slot.rescale {guard cache.cached(page:number,rescale:scale) != nil else {continue}}
-                    else {guard cache.cached(page:number) != nil else {continue}}
-                }
                 context.saveGState()
                 context.addRect(CGRect(x:clip.origin.x,y:clip.origin.y,width:clip.size.width,height:clip.size.height))
                 context.addRect(CGRect(x:slot.x,y:slot.y,width:slot.size.width,height:slot.size.height));context.clip(using:.evenOdd)

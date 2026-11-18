@@ -349,9 +349,7 @@ struct InspectorView: View {
                         Text("Renk").tag(GeneratedBleedMethod.solidColor)
                     }.pickerStyle(.segmented).inspectorTarget("bleedMethod").automaticReset(model,.generatedMethod)
                     if model.editableGeneratedBleed.method == .automatic {
-                        measurement("Tolerans (%)",Binding(get: { model.editableGeneratedBleed.tolerance*100 },
-                            set: { model.editableGeneratedBleed.tolerance = $0/100 }),autoField: .generatedTolerance,range: 0...100)
-                        Text("Tek renk kenar: vektör dolgu. Değişken kenar: kenar piksellerini uzat.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                        Text("Kesim kenarları vektör olarak yansıtılır.").font(.system(size:12)).foregroundStyle(DesignSystem.muted)
                     }
                     if model.editableGeneratedBleed.method == .solidColor {
                         Picker("Renk uzayı",selection: Binding(get: { model.editableGeneratedBleed.color.components.count == 4 },

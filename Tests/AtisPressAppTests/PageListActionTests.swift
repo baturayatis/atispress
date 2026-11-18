@@ -31,7 +31,7 @@ import PDFEngine
     }
     private func settle(_ model:Workspace) async throws {
         for _ in 0..<1000 {
-            if !model.loading && !model.planning && !model.samplingBleed && !model.autoArranging {return}
+            if !model.loading && !model.planning && !model.autoArranging {return}
             try await Task.sleep(for:.milliseconds(10))
         }
         XCTFail("Plan did not settle")

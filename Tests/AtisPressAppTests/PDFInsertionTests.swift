@@ -31,7 +31,7 @@ import ImpositionCore
     }
     private func settle(_ model:Workspace) async throws {
         for _ in 0..<1200 {
-            if !model.loading && !model.planning && !model.preparingSource && !model.samplingBleed && !model.autoArranging {return}
+            if !model.loading && !model.planning && !model.preparingSource && !model.autoArranging {return}
             try await Task.sleep(for:.milliseconds(10))
         }
         XCTFail("Workspace did not settle")

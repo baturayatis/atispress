@@ -22,7 +22,7 @@ final class AutoLayoutWorkspaceTests: XCTestCase {
     }
     private func settle(_ model: Workspace) async throws {
         for _ in 0..<1000 {
-            if !model.loading && !model.planning && !model.autoArranging && !model.samplingBleed { return }
+            if !model.loading && !model.planning && !model.autoArranging { return }
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTFail("Automatic layout did not settle")

@@ -30,7 +30,7 @@ final class RescaleExportTests: XCTestCase {
             let plan = ImpositionPlanner.plan(p),sheet = try XCTUnwrap(plan.sheets.first)
             let preview = try bitmap()
             try PDFPlanRenderer.drawSide(sheet.front,sheet:sheet,document:document,in:preview,sheetIndex:0,kind:.front,repetition:0,options:.artworkOnly,
-                overlays:[GeneratedBleedOverlay(settings:plan.generatedBleed,cache:source.edgeSamples,sampleIfMissing:true)])
+                overlays:[GeneratedBleedOverlay(settings:plan.generatedBleed,cache:source.edgeSamples)])
             let output = dir.appendingPathComponent("\(mode).pdf")
             p.migrateScaling()
             let migratedPlan = ImpositionPlanner.plan(p)

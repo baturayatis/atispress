@@ -86,7 +86,7 @@ final class Workspace: ObservableObject {
             if previous != project || clipChanged || ((serialChanged || gangArtworkChanged) && planning) { schedulePlan() }
             else if serialChanged || gangArtworkChanged {
                 plan = ImpositionPlanner.updatingSerials(in: plan,project: project)
-                if gangArtworkChanged { warmGeneratedBleed() }
+                if gangArtworkChanged { updateGeneratedBleedSummary() }
             }
         }
     }
@@ -110,11 +110,11 @@ final class Workspace: ObservableObject {
     var allowBacklessExportOnce=false
     @Published var sheetIndex = 0 { didSet {
         if oldValue != sheetIndex { repetition = 0 }
-        warmGeneratedBleed()
+        updateGeneratedBleedSummary()
     } }
     @Published var repetition = 0
     @Published var selectedSerialID: UUID?
-    @Published var side: SideKind = .front { didSet { warmGeneratedBleed() } }
+    @Published var side: SideKind = .front { didSet { updateGeneratedBleedSummary() } }
     static func defaultPreviewOverlays() -> PreviewOverlays { var options = PreviewOverlays(); options.pageNumbers = false; return options }
     @Published var overlays = Workspace.defaultPreviewOverlays() { didSet { refreshModified() } }
     @Published var sheetPreset = Workspace.automaticSheetTitle { didSet { refreshModified() } }
@@ -168,11 +168,7 @@ final class Workspace: ObservableObject {
     @Published var loading = false
     @Published var planning = false
     @Published var error: String?
-    @Published private(set) var samplingBleed = false
     @Published private(set) var bleedSampleSummary: String?
-    private var bleedSamplingFailed = false
-    private var bleedTask: Task<Void,Never>?
-    private var bleedRevision = UUID()
     @Published private(set) var exporting = false
     @Published private(set) var exportSummary: String?
     @Published private(set) var exportVerification:ExportVerification?
@@ -208,40 +204,14 @@ final class Workspace: ObservableObject {
         })
     }
     var canExportNow: Bool {
-        source != nil && plan.canExport && !plan.sheets.isEmpty && !preparingSource && !planning && !loading && !autoArranging && !exporting && !samplingBleed && !bleedSamplingFailed
+        source != nil && plan.canExport && !plan.sheets.isEmpty && !preparingSource && !planning && !loading && !autoArranging && !exporting
     }
-    private func warmGeneratedBleed() {
-        bleedTask?.cancel()
-        let token = UUID(); bleedRevision = token
-        bleedSamplingFailed = false; bleedSampleSummary = nil
-        guard plan.generatedBleed.enabled || currentSheet?.generatedBleedByJob.values.contains(where: { $0.enabled }) == true,let source,let side = currentSide else { samplingBleed = false; return }
+    private func updateGeneratedBleedSummary() {
+        bleedSampleSummary = nil
+        guard source != nil, currentSide != nil,
+              plan.generatedBleed.enabled || currentSheet?.generatedBleedByJob.values.contains(where: { $0.enabled }) == true else { return }
         if plan.generatedBleed.method == .solidColor && project.binding != .gang {
-            samplingBleed = false
-            bleedSampleSummary = plan.generatedBleed.color.components.count == 4 ? "Dolgu: CMYK" : "Dolgu: RGB — özgün CMYK kanalları korunmaz."
-            return
-        }
-        let sampleSlots = project.sourcePreparation?.hasPreparedProducts == true ? (currentSheet.map { $0.front.slots+$0.back.slots } ?? side.slots) : side.slots
-        let numbers = Array(Set(sampleSlots.compactMap(\.sourcePageNumber)))
-        let scaled:[(Int,ArtworkRescale)] = project.sourcePreparation?.hasPreparedProducts == true ? sampleSlots.compactMap {slot in guard let n=slot.sourcePageNumber,let scale=slot.rescale else {return nil};return (n,scale)}:[]
-        if numbers.allSatisfy({ source.edgeSamples.cached(page: $0) != nil }) && scaled.allSatisfy({source.edgeSamples.cached(page:$0.0,rescale:$0.1) != nil}) {
-            let native = numbers.filter { source.edgeSamples.cached(page: $0)?.usesCMYK == true }.count
-            let rgb = numbers.count-native
-            bleedSampleSummary = "Kenar örnekleri: \(native) CMYK · \(rgb) RGB"+(rgb > 0 ? " (özgün CMYK kanalları korunmaz)" : "")
-            samplingBleed = false; return
-        }
-        samplingBleed = true
-        bleedTask = Task {
-            do {
-                try await source.prepareGeneratedBleed(pages: numbers,scaled:scaled)
-                guard !Task.isCancelled,bleedRevision == token else { return }
-                let native = numbers.filter { source.edgeSamples.cached(page: $0)?.usesCMYK == true }.count
-                let rgb = numbers.count-native
-                bleedSampleSummary = "Kenar örnekleri: \(native) CMYK · \(rgb) RGB" + (rgb > 0 ? " (özgün CMYK kanalları korunmaz)" : "")
-            } catch {
-                guard !Task.isCancelled,bleedRevision == token else { return }
-                bleedSamplingFailed = true; self.error = error.localizedDescription
-            }
-            samplingBleed = false
+            bleedSampleSummary = plan.generatedBleed.color.components.count == 4 ? "Dolgu: CMYK" : "Dolgu: RGB"
         }
     }
     private func exportAccessory() -> NSView {
@@ -565,11 +535,6 @@ final class Workspace: ObservableObject {
                     if snapshot.autoLayout == nil { snapshot.autoLayout = .legacy }
                     prepared = await Task.detached(priority: .userInitiated) { SmartAutoLayout.arrange(snapshot) }.value
                     guard !Task.isCancelled,importRevision == token else { return }
-                    if prepared.plan.generatedBleed.enabled && prepared.plan.generatedBleed.method != .solidColor {
-                        let numbers = Array(Set(prepared.plan.sheets.first?.front.slots.compactMap(\.sourcePageNumber) ?? []))
-                        try await source.prepareGeneratedBleed(pages: numbers)
-                    }
-                    guard !Task.isCancelled,importRevision == token else { return }
                     if baseline == project { break }
                     baseline = project
                 }
@@ -714,7 +679,7 @@ final class Workspace: ObservableObject {
             normalizeSerialDigits()
             sheetIndex = max(0,min(sheetIndex,max(0,displaySheets.count-1)))
             repetition = max(0,min(repetition,(currentSheet?.repeatCount ?? 1)-1))
-            warmGeneratedBleed()
+            updateGeneratedBleedSummary()
         }
     }
     func reveal(_ issue: ValidationIssue) {
@@ -764,7 +729,7 @@ extension Workspace {
     }
     func createNewProject() {
         guard !preparingSource,!loading,!exporting,!autoArranging,confirmDiscard() else { return }
-        importTask?.cancel(); autoTask?.cancel(); autoArranging = false; planTask?.cancel(); bleedTask?.cancel()
+        importTask?.cancel(); autoTask?.cancel(); autoArranging = false; planTask?.cancel()
         clearRecovery()
         showingTeamImportChoice = false
         restoring = true; projectIdentifier = UUID()
@@ -927,7 +892,7 @@ extension Workspace {
         snapshot.projectID = snapshot.projectID ?? recovery?.id ?? UUID()
         showingTeamImportChoice = false
         restoring = true; projectIdentifier = snapshot.projectID!
-        planTask?.cancel(); bleedTask?.cancel(); plan = ImpositionPlan()
+        planTask?.cancel(); plan = ImpositionPlan()
         gangAssets = assets; selectedGangJobID = snapshot.project.gang?.jobs.first?.id; selectedGangBlockID = nil
         source = loadedSource; sourceReference = snapshot.source
         projectURL = recovery == nil ? url : represented; projectAccess = access
@@ -1025,12 +990,6 @@ extension Workspace {
             let result = await Task.detached(priority: .userInitiated) { SmartAutoLayout.arrange(snapshot,resetOverrides: resetOverrides) }.value
             guard !Task.isCancelled else { return }
             guard project == snapshot else { autoArranging = false; return }
-            if let source,result.plan.generatedBleed.enabled,result.plan.generatedBleed.method != .solidColor {
-                do { try await source.prepareGeneratedBleed(pages: Array(Set(result.plan.sheets.first?.front.slots.compactMap(\.sourcePageNumber) ?? []))) }
-                catch { self.error = error.localizedDescription }
-            }
-            guard !Task.isCancelled else { return }
-            guard project == snapshot else { autoArranging = false; return }
             planTask?.cancel(); revision = UUID()
             if resetOverrides { bookletGutter = nil; repeatGutter = 0; gangGutter = nil }
             applyAutomatic(result)
@@ -1048,7 +1007,7 @@ extension Workspace {
         repetition = max(0,min(repetition,(currentSheet?.repeatCount ?? 1)-1))
         applyingAutomatic = false
         normalizeSerialDigits()
-        warmGeneratedBleed(); refreshModified()
+        updateGeneratedBleedSummary(); refreshModified()
     }
 }
 
@@ -1634,7 +1593,7 @@ extension Workspace {
     }
     private func restoreEdit(_ snapshot: EditSnapshot) {
         restoring = true
-        planTask?.cancel(); bleedTask?.cancel(); bindingStripTask?.cancel()
+        planTask?.cancel(); bindingStripTask?.cancel()
         source = snapshot.source; gangAssets = snapshot.assets; sourceReference = snapshot.state.source
         order = snapshot.state.order; included = snapshot.state.included; selectedPages.formIntersection(Set(order))
         bookletGutter = snapshot.state.bookletGutter; repeatGutter = snapshot.state.repeatGutter; gangGutter = snapshot.state.gangGutter

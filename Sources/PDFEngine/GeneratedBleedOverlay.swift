@@ -6,79 +6,40 @@ public struct GeneratedBleedOverlay: PDFSlotOverlay {
     public var jobSettings: [UUID:GeneratedBleedSettings] = [:]
     public let settings: GeneratedBleedSettings
     public let cache: PDFEdgeSampleCache
-    /// Preview warms the cache off-main; export may sample its own independent CGPDFPage.
-    public let sampleIfMissing: Bool
-    public init(settings: GeneratedBleedSettings,cache: PDFEdgeSampleCache,sampleIfMissing: Bool = false,jobSettings: [UUID:GeneratedBleedSettings] = [:]) {
-        self.settings = settings; self.cache = cache; self.sampleIfMissing = sampleIfMissing; self.jobSettings = jobSettings
+    public init(settings: GeneratedBleedSettings,cache: PDFEdgeSampleCache,jobSettings: [UUID:GeneratedBleedSettings] = [:]) {
+        self.settings = settings; self.cache = cache; self.jobSettings = jobSettings
     }
+
     public func draw(in context: CGContext,placement p: PDFSlotContext) throws {
         let settings = p.slot.gangJobID.flatMap { jobSettings[$0] } ?? self.settings
         guard settings.enabled,p.slot.sourcePageNumber != nil,let page = p.sourcePage else { return }
-        let trim = p.trimRect, art = p.artworkRect
+        let art = p.artworkRect
+        var domain = p.trimRect
+        var geometry = PDFPreviewDrawing.artworkGeometry(page, trimRect: domain)
+        var transform = geometry.trimTransform
+        var native = geometry.artworkBounds
         if let scale = p.slot.rescale {
-            context.saveGState(); defer { context.restoreGState() }
             let sourceTrim = CGRect(x: 0, y: 0, width: scale.source.width, height: scale.source.height)
             let scaled = CGAffineTransform(a: scale.factors.width, b: 0, c: 0, d: scale.factors.height,
                                            tx: scale.artwork.origin.x, ty: scale.artwork.origin.y)
-            let native = PDFPreviewDrawing.artworkGeometry(page, trimRect: sourceTrim).artworkBounds.applying(scaled)
-            guard Self.clipToMissingArtwork(art, protecting: native, in: context) else { return }
-            let samples: PDFPageEdgeSamples
-            if let cached = cache.cached(page:page.pageNumber,rescale:scale) { samples = cached }
-            else if sampleIfMissing { samples = try cache.samples(for:page,rescale:scale) }
-            else { return }
-            // Fit gaps use source edges. Exterior bleed uses the resulting target
-            // edges, including the newly cropped edges in fill mode.
-            if scale.settings.mode == .fit {
-                let raw = try cache.samples(for:page)
-                PDFRescaleDrawing.fillEdges(raw,inner:PDFRescaleDrawing.rect(scale.artwork),outer:art,tolerance:settings.tolerance,in:context)
-            }
-            PDFRescaleDrawing.fillEdges(samples,inner:trim,outer:art,tolerance:settings.tolerance,in:context)
-            return
+            geometry = PDFPreviewDrawing.artworkGeometry(page, trimRect: sourceTrim)
+            transform = geometry.trimTransform.concatenating(scaled)
+            native = geometry.artworkBounds.applying(scaled)
+            domain = domain.intersection(PDFRescaleDrawing.rect(scale.artwork))
         }
-        guard art.width > trim.width+0.000001 || art.height > trim.height+0.000001 else { return }
+        guard !domain.isEmpty else { return }
+
         context.saveGState(); defer { context.restoreGState() }
-        // Replacement is confined outside trim, within the plan's per-item or block-perimeter clip.
-        let native = PDFPreviewDrawing.artworkGeometry(page, trimRect: trim).artworkBounds
-        guard Self.clipToMissingArtwork(art, protecting: native.union(trim), in: context) else { return }
+        // Keep the source BleedBox intact, including transparent areas.
+        guard Self.clipToMissingArtwork(art, protecting: native.union(domain), in: context) else { return }
         if settings.method == .solidColor {
-            context.setFillColor(Self.cgColor(settings.color)); context.fill(art); return
-        }
-        let samples: PDFPageEdgeSamples
-        if let hit = cache.cached(page: page.pageNumber) { samples = hit }
-        else if sampleIfMissing { samples = try cache.samples(for: page) }
-        else { return }
-        if settings.method == .mirror {
-            try mirror(page,trim: trim,art: art,in: context)
+            context.setFillColor(Self.cgColor(settings.color))
+            context.fill(art)
         } else {
-            let sides: [(SampleEdge,CGRect)] = [
-                (.left,CGRect(x: art.minX,y: 0,width: max(0,-art.minX),height: trim.height)),
-                (.right,CGRect(x: trim.maxX,y: 0,width: max(0,art.maxX-trim.maxX),height: trim.height)),
-                (.bottom,CGRect(x: 0,y: art.minY,width: trim.width,height: max(0,-art.minY))),
-                (.top,CGRect(x: 0,y: trim.maxY,width: trim.width,height: max(0,art.maxY-trim.maxY)))
-            ]
-            for (edge,rect) in sides where rect.width > 0 && rect.height > 0 {
-                let strip = samples.strips[edge]!
-                if let color = strip.uniformColor(tolerance: settings.tolerance) {
-                    context.setFillColor(Self.cgColor(color)); context.fill(rect)
-                } else {
-                    // A single pixel column/row follows every edge position; never average a varied edge.
-                    context.interpolationQuality = .none
-                    context.draw(strip.edgePixels,in: rect)
-                }
-            }
-        }
-        for left in [true,false] {
-            for top in [true,false] {
-                let x = left ? art.minX : trim.maxX, y = top ? trim.maxY : art.minY
-                let width = left ? -art.minX : art.maxX-trim.maxX
-                let height = top ? art.maxY-trim.maxY : -art.minY
-                if width > 0 && height > 0 {
-                    context.setFillColor(Self.cgColor(samples.corner(left: left,top: top)))
-                    context.fill(CGRect(x: x,y: y,width: width,height: height))
-                }
-            }
+            try mirror(page, domain: domain, art: art, transform: transform, in: context)
         }
     }
+
     private static func clipToMissingArtwork(_ bounds: CGRect, protecting native: CGRect, in context: CGContext) -> Bool {
         let protected = bounds.intersection(native)
         if protected.contains(bounds) { return false }
@@ -88,25 +49,39 @@ public struct GeneratedBleedOverlay: PDFSlotOverlay {
         return true
     }
 
-    private func mirror(_ page: CGPDFPage,trim: CGRect,art: CGRect,in context: CGContext) throws {
-        let xs = Int(floor(art.minX/trim.width))..<Int(ceil(art.maxX/trim.width))
-        let ys = Int(floor(art.minY/trim.height))..<Int(ceil(art.maxY/trim.height))
-        guard xs.count <= 1024,ys.count <= 1024,xs.count*ys.count <= 4096 else { throw PDFExportError.invalidGeometry }
-        for y in ys {
-            for x in xs where x != 0 || y != 0 {
+    private func mirror(_ page: CGPDFPage, domain: CGRect, art: CGRect,
+                        transform: CGAffineTransform, in context: CGContext) throws {
+        let firstX = floor((art.minX-domain.minX)/domain.width), endX = ceil((art.maxX-domain.minX)/domain.width)
+        let firstY = floor((art.minY-domain.minY)/domain.height), endY = ceil((art.maxY-domain.minY)/domain.height)
+        // Extremely small trims can require thousands of overlapping PDF draws.
+        // A sampled color is emitted as a vector fill in that case.
+        guard (endX-firstX)*(endY-firstY) <= 4096,
+              let left = Int(exactly: firstX), let right = Int(exactly: endX),
+              let bottom = Int(exactly: firstY), let top = Int(exactly: endY) else {
+            let samples = try cache.samples(for: page)
+            context.setFillColor(Self.cgColor(samples.averageEdgeColor))
+            context.fill(art)
+            return
+        }
+        for y in bottom..<top {
+            for x in left..<right where x != 0 || y != 0 {
+                let tile = domain.offsetBy(dx: Double(x)*domain.width, dy: Double(y)*domain.height)
+                let clip = art.intersection(tile)
+                guard !clip.isEmpty else { continue }
                 context.saveGState()
-                defer { context.restoreGState() }
-                let tile = CGRect(x: Double(x)*trim.width,y: Double(y)*trim.height,width: trim.width,height: trim.height)
-                context.clip(to: tile)
-                let flipX = abs(x%2) == 1, flipY = abs(y%2) == 1
-                context.translateBy(x: Double(x+(flipX ? 1 : 0))*trim.width,y: Double(y+(flipY ? 1 : 0))*trim.height)
-                context.scaleBy(x: flipX ? -1 : 1,y: flipY ? -1 : 1)
-                context.clip(to: trim)
-                context.concatenate(page.getDrawingTransform(.trimBox,rect: trim,rotate: 0,preserveAspectRatio: true))
+                let flipX = !x.isMultiple(of: 2), flipY = !y.isMultiple(of: 2)
+                context.clip(to: clip)
+                context.translateBy(x: (flipX ? tile.maxX+domain.minX : tile.minX-domain.minX),
+                                    y: (flipY ? tile.maxY+domain.minY : tile.minY-domain.minY))
+                // Corner tiles flip both axes. Repeated tiles alternate the flip.
+                context.scaleBy(x: flipX ? -1 : 1, y: flipY ? -1 : 1)
+                context.concatenate(transform)
                 context.drawPDFPage(page)
+                context.restoreGState()
             }
         }
     }
+
     public static func cgColor(_ color: BleedColor) -> CGColor {
         let space: CGColorSpace
         switch color { case .cmyk: space = CGColorSpaceCreateDeviceCMYK(); case .rgb: space = CGColorSpace(name: CGColorSpace.sRGB)! }

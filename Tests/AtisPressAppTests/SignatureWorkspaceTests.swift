@@ -22,7 +22,7 @@ final class SignatureWorkspaceTests: XCTestCase {
     }
     private func settle(_ workspace: Workspace) async throws {
         for _ in 0..<1000 {
-            if !workspace.loading && !workspace.planning && !workspace.autoArranging && !workspace.samplingBleed { return }
+            if !workspace.loading && !workspace.planning && !workspace.autoArranging { return }
             try await Task.sleep(for:.milliseconds(10))
         }
         XCTFail("Signature workspace did not settle")
