@@ -57,10 +57,11 @@ struct PDFClassicFile {
         }
         try descend(pageID)
     }
-    func dictionary(_ id:Int) throws -> Data {
+    func dictionary(_ id:Int, maximumBytes: Int = .max) throws -> Data {
         guard let (offset,_) = offsets[id],offset>=0,offset<data.count else {throw SourcePreparationError.unsafeGuides}
         let limit=offsets.values.map(\.0).filter{$0>offset}.min() ?? data.count
-        let section=data.subdata(in:offset..<min(limit,data.count)),tokens=pdfTokens(section)
+        let end = offset + min(maximumBytes, min(limit, data.count) - offset)
+        let section=data.subdata(in:offset..<end),tokens=pdfTokens(section)
         guard tokens.count>=4,Int(tokens[0].text)==id,tokens[2].text=="obj",let start=tokens.firstIndex(where:{$0.text=="<<"}) else {throw SourcePreparationError.unsafeGuides}
         var depth=0
         for i in start..<tokens.count {if tokens[i].text=="<<" {depth+=1};if tokens[i].text==">>" {depth-=1;if depth==0 {return section.subdata(in:tokens[start].range.lowerBound..<tokens[i].range.upperBound)}}}
@@ -101,9 +102,14 @@ struct PDFClassicFile {
             entries[pageID]=(output.count,generation)
             output.append(Data("\(pageID) \(generation) obj\n".utf8));output.append(dictionary);output.append(Data("\nendobj\n".utf8));next+=1
         }
+        return appendingXref(to: output, entries: entries, size: next)
+    }
+
+    func appendingXref(to body: Data, entries: [Int: (Int, Int)], size: Int) -> Data {
+        var output = body
         let xref=output.count;output.append(Data("xref\n".utf8))
         for id in entries.keys.sorted() {let (offset,generation)=entries[id]!;output.append(Data(String(format:"%d 1\n%010d %05d n \n",id,offset,generation).utf8))}
-        output.append(Data("trailer\n<< /Size \(next) /Root \(root) /Prev \(previous) \(info.map{"/Info "+$0} ?? "") >>\nstartxref\n\(xref)\n%%EOF\n".utf8))
+        output.append(Data("trailer\n<< /Size \(size) /Root \(root) /Prev \(previous) \(info.map{"/Info "+$0} ?? "") >>\nstartxref\n\(xref)\n%%EOF\n".utf8))
         return output
     }
 }

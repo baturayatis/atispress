@@ -57,6 +57,7 @@ public struct PDFSlotContext {
     public let trimRect: CGRect
     public let artworkRect: CGRect
     public let sourcePage: CGPDFPage?
+    public let colorEdgeSamples: PDFEdgeSampleCache?
 }
 /// Drawing is in slot-local trim millimetres, before its rotation/reflection.
 /// The graphics state and the plan's shared-cut/bleed clip are isolated for every hook.
@@ -70,7 +71,7 @@ public extension PDFSlotOverlay { var phase: PDFOverlayPhase { .overArtwork } }
 public enum PDFPlanRenderer {
     public static func drawSlot(_ slot: Slot,page: CGPDFPage?,in context: CGContext,
                                 reference: SlotReference,repetition: Int = 0,raster: PDFPageRaster? = nil,
-                                overlays: [any PDFSlotOverlay] = []) throws {
+                                overlays: [any PDFSlotOverlay] = [], colorEdgeSamples: PDFEdgeSampleCache? = nil) throws {
         context.saveGState()
         defer { context.restoreGState() }
         let placementTransform = PDFPreviewDrawing.bindingTransform(slot)
@@ -84,7 +85,7 @@ public enum PDFPlanRenderer {
         }
         func extensionsFor(_ phase: PDFOverlayPhase) throws {
             let art = phase == .underArtwork ? localClip.offsetBy(dx:-slot.artworkOffset.x,dy:-slot.artworkOffset.y) : localClip
-            let placement = PDFSlotContext(slot:slot,reference:reference,repetition:repetition,trimRect:trim,artworkRect:art,sourcePage:page)
+            let placement = PDFSlotContext(slot:slot,reference:reference,repetition:repetition,trimRect:trim,artworkRect:art,sourcePage:page,colorEdgeSamples:colorEdgeSamples)
             for overlay in overlays where overlay.phase == phase {
                 context.saveGState(); defer { context.restoreGState() }
                 try overlay.draw(in:context,placement:placement)
@@ -112,14 +113,14 @@ public enum PDFPlanRenderer {
     /// Context units are sheet millimetres. Only document content and selected plan marks are drawn.
     public static func drawSide(_ side: Side,sheet: Sheet,document: CGPDFDocument,in context: CGContext,
                                 sheetIndex: Int,kind: SideKind,repetition: Int,options: PDFRenderOptions,
-                                overlays: [any PDFSlotOverlay] = [],controlMarks: ExportMarks = .none) throws {
+                                overlays: [any PDFSlotOverlay] = [],controlMarks: ExportMarks = .none,colors: PDFColorVariants? = nil) throws {
         let serials: [any PDFSlotOverlay] = [GangSerialOverlay(sheet: sheet)]
         for (index,slot) in side.slots.enumerated() {
             try Task.checkCancellation()
-            let page = slot.sourcePageNumber.flatMap { document.page(at: $0) }
+            let page = colors?.page(for: slot) ?? slot.sourcePageNumber.flatMap { document.page(at: $0) }
             if slot.sourcePageNumber != nil && page == nil { throw PDFExportError.missingPage(slot.sourcePageNumber!) }
             try drawSlot(slot,page: page,in: context,reference: SlotReference(sheet: sheetIndex,side: kind,slot: index),
-                         repetition: repetition,overlays: overlays+serials)
+                         repetition: repetition,overlays: overlays+serials,colorEdgeSamples: colors?.edgeSamples(for: slot))
         }
         drawMarks(side.marks,sheetSize: sheet.size,in: context,options: options)
         if options.punch { drawPunchMarks(side.punchMarks,in:context) }

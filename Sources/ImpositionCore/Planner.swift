@@ -55,6 +55,7 @@ public enum ImpositionPlanner {
         for index in result.diagnosticSheets.indices { result.diagnosticSheets[index].gripperEdge = project.sheet.gripperEdge }
         applySerials(project,to: &result)
         applyInternalCuts(project, to: &result)
+        applyImageColor(project, to: &result)
         result.refreshWarningSummary(project: project)
         return result
     }

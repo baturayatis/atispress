@@ -17,6 +17,9 @@ struct ExportPreparationView: View {
             }
             DisclosureGroup("İşaret ayrıntıları",isExpanded:$details) { ExportMarksView(model:model) }
             if model.requiresBacklessConfirmation {Toggle("Arka yüz yok. Bu şekilde dışa aktarmayı onaylıyorum.",isOn:$acknowledgedBacks)}
+            ForEach(model.colorVariants?.warnings ?? [], id: \.self) { warning in
+                Label(warning, systemImage: "exclamationmark.triangle").font(.caption)
+            }
             Text(model.statusSummary).font(.caption)
             HStack {
                 Button("İptal") { model.preparingExport = false }.keyboardShortcut(.cancelAction)

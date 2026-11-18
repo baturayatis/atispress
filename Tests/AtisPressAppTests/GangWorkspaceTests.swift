@@ -28,7 +28,7 @@ final class GangWorkspaceTests: XCTestCase {
     }
     private func settle(_ model: Workspace) async throws {
         for _ in 0..<1000 {
-            if !model.loading && !model.planning && !model.autoArranging && !model.samplingBleed { return }
+            if !model.loading && !model.planning && !model.autoArranging && !model.samplingBleed && !model.preparingColorPreview { return }
             try await Task.sleep(for:.milliseconds(10))
         }
         XCTFail("Gang workspace did not settle")
@@ -142,6 +142,60 @@ final class GangWorkspaceTests: XCTestCase {
         XCTAssertEqual(reopened.project, workspace.project)
         XCTAssertEqual(reopened.plan.sheets, workspace.plan.sheets)
         XCTAssertTrue(reopened.plan.sheets.flatMap { $0.front.marks }.contains { $0.kind == .internalCut })
+    }
+
+    func testLiveImageColorPreviewSaveOpenAndLegacyDefaults() async throws {
+        let directory = try folder()
+        let input = directory.appendingPathComponent("images.pdf")
+        let data = Data([80, 40, 20, 120, 80, 50, 50, 100, 140, 200, 140, 100])
+        let provider = try XCTUnwrap(CGDataProvider(data: data as CFData))
+        let image = try XCTUnwrap(CGImage(width: 2, height: 2, bitsPerComponent: 8, bitsPerPixel: 24,
+                                          bytesPerRow: 6, space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+                                          provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent))
+        var box = CGRect(x: 0, y: 0, width: 120, height: 75)
+        let context = try XCTUnwrap(CGContext(consumer: XCTUnwrap(CGDataConsumer(url: input as CFURL)), mediaBox: &box, nil))
+        for _ in 0..<2 {
+            context.beginPDFPage(nil)
+            context.draw(image, in: box)
+            context.endPDFPage()
+        }
+        context.closePDF()
+
+        let workspace = model()
+        workspace.open(input)
+        try await settle(workspace)
+        let saved = directory.appendingPathComponent("color.atispress")
+        try workspace.saveProject(as: saved)
+        var legacy = try ProjectDocument.decode(Data(contentsOf: saved))
+        legacy.version = 24
+        try legacy.encoded().write(to: saved)
+        let reopened = model()
+        try await reopened.loadProject(at: saved)
+        try await settle(reopened)
+        XCTAssertNil(reopened.project.imageColorJobs)
+        XCTAssertEqual(reopened.plan.sheets, workspace.plan.sheets)
+
+        var adjustment = ImageColorAdjustment()
+        adjustment.brightness = 0.16
+        workspace.project.imageColorJobs = [1: adjustment]
+        try await settle(workspace)
+        let slot = try XCTUnwrap(workspace.plan.sheets.first?.front.slots.first)
+        XCTAssertEqual(slot.imageColor, adjustment)
+        XCTAssertNotNil(workspace.previewColors?.page(for: slot), "\(workspace.colorVariants?.warnings ?? [])")
+        workspace.previewOriginalColors = true
+        XCTAssertNil(workspace.previewColors)
+        XCTAssertNotNil(workspace.colorVariants?.page(for: slot))
+        try workspace.saveProject(as: saved)
+        try await reopened.loadProject(at: saved)
+        try await settle(reopened)
+        XCTAssertEqual(reopened.project.imageColorJobs, [1: adjustment])
+        XCTAssertEqual(reopened.plan.sheets, workspace.plan.sheets)
+        XCTAssertNotNil(reopened.previewColors?.page(for: slot))
+        reopened.project.imageColorJobs = nil
+        try await settle(reopened)
+        XCTAssertNil(reopened.previewColors)
+        XCTAssertNil(reopened.plan.sheets.first?.front.slots.first?.imageColor)
     }
 
     func testMultiplePDFsSettingsSerialsAndManualPlanRoundtripSchemaNine() async throws {

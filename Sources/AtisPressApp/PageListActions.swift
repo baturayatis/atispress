@@ -191,21 +191,23 @@ extension Project {
                 }
             }
         }
-        if let cuts = old.internalCutJobs, binding == .stepAndRepeat {
-            var updated = cuts.filter { key, _ in key == 0 || newJobs.contains { $0.front.number == key } }
+        func retargeted<T>(_ settings: [Int: T]?) -> [Int: T]? {
+            guard let settings, binding == .stepAndRepeat else { return settings }
+            let fronts = Set(newJobs.map { $0.front.number })
+            var updated = settings.filter { key, _ in key == 0 || fronts.contains(key) }
             for (index, job) in oldJobs.enumerated() {
-                guard let settings = cuts[job.front.number] else { continue }
+                guard let value = settings[job.front.number] else { continue }
                 if let next = jobIndex(index), updated[newJobs[next].front.number] == nil {
-                    updated[newJobs[next].front.number] = settings
+                    updated[newJobs[next].front.number] = value
                 }
                 for copy in copies {
-                    if let key = copy[job.front.number], newJobs.contains(where: { $0.front.number == key }) {
-                        updated[key] = settings
-                    }
+                    if let key = copy[job.front.number], fronts.contains(key) { updated[key] = value }
                 }
             }
-            internalCutJobs = updated.isEmpty ? nil : updated
+            return updated.isEmpty ? nil : updated
         }
+        internalCutJobs = retargeted(old.internalCutJobs)
+        imageColorJobs = retargeted(old.imageColorJobs)
         var original=old;original.migrateScaling()
         if var scaling=original.scaling {
             scaling.overrides=original.scaling!.overrides.flatMap {value -> [ScalingOverride] in

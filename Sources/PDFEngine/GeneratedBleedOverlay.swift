@@ -15,6 +15,8 @@ public struct GeneratedBleedOverlay: PDFSlotOverlay {
         let settings = p.slot.gangJobID.flatMap { jobSettings[$0] } ?? self.settings
         guard settings.enabled,p.slot.sourcePageNumber != nil,let page = p.sourcePage else { return }
         let trim = p.trimRect, art = p.artworkRect
+        let cache = p.colorEdgeSamples ?? self.cache
+        let sampleIfMissing = self.sampleIfMissing || p.colorEdgeSamples != nil
         if let scale = p.slot.rescale {
             let samples: PDFPageEdgeSamples
             if let cached = cache.cached(page:page.pageNumber,rescale:scale) { samples = cached }

@@ -222,14 +222,16 @@ final class AllSheetsDocument: NSView {
     private var lastBleedAmount:Double?
     private var lastProduction:ProductionType?
     private weak var lastSource: PDFSource?
+    private weak var lastColors: PDFColorVariants?
     override var isFlipped: Bool { true }
     @discardableResult func updateGeometry() -> Bool {
         guard let model else { return false }
         let backs = model.displaySheets.map(model.showsBackInPreview)
-        guard geometry.backs != backs || lastSheets != model.displaySheets || lastOptions != model.overlays || lastMarks != model.project.exportMarks || lastSource !== model.source || lastFocus != model.ui.focusedArea || lastSheetInfo != model.project.sheetInfo || lastGeneratedBleed != model.plan.generatedBleed || lastBleedAmount != model.project.settings.bleed || lastProduction != model.project.autoLayout?.production else { return false }
+        guard lastColors !== model.previewColors || geometry.backs != backs || lastSheets != model.displaySheets || lastOptions != model.overlays || lastMarks != model.project.exportMarks || lastSource !== model.source || lastFocus != model.ui.focusedArea || lastSheetInfo != model.project.sheetInfo || lastGeneratedBleed != model.plan.generatedBleed || lastBleedAmount != model.project.settings.bleed || lastProduction != model.project.autoLayout?.production else { return false }
         let geometryChanged = lastSheets.map { $0.size } != model.displaySheets.map { $0.size } || lastSheets.map { $0.repeatCount } != model.displaySheets.map { $0.repeatCount } || geometry.backs != backs
         lastSheetInfo = model.project.sheetInfo; lastGeneratedBleed = model.plan.generatedBleed; lastBleedAmount = model.project.settings.bleed; lastProduction = model.project.autoLayout?.production
         lastFocus = model.ui.focusedArea
+        lastColors = model.previewColors
         lastSheets = model.displaySheets; lastOptions = model.overlays; lastMarks = model.project.exportMarks; lastSource = model.source
         geometry = SideScrollGeometry(heights: model.displaySheets.map { $0.size.height*PDFPreviewDrawing.pointsPerMM+64+headerHeight },repetitions:model.displaySheets.map { max(1,$0.repeatCount) },backs:backs)
         let width = (model.displaySheets.map { $0.size.width*PDFPreviewDrawing.pointsPerMM+64 }.max() ?? 500)
@@ -288,7 +290,7 @@ final class AllSheetsDocument: NSView {
                 label.stringValue = headerText(location,sheet:sheet)
                 label.frame = NSRect(x:20,y:row.frame.height-headerHeight,width:frame.width-40,height:headerHeight-4)
             }
-            canvas.configure(sheet:sheet,side:location.side == .front ? sheet.front : sheet.back,source:model.source,overlays:model.overlays,highlighted:[],sheetIndex:location.sheet,kind:location.side,generatedBleed:model.plan.generatedBleed,controlMarks:model.project.exportMarks,bleedAmount:model.project.settings.bleed,info:model.sheetInfoText(sheet:sheet,number:model.plan.sheets.prefix(location.sheet).reduce(0) { $0+$1.repeatCount }+location.repetition+1,kind:location.side))
+            canvas.configure(sheet:sheet,side:location.side == .front ? sheet.front : sheet.back,source:model.source,overlays:model.overlays,highlighted:[],sheetIndex:location.sheet,kind:location.side,generatedBleed:model.plan.generatedBleed,controlMarks:model.project.exportMarks,bleedAmount:model.project.settings.bleed,info:model.sheetInfoText(sheet:sheet,number:model.plan.sheets.prefix(location.sheet).reduce(0) { $0+$1.repeatCount }+location.repetition+1,kind:location.side),colors:model.previewColors)
         }
         for location in wanted where rows[location] == nil {
             let index = location.sheet
@@ -304,7 +306,7 @@ final class AllSheetsDocument: NSView {
                 canvas.connectSerialEditing(model)
                 canvas.focusArea = model.ui.focusedArea
                 canvas.repetition = location.repetition
-                canvas.configure(sheet:sheet,side:kind == .front ? sheet.front : sheet.back,source:model.source,overlays:model.overlays,highlighted:[],sheetIndex:index,kind:kind,generatedBleed:model.plan.generatedBleed,controlMarks:model.project.exportMarks,bleedAmount:model.project.settings.bleed,info:model.sheetInfoText(sheet:sheet,number:model.plan.sheets.prefix(index).reduce(0) { $0+$1.repeatCount }+location.repetition+1,kind:kind))
+                canvas.configure(sheet:sheet,side:kind == .front ? sheet.front : sheet.back,source:model.source,overlays:model.overlays,highlighted:[],sheetIndex:index,kind:kind,generatedBleed:model.plan.generatedBleed,controlMarks:model.project.exportMarks,bleedAmount:model.project.settings.bleed,info:model.sheetInfoText(sheet:sheet,number:model.plan.sheets.prefix(index).reduce(0) { $0+$1.repeatCount }+location.repetition+1,kind:kind),colors:model.previewColors)
                 canvas.setFrameOrigin(NSPoint(x:0,y:0))
                 row.addSubview(canvas)
             }

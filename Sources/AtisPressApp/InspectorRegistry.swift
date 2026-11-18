@@ -135,7 +135,7 @@ extension InspectorPanel {
         case .sheet:return ["Tabaka", "Yerleşim"]
         case .edges:return ["Kenarlar"]
         case .bleed:return ["Taşma", "Yöntem"]
-        case .marks:return ["Baskı", "Ölçüler", "Renk", "Bilgi", "Katmanlar", "İç Kesim"]
+        case .marks:return ["Baskı", "Ölçüler", "Renk", "Bilgi", "Katmanlar", "İç Kesim", "Renk Düzenleme"]
         case .serial:return ["Alanlar", "İçerik", "Aralık", "Görünüm", "Konum"]
         case .scaling:return ["Ölçek/Böl"]
         case .binding:return ["Cilt", "Kapak", "Kâğıt", "Sırt ve creep", "Boş sayfalar"]
