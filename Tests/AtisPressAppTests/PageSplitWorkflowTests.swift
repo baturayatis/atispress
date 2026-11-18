@@ -210,7 +210,7 @@ import PDFEngine
         XCTAssertEqual(m.bleedResult(pages:pages,enabled:true,amount:3,settings:settings,adjacent:true),"Taşma: bloğun dış çevresinde (bitişik dizilim)")
         settings.color = .cmyk(0,0,0,0)
         XCTAssertEqual(m.bleedResult(pages:pages,enabled:true,amount:3,settings:settings,adjacent:false),"Taşma: kenar rengi beyaz, taşma beyaz çıkar")
-        XCTAssertTrue(m.bleedResult(pages:pages,enabled:false,amount:3,settings:settings,adjacent:false).hasPrefix("Taşma üretilemedi:"))
+        XCTAssertTrue(m.bleedResult(pages:pages,enabled:false,amount:3,settings:settings,adjacent:false).hasPrefix("Kaynak taşması eksik veya yok."))
         m.overlays = .artworkOnly;m.overlays.generatedBleedTint=true;XCTAssertTrue(m.hasPreviewGuides)
         for zoom in [0.04,0.25,1,2.5] {for backing in [1.0,2.0] {
             let width=SheetCanvasView.cropStrokeWidth(lineWidth:0.25,zoom:zoom,backing:backing)

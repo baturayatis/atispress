@@ -8,13 +8,14 @@ final class RescalingTests: XCTestCase {
         p.rescaleJobs = [RescaleJob(pages:[1],settings:RescaleSettings(target:Size(90,50),mode:mode))]
         return p
     }
-    func testTargetTrimScaleAndRegeneratedBleedInAllModesWithoutChangingSource() throws {
+    func testTargetTrimScaleDoesNotEnableBleedOrChangeSource() throws {
         for mode in RescaleMode.allCases {
             let p = project(mode),plan = ImpositionPlanner.plan(p)
             XCTAssertTrue(plan.canExport,"\(plan.issues)")
             let slot = try XCTUnwrap(plan.sheets.first?.front.slots.first),scale = try XCTUnwrap(slot.rescale)
             XCTAssertEqual(slot.size,Size(90,50)); XCTAssertEqual(p.pages[0].trimSize,Size(100,60))
-            XCTAssertTrue(plan.generatedBleed.enabled); XCTAssertEqual(plan.generatedBleed.method,.automatic)
+            XCTAssertFalse(plan.generatedBleed.enabled)
+            XCTAssertTrue(plan.issues.contains { $0.code == .missingBleed })
             XCTAssertEqual(scale.factors.width,mode == .fit ? 5/6 : 0.9,accuracy:0.000001)
             XCTAssertEqual(scale.factors.height,mode == .fill ? 0.9 : 5/6,accuracy:0.000001)
             XCTAssertEqual(scale.aspectWarning,mode == .stretch)

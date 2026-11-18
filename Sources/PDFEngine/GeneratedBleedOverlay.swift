@@ -16,6 +16,12 @@ public struct GeneratedBleedOverlay: PDFSlotOverlay {
         guard settings.enabled,p.slot.sourcePageNumber != nil,let page = p.sourcePage else { return }
         let trim = p.trimRect, art = p.artworkRect
         if let scale = p.slot.rescale {
+            context.saveGState(); defer { context.restoreGState() }
+            let sourceTrim = CGRect(x: 0, y: 0, width: scale.source.width, height: scale.source.height)
+            let scaled = CGAffineTransform(a: scale.factors.width, b: 0, c: 0, d: scale.factors.height,
+                                           tx: scale.artwork.origin.x, ty: scale.artwork.origin.y)
+            let native = PDFPreviewDrawing.artworkGeometry(page, trimRect: sourceTrim).artworkBounds.applying(scaled)
+            guard Self.clipToMissingArtwork(art, protecting: native, in: context) else { return }
             let samples: PDFPageEdgeSamples
             if let cached = cache.cached(page:page.pageNumber,rescale:scale) { samples = cached }
             else if sampleIfMissing { samples = try cache.samples(for:page,rescale:scale) }
@@ -32,7 +38,8 @@ public struct GeneratedBleedOverlay: PDFSlotOverlay {
         guard art.width > trim.width+0.000001 || art.height > trim.height+0.000001 else { return }
         context.saveGState(); defer { context.restoreGState() }
         // Replacement is confined outside trim, within the plan's per-item or block-perimeter clip.
-        context.addRect(art); context.addRect(trim); context.clip(using: .evenOdd)
+        let native = PDFPreviewDrawing.artworkGeometry(page, trimRect: trim).artworkBounds
+        guard Self.clipToMissingArtwork(art, protecting: native.union(trim), in: context) else { return }
         if settings.method == .solidColor {
             context.setFillColor(Self.cgColor(settings.color)); context.fill(art); return
         }
@@ -72,6 +79,15 @@ public struct GeneratedBleedOverlay: PDFSlotOverlay {
             }
         }
     }
+    private static func clipToMissingArtwork(_ bounds: CGRect, protecting native: CGRect, in context: CGContext) -> Bool {
+        let protected = bounds.intersection(native)
+        if protected.contains(bounds) { return false }
+        context.addRect(bounds)
+        if !protected.isEmpty { context.addRect(protected) }
+        context.clip(using: .evenOdd)
+        return true
+    }
+
     private func mirror(_ page: CGPDFPage,trim: CGRect,art: CGRect,in context: CGContext) throws {
         let xs = Int(floor(art.minX/trim.width))..<Int(ceil(art.maxX/trim.width))
         let ys = Int(floor(art.minY/trim.height))..<Int(ceil(art.maxY/trim.height))

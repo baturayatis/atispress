@@ -25,6 +25,7 @@ final class RescaleExportTests: XCTestCase {
         for mode in RescaleMode.allCases {
             var p = Project(pages:source.pages.map(\.sourcePage),sheet:SheetSpec(size:Size(130,90),margins:Insets(left:10,right:10,top:10,bottom:10)),
                             settings:ImpositionSettings(bleed:3,cropMarkLength:0,cropMarkOffset:0),stepAndRepeat:StepAndRepeatSettings(columns:1,rows:1,allowRotation:false,quantity:1))
+            p.settings.generatedBleed.enabled = true
             p.rescaleJobs = [RescaleJob(pages:[1],settings:RescaleSettings(target:Size(90,50),mode:mode))]
             let plan = ImpositionPlanner.plan(p),sheet = try XCTUnwrap(plan.sheets.first)
             let preview = try bitmap()

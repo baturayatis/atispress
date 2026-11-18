@@ -11,10 +11,10 @@ extension Workspace {
     }
     func bleedResult(pages:[SourcePage],enabled:Bool,amount:Double,settings:GeneratedBleedSettings,adjacent:Bool) -> String {
         if amount<=0 {return "Taşma üretilemedi: taşma miktarı 0 mm"}
-        if !enabled {
-            if !pages.isEmpty,pages.allSatisfy({($0.availableBleed ?? 0)+0.001>=amount}) {return "Taşma: kaynakta \(TRFormat.dimension(amount)) mm, her kartın 4 kenarında"}
-            return "Taşma üretilemedi: taşma üretimi kapalı"
+        if !pages.isEmpty, pages.allSatisfy({ ($0.availableBleed ?? 0)+0.001 >= amount }) {
+            return adjacent ? "Kaynak taşması: bloğun dış çevresinde" : "Kaynak taşması: \(TRFormat.dimension(amount)) mm"
         }
+        if !enabled { return "Kaynak taşması eksik veya yok. Eksik alanlar boş bırakılır." }
         func white(_ color:BleedColor) -> Bool {
             switch color {case .rgb(let r,let g,let b):return min(r,g,b)>0.97;case .cmyk(let c,let m,let y,let k):return max(c,m,y,k)<0.03}
         }

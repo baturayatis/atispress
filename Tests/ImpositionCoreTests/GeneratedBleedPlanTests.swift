@@ -27,10 +27,10 @@ final class GeneratedBleedPlanTests: XCTestCase {
         XCTAssertEqual(side.marks.filter { $0.kind == .sharedCut }.count,3)
         XCTAssertEqual(side.marks.filter { $0.kind == .bleed }.count,4)
     }
-    func testSpacedGridGetsFourSidesAndSmallGutterWarning() throws {
+    func testSpacedGridGetsFourSidesWithIndependentGap() throws {
         let plan = ImpositionPlanner.plan(project(gutter: 2))
         XCTAssertTrue(plan.canExport)
-        XCTAssertTrue(plan.issues.contains { $0.code == .insufficientGutter && $0.severity == .warning })
+        XCTAssertFalse(plan.issues.contains { $0.code == .insufficientGutter })
         for slot in try XCTUnwrap(plan.sheets.first?.front.slots) {
             let clip = try XCTUnwrap(slot.artworkClip)
             XCTAssertEqual(slot.x-clip.origin.x,3,accuracy: 0.00001)

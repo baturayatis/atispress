@@ -313,8 +313,9 @@ public enum GangPlanner {
             if var c = p.artworkClip { if mirrorsX { c.origin.x = size.width-c.origin.x-c.size.width } else { c.origin.y = size.height-c.origin.y-c.size.height }; q.artworkClip = c }
             return q
         }
+        let blockBleeds = blocks.map { block in jobs.first { $0.id == block.jobID }!.bleed }
         var blockIndices: [UUID:Int] = [:]
-        for b in blocks {
+        for (blockIndexInLayout,b) in blocks.enumerated() {
             let blockIndex = blockIndices[b.jobID] ?? 0; blockIndices[b.jobID] = blockIndex+1
             let j = jobs.first { $0.id==b.jobID }!,w = b.rotated ? j.front.trimSize.height : j.front.trimSize.width,h = b.rotated ? j.front.trimSize.width : j.front.trimSize.height
             if b.rotated && !j.allowRotation { issue("\(j.name): 90° döndürme kapalı; blok döndürülmüş.") }
@@ -331,13 +332,25 @@ public enum GangPlanner {
                 var p = Slot(sourcePageNumber: j.front.number,origin: Point(x,y),size: Size(w,h),rotation: b.rotated ? 90 : 0,copyIndex: start+row*b.columns+col,itemSide: .front)
                 p.serialBlockIndex = blockIndex; p.serialCopyIndex = row*b.columns+col
                 p.gangJobID = j.id; p.gangBlockID = b.id
-                var l = col==0 ? j.bleed : (gap==0 ? 0 : j.bleed),r = col==b.columns-1 ? j.bleed : (gap==0 ? 0 : j.bleed)
-                var d = row==0 ? j.bleed : (gap==0 ? 0 : j.bleed),t = row==b.rows-1 ? j.bleed : (gap==0 ? 0 : j.bleed)
-                // Conservative rectangular clipping at touching neighboring blocks protects their artwork.
-                if gap==0 { for q in rects where !((abs(q.origin.x-b.origin.x)<0.000001)&&(abs(q.origin.y-b.origin.y)<0.000001)) {
-                    if y-j.bleed<q.origin.y+q.size.height && y+h+j.bleed>q.origin.y { if q.origin.x+q.size.width<=x+0.000001 { l = min(l,max(0,x-q.origin.x-q.size.width)) }; if q.origin.x>=x+w-0.000001 { r = min(r,max(0,q.origin.x-x-w)) } }
-                    if x-j.bleed<q.origin.x+q.size.width && x+w+j.bleed>q.origin.x { if q.origin.y+q.size.height<=y+0.000001 { d = min(d,max(0,y-q.origin.y-q.size.height)) }; if q.origin.y>=y+h-0.000001 { t = min(t,max(0,q.origin.y-y-h)) } }
-                } }
+                let interiorBleed = min(j.bleed,gap/2)
+                var l = col==0 ? j.bleed : interiorBleed, r = col==b.columns-1 ? j.bleed : interiorBleed
+                var d = row==0 ? j.bleed : interiorBleed, t = row==b.rows-1 ? j.bleed : interiorBleed
+                // Split contested gaps between blocks. Expanded projections cover
+                // diagonally adjacent bleed corners, even in a diagnostic layout.
+                if gap < 2*bleed || gang.mode == .manual {
+                    for (index,q) in rects.enumerated() where index != blockIndexInLayout {
+                        let reach = j.bleed + blockBleeds[index]
+                        let right = q.origin.x + q.size.width, top = q.origin.y + q.size.height
+                        if y-reach < top && y+h+reach > q.origin.y {
+                            if right <= x+0.000001 { l = min(l,max(0,(x-right)/2)) }
+                            if q.origin.x >= x+w-0.000001 { r = min(r,max(0,(q.origin.x-x-w)/2)) }
+                        }
+                        if x-reach < right && x+w+reach > q.origin.x {
+                            if top <= y+0.000001 { d = min(d,max(0,(y-top)/2)) }
+                            if q.origin.y >= y+h-0.000001 { t = min(t,max(0,(q.origin.y-y-h)/2)) }
+                        }
+                    }
+                }
                 p.artworkClip = Rect(x:x-l,y:y-d,width:w+l+r,height:h+d+t)
                 var reverse = p; reverse.sourcePageNumber = j.back?.number; reverse.itemSide = .back
                 front.slots.append(p); back.slots.append(reflected(reverse))
@@ -400,6 +413,10 @@ public enum GangPlanner {
                 }
             }
         } }
+        if gap == 0 && bleed > 0 && slotCount * factor > 1 {
+            result.issues.append(ValidationIssue(.warning,.sharedCutBleed,
+                "Ortak kesimde komşu işlerin iç taşmaları ayrılır. Aynı kesim hattını paylaşan tasarımların kenarlarını kontrol edin."))
+        }
         // Cell grid boundaries are straight cuts within leaf strips; no fold paths are emitted.
         func guides(_ side: inout Side) {
             for slot in side.slots {

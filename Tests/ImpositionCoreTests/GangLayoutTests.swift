@@ -32,6 +32,28 @@ final class GangLayoutTests: XCTestCase {
         let again = ImpositionPlanner.plan(p)
         XCTAssertEqual(sheet,again.sheets.first,"Automatic block IDs and placement must be stable across save/open")
     }
+    func testManualBlocksShareAvailableGapWithoutOverlappingBleedsOnEitherFace() throws {
+        var p = project()
+        let jobs = Array(p.gang!.jobs.prefix(2))
+        p.gang?.jobs = jobs
+        p.gang?.mode = .manual
+        for (gap, offset) in [(0.0, 0.0), (0, 2), (2, 2)] {
+            p.sheet.gutter = gap
+            p.gang?.blocks = [GangBlock(jobID: jobs[0].id, origin: Point(30, 30)),
+                              GangBlock(jobID: jobs[1].id, origin: Point(90 + offset, 30))]
+            let plan = ImpositionPlanner.plan(p)
+            let sheet = try XCTUnwrap(plan.sheets.first)
+            XCTAssertEqual(plan.canExport, gap == 0)
+            for side in [sheet.front, sheet.back] {
+                let clips = side.slots.compactMap(\.artworkClip)
+                XCTAssertEqual(clips.count, 2)
+                XCTAssertFalse(overlaps(clips[0], clips[1]))
+            }
+            let first = try XCTUnwrap(sheet.front.slots.first?.artworkClip)
+            XCTAssertEqual(first.origin.x + first.size.width, 90 + offset/2, accuracy: 0.000001)
+        }
+    }
+
     func testFormulaIncludesFireAndDoesNotOverflowForLargeQuantities() {
         XCTAssertEqual(GangPlanner.sheetCount(required:[100,250,32],copies:[4,10,3]),25)
         XCTAssertEqual(GangPlanner.sheetCount(required:[Int.max],copies:[2]),Int.max/2+1)

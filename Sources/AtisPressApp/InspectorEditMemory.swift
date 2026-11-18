@@ -12,7 +12,6 @@ struct InspectorEditMemory {
     var counts:[String:Int] = [:]
     var coverSelections:[String:CoverSelection] = [:]
     var customGutters:[String:Double] = [:]
-    var bleedOrigins:[String:(amount:Double,enabled:Bool)] = [:]
     var layoutSerials:[String:[SerialField]] = [:]
     var lastMappedSerials:[SerialField]?
 }

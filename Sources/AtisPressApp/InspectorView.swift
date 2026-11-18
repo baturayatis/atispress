@@ -244,7 +244,7 @@ struct InspectorView: View {
                 Text("Taşma payı").frame(maxWidth:.infinity,alignment:.leading)
                 Toggle("Eksik taşmayı üret",isOn:model.autoBinding($model.editableGeneratedBleed.enabled,.generatedEnabled)).labelsHidden().toggleStyle(.switch).inspectorTarget("generateBleed").help("Eksik taşma payını üretir.")
                 let value = model.project.binding == .gang ? Binding(get:{ model.workflowBleed },set:{ model.workflowBleed = $0 }) : guide(\.bleed,field:.bleed,overlay:\.bleed)
-                DimensionInput("Taşma payı",value:Binding(get:{ value.wrappedValue },set:{ model.markManual(.bleed); model.workflowBleed = $0 }),range:0...30,enabled:model.editableGeneratedBleed.enabled,inspectorID:"bleed")
+                DimensionInput("Taşma payı",value:Binding(get:{ value.wrappedValue },set:{ model.markManual(.bleed); model.workflowBleed = $0 }),range:0...30,inspectorID:"bleed")
             }
             ForEach(Array(model.bleedResultLines.enumerated()),id:\.offset) { _,line in Text(line).font(.system(size:12)).foregroundStyle(DesignSystem.muted).fixedSize(horizontal:false,vertical:true) }
             if model.showsMissingBleedWarning {

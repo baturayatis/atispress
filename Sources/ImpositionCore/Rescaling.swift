@@ -107,12 +107,11 @@ extension Project {
         if binding == .stepAndRepeat,next.stepAndRepeat.pageLayout?.mode == .automatic {
             next.stepAndRepeat.pageLayout?.mode = resolvedPageLayout
         }
-        if hasRescaling { next.settings.generatedBleed.enabled = true; next.settings.generatedBleed.method = .automatic }
         if var gang = next.gang {
             for i in gang.jobs.indices where rescale(for:gang.jobs[i].front.number,jobID:gang.jobs[i].id) != nil {
                 let id = gang.jobs[i].id
                 gang.jobs[i].front = scaled(gang.jobs[i].front,jobID:id); gang.jobs[i].back = gang.jobs[i].back.map { scaled($0,jobID:id) }
-                gang.jobs[i].rescale = nil; gang.jobs[i].generatedBleed.enabled = true; gang.jobs[i].generatedBleed.method = .automatic
+                gang.jobs[i].rescale = nil
             }
             next.gang = gang
         }

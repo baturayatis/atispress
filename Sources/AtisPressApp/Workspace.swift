@@ -27,7 +27,6 @@ final class Workspace: ObservableObject {
         var p = Project(pages: [],binding: .stepAndRepeat,
             sheet: SheetSpec(preset: .sra3,margins: Insets(left: 10,right: 10,top: 10,bottom: 10),
                              gripperWidth: 0,gutter: 0))
-        p.settings.generatedBleed.enabled = true
         p.alignment = .center
         p.stepAndRepeat.pageLayout = PageLayoutSettings()
         p.stepAndRepeat.waste = WasteSettings()
@@ -1429,7 +1428,7 @@ extension Workspace {
 extension Workspace {
     var editableGeneratedBleed: GeneratedBleedSettings {
         get { selectedGangJob?.generatedBleed ?? project.settings.generatedBleed }
-        set { inspectorMemory.bleedOrigins = [:]; if let id = selectedGangJob?.id { editGangJob(id) { $0.generatedBleed = newValue } } else { project.settings.generatedBleed = newValue } }
+        set { if let id = selectedGangJob?.id { editGangJob(id) { $0.generatedBleed = newValue } } else { project.settings.generatedBleed = newValue } }
     }
     func gangSourcePages(_ id: UUID) -> [SourcePage] {
         guard let i = gangAssets.firstIndex(where: { $0.saved.id==id }) else { return [] }
@@ -1554,7 +1553,7 @@ extension Workspace {
             if let selected = selectedGangJob,let i = next.gang?.jobs.firstIndex(where:{ $0.id==selected.id }) {
                 var job = next.gang!.jobs[i]
                 switch field {
-                case .generatedEnabled: job.generatedBleed.enabled = [job.front,job.back].compactMap { $0 }.contains { ($0.availableBleed ?? 0)<job.bleed }
+                case .generatedEnabled: job.generatedBleed.enabled = false
                 case .generatedMethod: job.generatedBleed.method = .automatic
                 case .generatedTolerance: job.generatedBleed.tolerance = 0.02
                 case .generatedColor: job.generatedBleed.color = .cmyk(0,0,0,0)
@@ -1957,16 +1956,8 @@ extension Workspace {
     var workflowBleed:Double {
         get { selectedGangJob?.bleed ?? project.settings.bleed }
         set {
-            let key = inspectorMemoryKey+(selectedGangJob?.id.uuidString ?? "global")
-            let remembered = inspectorMemory.bleedOrigins[key]
-            let original = remembered ?? (amount:workflowBleed,enabled:editableGeneratedBleed.enabled)
-            if remembered == nil,newValue != original.amount { inspectorMemory.bleedOrigins[key] = original }
-            let returning = remembered != nil && newValue == original.amount
-            let enabled = returning ? original.enabled : true
-            if let job = selectedGangJob { editGangJob(job.id) { $0.bleed = newValue; $0.generatedBleed.enabled = enabled } }
-            else { project.settings.bleed = newValue; project.settings.generatedBleed.enabled = enabled }
-            if returning { inspectorMemory.bleedOrigins.removeValue(forKey:key) }
-
+            if let job = selectedGangJob { editGangJob(job.id) { $0.bleed = newValue } }
+            else { project.settings.bleed = newValue }
         }
     }
 }
@@ -2009,21 +2000,24 @@ extension Workspace {
 
 
 extension Workspace {
-    static let missingBleedWarning = "Bu işte taşma yok: kesimde beyaz kenar çıkabilir"
+    static let missingBleedWarning = "Kaynak taşması eksik veya yok. Kesimde beyaz kenar çıkabilir."
     var showsMissingBleedWarning: Bool {
         if project.binding == .gang {
             return (project.gang?.jobs ?? []).contains { job in
-                !job.generatedBleed.enabled && [job.front,job.back].compactMap { $0 }.contains { ($0.availableBleed ?? 0) <= 0 }
+                !job.generatedBleed.enabled && [job.front,job.back].compactMap { $0 }.contains { ($0.availableBleed ?? 0) < max(0.001,job.bleed-0.001) }
             }
         }
-        return !project.settings.generatedBleed.enabled && project.pages.contains { ($0.availableBleed ?? 0) <= 0 }
+        return !project.settings.generatedBleed.enabled && project.pages.contains {
+            ($0.availableBleed ?? 0) < max(0.001,project.settings.bleed-0.001)
+        }
     }
     func enableMissingBleed() {
         if project.binding == .gang {
-            for job in project.gang?.jobs ?? [] where [job.front,job.back].compactMap({ $0 }).contains(where: { ($0.availableBleed ?? 0) <= 0 }) {
+            for job in project.gang?.jobs ?? [] where [job.front,job.back].compactMap({ $0 }).contains(where: { ($0.availableBleed ?? 0) < max(0.001,job.bleed-0.001) }) {
                 editGangJob(job.id) { $0.generatedBleed.enabled = true; if $0.bleed <= 0 { $0.bleed = 3 } }
             }
         } else {
+            markManual(.generatedEnabled)
             project.settings.generatedBleed.enabled = true
             if project.settings.bleed <= 0 { project.settings.bleed = 3 }
         }
@@ -2083,7 +2077,6 @@ extension Workspace {
                 if !existing {
                     job.quantity=project.stepAndRepeat.quantity ?? 1000;job.bleed=([front]+[back].compactMap{$0}).compactMap(\.availableBleed).min() ?? settings.split?.cellBleed ?? 0
                     job.generatedBleed=project.settings.generatedBleed
-                    job.generatedBleed.enabled=([front]+[back].compactMap{$0}).contains {($0.availableBleed ?? 0)+0.001<job.bleed}
                     job.serialFields=project.serialFields.map {var f=$0;f.id=UUID();f.jobIndex=0;return f}
                 }
                 if settings.separation != nil { job.rescale = nil }

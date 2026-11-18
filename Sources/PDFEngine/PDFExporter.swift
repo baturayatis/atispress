@@ -49,6 +49,7 @@ public enum PDFExporter {
         let date = Date()
         let dateLabel = marks.sheetInfo && sheetInfo.date ? PDFSheetInfoContext.formattedDate(date) : ""
         var notes: [String] = PDFSerialCodeValidation.warnings(plan: plan)
+        notes += plan.displayIssues.filter { [.missingBleed, .sharedCutBleed, .insufficientGutter].contains($0.code) }.map(\.message)
         let bindingWarnings = PDFBindingStripInspector.warnings(plan:plan,url:source.url,cache:source.bindingStripCache)
         notes += Array(Set((plan.displayIssues.filter { $0.code == .bindingAllowance }+bindingWarnings).map(\.message))).sorted()
         let keepBlankBacks = plan.hasBackContent && includeBlankBacks

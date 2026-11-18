@@ -106,7 +106,7 @@ struct InspectorSearchEntry: Identifiable {
         .init("gripperWidth", "Maşa payı", .dimensions, .edges, "tutucu kıskaç genişlik mm"),
         .init("gutter", "Ara boşluk", .dimensions, .edges, "aralık gutter komşu") { !$0.project.isBooklet },
         .init("alignment", "Hizalama", .dimensions, .edges, "ortala maşaya yasla"),
-        .init("bleed", "Taşma payı", .dimensions, .bleed, "bleed mm kesim dışı") { $0.editableGeneratedBleed.enabled },
+        .init("bleed", "Taşma payı", .dimensions, .bleed, "bleed mm kesim dışı"),
         .init("generateBleed", "Eksik taşmayı üret", .dimensions, .bleed, "bleed tamamla"),
         .init("scale", "Ebadı değiştir", .dimensions, .scale, "ölçek hedef ebat sığdır doldur esnet") { !$0.scalingRows.isEmpty },
         .init("bleedMethod", "Üretilmiş taşma yöntemi", .dimensions, .generatedBleed, "yansıt otomatik renk dolgu") {

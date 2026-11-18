@@ -146,7 +146,10 @@ final class SheetCanvasView: NSView {
         var previewMarks = controlMarks
         previewMarks.colorBar = overlays.colorBar; previewMarks.registrationTargets = overlays.registrationTargets
         colorControls = overlays.colorBar || overlays.registrationTargets ? PDFColorControlRenderer.geometry(sheet: sheet,settings: previewMarks,kind: kind) : nil
-        bleedGuideEnabled = generatedBleed.enabled && bleedAmount > 0
+        bleedGuideEnabled = bleedAmount > 0 && (generatedBleed.enabled || side.slots.contains { slot in
+            guard let number = slot.sourcePageNumber, let source, source.pages.indices.contains(number-1) else { return false }
+            return (source.pages[number-1].availableBleed ?? 0)+0.001 >= bleedAmount
+        })
         self.sheetIndex = sheetIndex; self.sideKind = kind
         self.sheet = sheet; self.side = side; self.overlays = overlays; self.highlighted = highlighted
         originX = padding+max(0,-(side.slots.map(\.x).min() ?? 0))*pointsPerMM
@@ -418,7 +421,9 @@ extension SheetCanvasView {
             let x = (mark.start.x+mark.end.x)/2, y = (mark.start.y+mark.end.y)/2
             return side.slots.contains { slot in
                 guard let id = slot.gangJobID, let job = layout.jobs.first(where: { $0.job.id == id })?.job,
-                      job.generatedBleed.enabled, job.bleed > 0 else { return false }
+                      job.bleed > 0 else { return false }
+                let page = slot.itemSide == .back ? job.back : job.front
+                guard job.generatedBleed.enabled || (page?.availableBleed ?? 0)+0.001 >= job.bleed else { return false }
                 return x >= slot.x-job.bleed-0.001 && x <= slot.x+slot.size.width+job.bleed+0.001 &&
                     y >= slot.y-job.bleed-0.001 && y <= slot.y+slot.size.height+job.bleed+0.001
             }

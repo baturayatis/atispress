@@ -94,6 +94,7 @@ public enum PDFPlanRenderer {
             context.saveGState(); defer { context.restoreGState() }
             context.concatenate(placementTransform)
             context.concatenate(PDFPreviewDrawing.slotTransform(slot))
+            if slot.artworkClip == nil { context.clip(to: trim) }
             context.translateBy(x:slot.artworkOffset.x,y:slot.artworkOffset.y)
             try extensionsFor(.underArtwork)
             if slot.sourcePageNumber != nil {

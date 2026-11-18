@@ -170,8 +170,8 @@ public final class PDFSource: @unchecked Sendable {
         for number in 1...document.numberOfPages {
             try Task.checkCancellation()
             guard let page = document.page(at: number) else { throw PDFReadError.unreadable }
-            let media = page.getBoxRect(.mediaBox).standardized
-            let trim = page.getBoxRect(.trimBox).standardized.intersection(media)
+            let boxes = PDFPreviewDrawing.sourceBoxes(page)
+            let trim = boxes.trim
             guard !trim.isNull, trim.width.isFinite, trim.height.isFinite,
                   trim.width > 0, trim.height > 0 else { throw PDFReadError.invalidBox(number) }
             let rotated = abs(page.rotationAngle % 180) == 90
@@ -180,11 +180,11 @@ public final class PDFSource: @unchecked Sendable {
             let size = Size((rotated ? trim.height : trim.width)*scale,
                             (rotated ? trim.width : trim.height)*scale)
             func canonical(_ v:Double) -> Double {preparedCells ? (v*10_000).rounded()/10_000:v}
-            let explicitBleed = hasBox("BleedBox", page: page)
-            let bleed = page.getBoxRect(.bleedBox).standardized.intersection(media)
-            let amount: Double? = explicitBleed && !bleed.isNull ? max(0,min(
+            let amount = boxes.bleed.map { bleed in min(
                 trim.minX-bleed.minX, bleed.maxX-trim.maxX,
-                trim.minY-bleed.minY, bleed.maxY-trim.maxY))*scale : nil
+                trim.minY-bleed.minY, bleed.maxY-trim.maxY)*scale }
+                ?? (PDFPreviewDrawing.hasExplicitBox("BleedBox", page: page) &&
+                    page.getBoxRect(.bleedBox).intersection(page.getBoxRect(.mediaBox)).isNull == false ? 0 : nil)
             pages.append(PDFPageInfo(number: number, trimSize: Size(canonical(size.width),canonical(size.height)), availableBleed: amount.map(canonical),
                                      hasTrimBox: hasBox("TrimBox", page: page)))
         }
