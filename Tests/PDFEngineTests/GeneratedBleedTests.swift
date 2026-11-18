@@ -151,7 +151,7 @@ final class GeneratedBleedTests: XCTestCase {
         assertColor(b.color(slot.x-0.35,slot.y+5),[0,0,0])
         assertColor(a.color(slot.x+10,slot.y+5),b.color(slot.x+10,slot.y+5))
     }
-    private func oxygenFixture(in folder: URL, size: Size) throws -> URL {
+    private func oxygenFixture(in folder: URL, size: Size, textured: Bool = false) throws -> URL {
         let url = folder.appendingPathComponent("oxygen-vector-fixture.pdf")
         var trim = CGRect(x: 5*ppmm, y: 5*ppmm, width: size.width*ppmm, height: size.height*ppmm)
         var media = trim.insetBy(dx: -5*ppmm, dy: -5*ppmm)
@@ -169,6 +169,17 @@ final class GeneratedBleedTests: XCTestCase {
             context.setFillColor(CGColor(gray: 0, alpha: 1))
             context.fill(CGRect(x: 1, y: 1, width: 1, height: 1))
             context.fill(CGRect(x: 1, y: 2.5, width: 1, height: size.height - 3))
+            if textured {
+                for (x, y, color) in [
+                    (-1.0, 18.0, BleedColor.rgb(0.15,0.1,0.65)), (size.width-2, 24.0, .rgb(0.1,0.6,0.35)),
+                    (24.0, 1.0, .rgb(0.6,0,0.4)), (42.0, size.height-2, .rgb(0,0.6,0.7)),
+                    (-1.0, 1.0, .rgb(0.55,0.2,0)), (-1.0, size.height-2, .rgb(0.15,0.2,0.7)),
+                    (size.width-2, 1.0, .rgb(0,0.4,0.2)), (size.width-2, size.height-2, .rgb(0.35,0.2,0.65))
+                ] {
+                    context.setFillColor(GeneratedBleedOverlay.cgColor(color))
+                    context.fill(CGRect(x: x,y: y,width: 1,height: 1))
+                }
+            }
             context.endPDFPage()
         }
         context.closePDF()
@@ -215,9 +226,9 @@ final class GeneratedBleedTests: XCTestCase {
                     }
                     let base = number == 1 ? [0.12,0.35,0.8] : [0.83,0.24,0.16]
                     assertColor(actual(-0.45,15),[0,0.7,0.25]) // Real source bleed.
-                    assertColor(actual(-1.5,15),[0,0,0]) // Reflected depth, not the edge pixel.
+                    assertColor(actual(-1.5,15),[0,0.7,0.25]) // Reflect the real outer edge.
                     assertColor(actual(-amount+0.35,15),base)
-                    assertColor(actual(-1.5,-1.5),[0,0,0]) // Both axes reflected in the corner.
+                    assertColor(actual(-1.5,-1.5),[0,0.7,0.25]) // Both axes reflected in the corner.
                     assertColor(actual(-amount+0.35,-amount+0.35),base)
                     assertColor(actual(86.7+amount-0.35,54+amount-0.35),base)
                     assertColor(actual(10,15),base)
@@ -242,6 +253,67 @@ final class GeneratedBleedTests: XCTestCase {
         XCTAssertNil(source.edgeSamples.cached(page:2))
     }
 
+    func testMirrorJoinsFollowTexturedSourceOnEveryEdgeAndCorner() async throws {
+        let folder = try folder(), size = Size(86.7,54)
+        let input = try oxygenFixture(in: folder, size: size, textured: true)
+        let source = try await PDFSource.open(input), original = try XCTUnwrap(CGPDFDocument(input as CFURL))
+        for amount in [3.0,10.0] {
+            let slots = [1,2].map { page in
+                var slot = Slot(sourcePageNumber: page, origin: Point(20.03,20.04), size: size,
+                                artworkClip: Rect(x: 20.03-amount,y: 20.04-amount,width: size.width+2*amount,height: size.height+2*amount))
+                if page == 2 {
+                    slot.artworkOffset = Point(0.37,0.41)
+                    slot.bindingTranslation = Point(0.12,0.13)
+                }
+                return slot
+            }
+            let sheet = Sheet(size: Size(140,100),front: Side(slots: [slots[0]]),back: Side(slots: [slots[1]]))
+            let settings = GeneratedBleedSettings(enabled: true, method: .mirror)
+            let plan = ImpositionPlan(sheets: [sheet], generatedBleed: settings)
+            let (export, _) = try output(plan,source: source,in: folder,name: "mirror-joins-\(amount)")
+            for (index, slot) in slots.enumerated() {
+                let page = try XCTUnwrap(original.page(at: index+1))
+                let preview = try Bitmap(sheet.size), pdf = try Bitmap(sheet.size)
+                // Supplying a cached preview must not mix raster and vector at the join.
+                let tinyRaster = try Bitmap(Size(1,1))
+                let raster = PDFPageRaster(cgImage: try XCTUnwrap(tinyRaster.context.makeImage()),
+                                           bounds: CGRect(x: 0,y: 0,width: 1,height: 1))
+                try PDFPlanRenderer.drawSlot(slot,page: page,in: preview.context,
+                    reference: SlotReference(sheet: 0,side: index == 0 ? .front : .back,slot: 0),raster: raster,
+                    overlays: [GeneratedBleedOverlay(settings: settings,cache: source.edgeSamples)])
+                pdf.context.scaleBy(x: 1/ppmm,y: 1/ppmm)
+                pdf.context.drawPDFPage(try XCTUnwrap(export.page(at: index+1)))
+                let artworkX = slot.x + slot.artworkOffset.x + slot.bindingTranslation.x
+                let artworkY = slot.y + slot.artworkOffset.y + slot.bindingTranslation.y
+                for (x,y,mirrorX,mirrorY,color) in [
+                    (-0.5,18.5,true,false,[0.15,0.1,0.65]),
+                    (size.width-1.5,24.5,true,false,[0.1,0.6,0.35]),
+                    (24.5,1.5,false,true,[0.6,0,0.4]),
+                    (42.5,size.height-1.5,false,true,[0,0.6,0.7]),
+                    (-0.5,1.5,true,true,[0.55,0.2,0]),
+                    (-0.5,size.height-1.5,true,true,[0.15,0.2,0.7]),
+                    (size.width-1.5,1.5,true,true,[0,0.4,0.2]),
+                    (size.width-1.5,size.height-1.5,true,true,[0.35,0.2,0.65])
+                ] {
+                    let rx = mirrorX ? 2*(x < 0 ? -1 : size.width)-x : x
+                    let ry = mirrorY ? 2*(y < size.height/2 ? 0 : size.height)-y : y
+                    for bitmap in [preview,pdf] {
+                        assertColor(bitmap.color(artworkX+x,artworkY+y),color)
+                        assertColor(bitmap.color(artworkX+rx,artworkY+ry),color)
+                    }
+                }
+                // Probe the fractional joins, including the four points where tiles meet.
+                for x in [-1.0,20,size.width] {
+                    for y in [0.0,12,size.height] {
+                        for bitmap in [preview,pdf] {
+                            XCTAssertLessThan(bitmap.color(artworkX+x,artworkY+y).min() ?? 1,0.8)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     func testReflectionRepeatsWhenTrimIsNarrowerThanBleed() async throws {
         let folder = try folder(), input = try oxygenFixture(in: folder, size: Size(4,5))
         let source = try await PDFSource.open(input)
@@ -250,7 +322,7 @@ final class GeneratedBleedTests: XCTestCase {
         let plan = ImpositionPlan(sheets: [Sheet(size: Size(35,35),front: Side(slots: [slot]),back: Side())],
                                   generatedBleed: GeneratedBleedSettings(enabled: true))
         let (_,bitmap) = try output(plan,source: source,in: folder,name: "reflect-repeat")
-        for distance in [1.5,6.5,9.5] {
+        for distance in [3.5,8.5] {
             assertColor(bitmap.color(slot.x-distance,slot.y+3),[0,0,0])
         }
         for d in stride(from: 1.1,to: 10,by: 0.11) {

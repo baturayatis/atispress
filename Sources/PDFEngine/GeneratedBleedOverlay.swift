@@ -10,43 +10,46 @@ public struct GeneratedBleedOverlay: PDFSlotOverlay {
         self.settings = settings; self.cache = cache; self.jobSettings = jobSettings
     }
 
+    public var phase: PDFOverlayPhase { .underArtwork }
+
+    func mirrorsArtwork(in slot: Slot) -> Bool {
+        let settings = slot.gangJobID.flatMap { jobSettings[$0] } ?? self.settings
+        return settings.enabled && settings.method != .solidColor
+    }
+
     public func draw(in context: CGContext,placement p: PDFSlotContext) throws {
         let settings = p.slot.gangJobID.flatMap { jobSettings[$0] } ?? self.settings
         guard settings.enabled,p.slot.sourcePageNumber != nil,let page = p.sourcePage else { return }
         let art = p.artworkRect
-        var domain = p.trimRect
-        var geometry = PDFPreviewDrawing.artworkGeometry(page, trimRect: domain)
+        let geometry = PDFPreviewDrawing.artworkGeometry(page, trimRect: p.trimRect)
         var transform = geometry.trimTransform
         var native = geometry.artworkBounds
         if let scale = p.slot.rescale {
             let sourceTrim = CGRect(x: 0, y: 0, width: scale.source.width, height: scale.source.height)
             let scaled = CGAffineTransform(a: scale.factors.width, b: 0, c: 0, d: scale.factors.height,
                                            tx: scale.artwork.origin.x, ty: scale.artwork.origin.y)
-            geometry = PDFPreviewDrawing.artworkGeometry(page, trimRect: sourceTrim)
+            let geometry = PDFPreviewDrawing.artworkGeometry(page, trimRect: sourceTrim)
             transform = geometry.trimTransform.concatenating(scaled)
             native = geometry.artworkBounds.applying(scaled)
-            domain = domain.intersection(PDFRescaleDrawing.rect(scale.artwork))
         }
-        guard !domain.isEmpty else { return }
+        guard !native.isEmpty, !native.contains(art) else { return }
 
         context.saveGState(); defer { context.restoreGState() }
         // Keep the source BleedBox intact, including transparent areas.
-        guard Self.clipToMissingArtwork(art, protecting: native.union(domain), in: context) else { return }
         if settings.method == .solidColor {
+            Self.clipToMissingArtwork(art, protecting: native, in: context)
             context.setFillColor(Self.cgColor(settings.color))
             context.fill(art)
         } else {
-            try mirror(page, domain: domain, art: art, transform: transform, in: context)
+            try mirror(page, domain: native, art: art, transform: transform, in: context)
         }
     }
 
-    private static func clipToMissingArtwork(_ bounds: CGRect, protecting native: CGRect, in context: CGContext) -> Bool {
+    private static func clipToMissingArtwork(_ bounds: CGRect, protecting native: CGRect, in context: CGContext) {
         let protected = bounds.intersection(native)
-        if protected.contains(bounds) { return false }
         context.addRect(bounds)
         if !protected.isEmpty { context.addRect(protected) }
         context.clip(using: .evenOdd)
-        return true
     }
 
     private func mirror(_ page: CGPDFPage, domain: CGRect, art: CGRect,
@@ -58,14 +61,24 @@ public struct GeneratedBleedOverlay: PDFSlotOverlay {
         guard (endX-firstX)*(endY-firstY) <= 4096,
               let left = Int(exactly: firstX), let right = Int(exactly: endX),
               let bottom = Int(exactly: firstY), let top = Int(exactly: endY) else {
+            Self.clipToMissingArtwork(art, protecting: domain, in: context)
             let samples = try cache.samples(for: page)
             context.setFillColor(Self.cgColor(samples.averageEdgeColor))
             context.fill(art)
             return
         }
+        // The artwork is tile (0,0). Use shared boundary coordinates for both
+        // neighbors, including corners, without a second antialiased mask.
+        func boundary(_ index: Int, min: CGFloat, max: CGFloat) -> CGFloat {
+            index <= 0 ? min + CGFloat(index)*(max-min) : max + CGFloat(index-1)*(max-min)
+        }
         for y in bottom..<top {
             for x in left..<right where x != 0 || y != 0 {
-                let tile = domain.offsetBy(dx: Double(x)*domain.width, dy: Double(y)*domain.height)
+                let x0 = boundary(x, min: domain.minX, max: domain.maxX)
+                let x1 = boundary(x+1, min: domain.minX, max: domain.maxX)
+                let y0 = boundary(y, min: domain.minY, max: domain.maxY)
+                let y1 = boundary(y+1, min: domain.minY, max: domain.maxY)
+                let tile = CGRect(x: x0, y: y0, width: x1-x0, height: y1-y0)
                 let clip = art.intersection(tile)
                 guard !clip.isEmpty else { continue }
                 context.saveGState()

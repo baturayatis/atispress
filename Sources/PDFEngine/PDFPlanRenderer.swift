@@ -76,6 +76,10 @@ public enum PDFPlanRenderer {
         let placementTransform = PDFPreviewDrawing.bindingTransform(slot)
         let transform = PDFPreviewDrawing.slotTransform(slot).concatenating(placementTransform)
         let trim = PDFPreviewDrawing.localTrim(slot)
+        // Match the bleed's vector detail even when the preview has a low-zoom raster.
+        let useVector = page != nil && overlays.contains {
+            ($0 as? GeneratedBleedOverlay)?.mirrorsArtwork(in: slot) == true
+        }
         var localClip = trim
         if let clip = slot.artworkClip {
             let bounds = CGRect(x: clip.origin.x,y: clip.origin.y,width: clip.size.width,height: clip.size.height)
@@ -100,7 +104,7 @@ public enum PDFPlanRenderer {
             if slot.sourcePageNumber != nil {
                 if let page,let scale = slot.rescale {
                     PDFRescaleDrawing.draw(page,scale:scale,in:context)
-                } else if let raster {
+                } else if let raster, !useVector {
                     let r = raster.normalizedArtworkBounds
                     context.draw(raster.cgImage,in:CGRect(x:r.minX*trim.width,y:r.minY*trim.height,width:r.width*trim.width,height:r.height*trim.height))
                 } else if let page { PDFPreviewDrawing.draw(page,in:context,rect:trim) }
