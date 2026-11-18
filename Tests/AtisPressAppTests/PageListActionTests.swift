@@ -198,7 +198,7 @@ import PDFEngine
             let file=try folder().appendingPathComponent("saved.atispress")
             try model.saveProject(as:file)
             let decoded=try ProjectDocument.decode(Data(contentsOf:file))
-            XCTAssertEqual(decoded.version,21);XCTAssertEqual(decoded.state.sourcePageCount,4)
+            XCTAssertEqual(decoded.version,ProjectDocument.currentVersion);XCTAssertEqual(decoded.state.sourcePageCount,4)
             let reopened=workspace();try await reopened.loadProject(at:file);try await settle(reopened)
             XCTAssertEqual(reopened.order,model.order);XCTAssertEqual(reopened.project,model.project)
             XCTAssertEqual(reopened.plan.sheets,model.plan.sheets);XCTAssertEqual(try pixels(reopened),try pixels(model))

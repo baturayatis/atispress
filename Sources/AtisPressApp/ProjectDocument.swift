@@ -100,7 +100,7 @@ struct ProjectState: Codable, Equatable {
     }
 }
 struct ProjectDocument: Codable, Equatable {
-    static let currentVersion = 21
+    static let currentVersion = 22
     var version: Int = currentVersion
     var state: ProjectState
     static func decode(_ data: Data) throws -> ProjectDocument {
@@ -118,6 +118,13 @@ struct ProjectDocument: Codable, Equatable {
         if header.version < 18, file.state.project.hasRescaling { file.state.project.migrateScaling() }
         guard file.state.source != nil || !(file.state.linkedSources ?? file.state.gangSources ?? []).isEmpty || file.state.order.isEmpty else { throw ProjectFileError.invalidSelection }
         let sources = file.state.linkedSources ?? file.state.gangSources ?? []
+        if file.state.project.team != nil {
+            let project = file.state.project
+            guard project.binding == .gang, project.pageItems == nil, sources.count == 1,
+                  project.pages.count == sources[0].pageCount,
+                  project.pages.enumerated().allSatisfy({ $0.element.number == $0.offset + 1 }),
+                  !(project.gang?.jobs.isEmpty ?? true) else { throw ProjectFileError.invalidSelection }
+        }
         for item in file.state.project.pageItems ?? [] {
             if let id=item.sourceID {
                 guard let source=sources.first(where:{$0.id==id}),let local=item.localPage,local>0,item.sourcePage != nil else {throw ProjectFileError.invalidSelection}

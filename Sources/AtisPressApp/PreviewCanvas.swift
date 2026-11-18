@@ -236,7 +236,12 @@ final class SheetCanvasView: NSView {
             context.restoreGState()
             if let id = slot.gangJobID,let job = sheet.gangLayout?.jobs.first(where: { $0.job.id==id })?.job {
                 context.setFillColor(DesignSystem.jobTint(job.tint,fill:true).cgColor); context.fill(rect)
-                if overlays.pageNumbers { label(job.name,at:CGPoint(x:rect.midX,y:rect.maxY-3),size:2.5,color:DesignSystem.jobTint(job.tint,fill:false)) }
+                if overlays.pageNumbers {
+                    let text = sheet.gangLayout?.isTeam == true
+                        ? slot.sourcePageNumber.map { "Sayfa \($0)" } ?? "Boş"
+                        : job.name
+                    label(text,at:CGPoint(x:rect.midX,y:rect.maxY-3),size:2.5,color:DesignSystem.jobTint(job.tint,fill:false))
+                }
             }
             context.setStrokeColor((highlighted.contains(index) ? DesignSystem.errorNS : DesignSystem.guideNS).cgColor)
             context.setLineWidth((highlighted.contains(index) ? 2.5 : 0.5)/pointsPerMM/scale)

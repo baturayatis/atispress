@@ -182,6 +182,7 @@ public enum TeamPlanner {
             let occupied = sheet.front.slots.reduce(0.0) { $0 + $1.size.width * $1.size.height }
             let available = details.printable.size.width * details.printable.size.height * Double(factor)
             let utilization = available > 0 ? min(1, occupied / available) : 0
+            details.isTeam = true
             details.summary = "Düzen \(index + 1) · \(capacity) takım payı/tabaka · \(sheet.repeatCount) tabaka · %\(Int((100 * utilization).rounded())) doluluk"
             sheet.gangLayout = details
             capacities.append(capacity)

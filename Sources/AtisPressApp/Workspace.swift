@@ -343,6 +343,12 @@ final class Workspace: ObservableObject {
         if project.binding == .gang { gangGutter = project.sheet.gutter }
         next.sheet.gutter = (mode == .stepAndRepeat || mode == .spiral || mode == .wireO) ? repeatGutter : mode == .gang ? (gangGutter ?? 0) : 0
         next.binding = mode
+        if next.team != nil {
+            next.team = nil
+            next.gang = nil
+            sourceReference = gangAssets.first?.saved.reference
+            gangAssets = []
+        }
         if mode == .gang {
             if next.gang == nil {
                 next.gang = GangSettings()
@@ -389,7 +395,99 @@ final class Workspace: ObservableObject {
     }
     // ⌘O, home buttons and the toolbar differ only in their picker filter.
     func openPanel() { chooseFile(.any) }
+    @Published var showingTeamImportChoice = false
+
     func choosePDF() { chooseFile(.pdf) }
+
+    var canStartTeam: Bool {
+        sourceReference != nil && (source?.pages.count ?? 0) > 1 && project.sourcePreparation == nil
+    }
+
+    func startTeam() {
+        guard canStartTeam, let source, let reference = sourceReference else { return }
+        showingTeamImportChoice = false
+        rescalePrompt = nil
+        pendingScalePrompts = []
+        beginUndoGroup()
+        defer { endUndoGroup() }
+        let id = UUID()
+        gangAssets = [GangAsset(saved: GangSourceReference(id: id, reference: reference, pageCount: source.pages.count), source: source)]
+        sourceReference = nil
+        var next = project
+        var settings = TeamSettings()
+        settings.quantity = next.stepAndRepeat.quantity ?? 1000
+        settings.waste = next.stepAndRepeat.waste ?? WasteSettings()
+        repeatGutter = next.sheet.gutter
+        next.binding = .gang
+        next.team = settings
+        next.settings.turnMethod = .sheetwise
+        next.pageItems = nil
+        next.pageItemNextID = nil
+        next.previouslyHadBacks = nil
+        next.pages = source.pages.map(\.sourcePage)
+        next.gang = GangSettings()
+        let jobs = teamJobs(next, sourceID: id)
+        next.gang?.jobs = jobs
+        next.book = nil
+        next.scaling = nil
+        next.rescaleJobs = nil
+        order = next.pages.map(\.number)
+        included = Set(order)
+        selectedPages = []
+        project = next
+        selectedGangJobID = next.gang?.jobs.first?.id
+        selectPreviewSheet(0)
+        overlays.pageNumbers = true
+    }
+
+    private func teamJobs(_ draft: Project, sourceID: UUID) -> [GangJob] {
+        let step = draft.team?.duplex == true ? 2 : 1
+        return stride(from: 0, to: draft.pages.count, by: step).map { index in
+            let front = draft.pages[index]
+            let back = step == 2 && index + 1 < draft.pages.count ? draft.pages[index + 1] : nil
+            var job = GangJob(sourceID: sourceID, name: teamPageLabel(front, back), front: front, back: back)
+            job.bleed = draft.settings.bleed
+            job.generatedBleed = draft.settings.generatedBleed
+            job.tint = (Double(index) * 0.61803398875 + 0.12).truncatingRemainder(dividingBy: 1)
+            return job
+        }
+    }
+
+    private func teamPageLabel(_ front: SourcePage, _ back: SourcePage?) -> String {
+        back.map { "Sayfa \(front.number) / \($0.number)" } ?? "Sayfa \(front.number)"
+    }
+
+    func setTeamDuplex(_ duplex: Bool) {
+        guard var team = project.team, let id = gangAssets.first?.saved.id else { return }
+        var next = project
+        team.duplex = duplex
+        team.manualLayouts = nil
+        if !duplex { next.settings.turnMethod = .sheetwise }
+        next.team = team
+        let jobs = teamJobs(next, sourceID: id)
+        next.gang?.jobs = jobs
+        project = next
+        selectedGangJobID = next.gang?.jobs.first?.id
+    }
+
+    func swapTeamPage(jobID: UUID, side: SideKind, with number: Int) {
+        guard var jobs = project.gang?.jobs, let target = jobs.firstIndex(where: { $0.id == jobID }),
+              let sourceIndex = jobs.firstIndex(where: { $0.front.number == number || ($0.back?.number ?? 0) == number })
+        else { return }
+        let incomingIsFront = jobs[sourceIndex].front.number == number
+        let outgoing = side == .front ? jobs[target].front : jobs[target].back
+        let incoming = incomingIsFront ? jobs[sourceIndex].front : jobs[sourceIndex].back
+        if (side == .front && incoming == nil) || (incomingIsFront && outgoing == nil) { return }
+        if incomingIsFront, let outgoing { jobs[sourceIndex].front = outgoing }
+        else { jobs[sourceIndex].back = outgoing }
+        if side == .front, let incoming { jobs[target].front = incoming }
+        else { jobs[target].back = incoming }
+        for index in Set([target, sourceIndex]) {
+            jobs[index].name = teamPageLabel(jobs[index].front, jobs[index].back)
+            jobs[index].rescale = nil
+        }
+        project.gang?.jobs = jobs
+    }
     func chooseProject() { chooseFile(.project) }
     private func chooseFile(_ kind: OpenFileKind) {
         guard !loading,!exporting,!autoArranging else { return }
@@ -410,7 +508,7 @@ final class Workspace: ObservableObject {
         }
     }
     func open(_ url: URL,confirmChanges: Bool = true) {
-        if project.binding == .gang && project.sourcePreparation?.split == nil && project.sourcePreparation?.hiddenGuideGroups.isEmpty != false && url.pathExtension.lowercased() == "pdf" { addGangPDFs([url]); return }
+        if project.binding == .gang && project.team == nil && project.sourcePreparation?.split == nil && project.sourcePreparation?.hiddenGuideGroups.isEmpty != false && url.pathExtension.lowercased() == "pdf" { addGangPDFs([url]); return }
         guard !preparingSource,!loading, !exporting, !autoArranging, (!confirmChanges || confirmDiscard()) else { return }
         if url.pathExtension.lowercased() == "atispress" {
             loading = true; error = nil; pdfLoadFailure=nil
@@ -432,7 +530,22 @@ final class Workspace: ObservableObject {
                 var baseline = project
                 var prepared: AutoLayoutResult
                 while true {
-                    var snapshot = baseline; if baseline.sourcePreparation?.split != nil || baseline.sourcePreparation?.hiddenGuideGroups.isEmpty == false { snapshot.binding = .stepAndRepeat }; snapshot.pages = source.pages.map(\.sourcePage); snapshot.pageItems=nil; snapshot.pageItemNextID=nil; snapshot.previouslyHadBacks=nil; snapshot.sourcePreparation = nil; snapshot.gang = nil; snapshot.book?.coverSourceID = nil; snapshot.book?.coverPDFPages = []; snapshot.book?.auxiliaryPages = []; snapshot.book?.selection = CoverSelection()
+                    var snapshot = baseline
+                    if baseline.team != nil || baseline.sourcePreparation?.split != nil ||
+                        baseline.sourcePreparation?.hiddenGuideGroups.isEmpty == false {
+                        snapshot.binding = .stepAndRepeat
+                    }
+                    snapshot.team = nil
+                    snapshot.gang = nil
+                    snapshot.pages = source.pages.map(\.sourcePage)
+                    snapshot.pageItems = nil
+                    snapshot.pageItemNextID = nil
+                    snapshot.previouslyHadBacks = nil
+                    snapshot.sourcePreparation = nil
+                    snapshot.book?.coverSourceID = nil
+                    snapshot.book?.coverPDFPages = []
+                    snapshot.book?.auxiliaryPages = []
+                    snapshot.book?.selection = CoverSelection()
                     if snapshot.autoLayout == nil { snapshot.autoLayout = .legacy }
                     prepared = await Task.detached(priority: .userInitiated) { SmartAutoLayout.arrange(snapshot) }.value
                     guard !Task.isCancelled,importRevision == token else { return }
@@ -458,6 +571,7 @@ final class Workspace: ObservableObject {
                 loading = false
                 resetJournal(); queueAutosave()
                 recordRecentFile(source.originalURL)
+                showingTeamImportChoice = canStartTeam
                 offerRescaling()
                 refreshModified()
             } catch {
@@ -483,7 +597,7 @@ final class Workspace: ObservableObject {
     }
     func clearPageSources() {
         beginUndoGroup()
-        var next=project;next.pages=[];next.pageItems=[];next.gang=nil;next.sourcePreparation=nil
+        var next=project;next.pages=[];next.pageItems=[];next.gang=nil;next.team=nil;next.sourcePreparation=nil
         next.book?.selection=CoverSelection();next.retargetPageListSettings(from:project,copies:[])
         next.book?.coverSourceID=nil;next.book?.coverPDFPages=[];next.book?.auxiliaryPages=[]
         gangAssets=[];source=nil;sourceReference=nil;order=[];included=[];selectedPages=[]
@@ -604,7 +718,7 @@ final class Workspace: ObservableObject {
                 }
                 if let url { urls.append(url) }
             }
-            if project.binding == .gang,urls.allSatisfy({ $0.pathExtension.lowercased()=="pdf" }) { addGangPDFs(urls) }
+            if project.binding == .gang,project.team == nil,urls.allSatisfy({ $0.pathExtension.lowercased()=="pdf" }) { addGangPDFs(urls) }
             else if let url = urls.first { open(url) }
         }
         return true
@@ -733,7 +847,8 @@ extension Workspace {
                 let reference = try ProjectSource.capture(sourceURL!,createBookmark: bookmarkCreator)
                 assets.append(GangAsset(saved: GangSourceReference(id: saved.id,reference: reference,pageCount: saved.pageCount),source: loaded))
             }
-            loadedSource = try await PDFSource.combine(assets.map(\.source),displayName:snapshot.project.book?.coverSourceID == nil ? nil : "Kitap ve kapak")
+            if snapshot.project.team != nil, assets.count == 1 { loadedSource = assets[0].source }
+            else { loadedSource = try await PDFSource.combine(assets.map(\.source),displayName:snapshot.project.book?.coverSourceID == nil ? nil : "Kitap ve kapak") }
             try snapshot.validateSelection(pageCount: loadedSource!.pages.count)
             for item in snapshot.project.pageItems ?? [] {
                 guard let id=item.sourceID else {continue}
@@ -967,7 +1082,7 @@ extension Workspace {
         if project.binding == .gang, var gang = project.gang {
             for i in gang.jobs.indices {
                 let job = gang.jobs[i],quantity = job.waste.numberCopies ? job.waste.quantities(for:job.quantity)?.total ?? job.quantity : job.quantity
-                let recipe = plan.sheets.first?.gangLayout?.jobs.first { $0.job.id == job.id }?.serialPlan
+                let recipe = plan.sheets.lazy.compactMap { $0.gangLayout?.jobs.first { $0.job.id == job.id } }.first?.serialPlan
                 gang.jobs[i].serialFields = job.serialFields.map { $0.adjustedDigits(quantity:max(quantity,recipe?.numberCount(for:$0) ?? quantity)) }
             }
             if gang != project.gang { normalizingDigits = true; project.gang = gang; normalizingDigits = false }
@@ -1151,7 +1266,8 @@ extension Workspace {
         selectedSerialID = id
     }
     func setSerialQuantity(_ quantity: Int) {
-        if let id = selectedGangJob?.id { editGangJob(id) { $0.quantity = quantity } }
+        if project.team != nil { project.team?.quantity = quantity }
+        else if let id = selectedGangJob?.id { editGangJob(id) { $0.quantity = quantity } }
         else { project.stepAndRepeat.quantity = quantity }
     }
     func editGangJob(_ id: UUID,_ edit: (inout GangJob) -> Void) {
@@ -1180,7 +1296,7 @@ extension Workspace {
         panel.begin { [weak self] response in if response == .OK { self?.addGangPDFs(panel.urls) } }
     }
     func addGangPDFs(_ urls: [URL]) {
-        guard !loading,!exporting,project.binding == .gang,!urls.isEmpty else { return }
+        guard !loading,!exporting,project.binding == .gang,project.team == nil,!urls.isEmpty else { return }
         loading = true; error = nil; pdfLoadFailure=nil
         importTask = Task {
             do {
@@ -1226,6 +1342,15 @@ extension Workspace {
         }
     }
     func manualGang() {
+        if project.team != nil {
+            guard !planning, let sheet = currentSheet, plan.canExport else { return }
+            var next = project
+            next.sheet.orientation = sheet.size.width > sheet.size.height ? .landscape : .portrait
+            next.team?.manualLayouts = plan.sheets.compactMap { $0.gangLayout?.blocks }
+            project = next
+            selectedGangBlockID = sheet.gangLayout?.blocks.first?.id
+            return
+        }
         guard let layout = currentSheet?.gangLayout else { return }
         var settings = project.gang ?? GangSettings(); settings.mode = .manual; settings.blocks = layout.blocks
         // Freeze the selected sheet orientation so a drag cannot change its coordinate frame.
@@ -1233,10 +1358,42 @@ extension Workspace {
         project.gang = settings; selectedGangBlockID = settings.blocks.first?.id
     }
     func moveGangBlock(_ id: UUID,to origin: Point) {
+        if project.team != nil {
+            if project.team?.manualLayouts == nil { manualGang() }
+            editTeamBlock(id) { $0.origin = Point(origin.x.rounded(), origin.y.rounded()) }
+            selectedGangBlockID = id
+            return
+        }
         if project.gang?.mode != .manual { manualGang() }
         guard let i = project.gang?.blocks.firstIndex(where: { $0.id==id }) else { return }
         project.gang?.blocks[i].origin = Point(origin.x.rounded(),origin.y.rounded()); selectedGangBlockID = id
         selectedGangJobID = project.gang?.blocks[i].jobID
+    }
+    func swapTeamBlocks(_ first: UUID, _ second: UUID) {
+        guard var plates = project.team?.manualLayouts, plates.indices.contains(sheetIndex),
+              let a = plates[sheetIndex].firstIndex(where: { $0.id == first }),
+              let b = plates[sheetIndex].firstIndex(where: { $0.id == second }) else { return }
+        let origin = plates[sheetIndex][a].origin
+        plates[sheetIndex][a].origin = plates[sheetIndex][b].origin
+        plates[sheetIndex][b].origin = origin
+        project.team?.manualLayouts = plates
+    }
+    func swapTeamPlacements(_ first: UUID, _ second: UUID) {
+        guard first != second, var plates = project.team?.manualLayouts else { return }
+        for sheet in plates.indices {
+            for block in plates[sheet].indices {
+                let id = plates[sheet][block].jobID
+                if id == first { plates[sheet][block].jobID = second }
+                else if id == second { plates[sheet][block].jobID = first }
+            }
+        }
+        project.team?.manualLayouts = plates
+    }
+    func editTeamBlock(_ id: UUID, _ edit: (inout GangBlock) -> Void) {
+        guard var plates = project.team?.manualLayouts, plates.indices.contains(sheetIndex),
+              let index = plates[sheetIndex].firstIndex(where: { $0.id == id }) else { return }
+        edit(&plates[sheetIndex][index])
+        project.team?.manualLayouts = plates
     }
     func removeGangJob(_ id: UUID) {
         project.gang?.jobs.removeAll { $0.id==id }; project.gang?.blocks.removeAll { $0.jobID==id }
@@ -1344,6 +1501,7 @@ extension Workspace {
     }
     func requestAutomaticLayout(confirm: ((String) -> Bool)? = nil) {
         guard !loading,!exporting,!autoArranging,!project.pages.isEmpty else { return }
+        if project.team != nil { project.team?.manualLayouts = nil; return }
         NSApp?.keyWindow?.makeFirstResponder(nil)
         if hasManualLayoutSettings {
             let message = "Elle yapılan ayarlar sıfırlanacak."
@@ -1593,11 +1751,13 @@ extension Workspace {
     }
     var basicQuantity:Int? {
         get {
+            if let team = project.team { return team.quantity }
             if let job = selectedGangJob { return job.quantity }
             return project.isBooklet || project.isLeafBinding ? project.costing?.copies : project.stepAndRepeat.quantity
         }
         set {
-            if let job = selectedGangJob { editGangJob(job.id) { $0.quantity = newValue ?? 0 } }
+            if project.team != nil { project.team?.quantity = newValue ?? 0 }
+            else if let job = selectedGangJob { editGangJob(job.id) { $0.quantity = newValue ?? 0 } }
             else if project.isBooklet || project.isLeafBinding { var cost = project.costing ?? JobCostSettings(); cost.copies = newValue; project.costing = cost }
             else { project.stepAndRepeat.quantity = newValue }
         }
@@ -1672,6 +1832,9 @@ extension Workspace {
 
 extension Workspace {
     var workflowProductSummary:String {
+        if let team = project.team {
+            return "Takım Düzeni · \(project.pages.count) sayfa · \(team.duplex ? "çift yüz" : "tek yüz")"
+        }
         guard let size = project.pages.first?.trimSize else { return "PDF seçerek başlayın" }
         return "\(productKind.rawValue) · \(TRFormat.size(size.width,size.height)) · \(project.resolvedPageLayout == .simplex ? "tek yüz" : "çift yüz")"
     }
@@ -1715,8 +1878,8 @@ extension Workspace {
         return "Seçili: \(size.width > size.height ? "Yatay" : "Dikey") · \(TRFormat.size(size.width,size.height))"
     }
     var workflowWaste:WasteSettings {
-        get { selectedGangJob?.waste ?? project.stepAndRepeat.waste ?? WasteSettings() }
-        set { if let job = selectedGangJob { editGangJob(job.id) { $0.waste = newValue } } else { project.stepAndRepeat.waste = newValue } }
+        get { project.team?.waste ?? selectedGangJob?.waste ?? project.stepAndRepeat.waste ?? WasteSettings() }
+        set { if project.team != nil { project.team?.waste = newValue } else if let job = selectedGangJob { editGangJob(job.id) { $0.waste = newValue } } else { project.stepAndRepeat.waste = newValue } }
     }
     func workflowAddonSummary(_ addon:WorkflowAddon) -> String? {
         switch addon {
@@ -1783,9 +1946,14 @@ extension Workspace {
 }
 
 extension Workspace {
+    func showsBackInPreview(_ sheet: Sheet) -> Bool {
+        sheet.hasContent(on: .back) ||
+        (project.team?.duplex == true && (project.includeBlankBacks ?? true) && plan.hasBackContent)
+    }
+
     var previewGeometry:SideScrollGeometry {
         SideScrollGeometry(heights:displaySheets.map { $0.size.height*PDFPreviewDrawing.pointsPerMM+110 },
-                           repetitions:displaySheets.map { max(1,$0.repeatCount) },backs:displaySheets.map { $0.hasContent(on:.back) })
+                           repetitions:displaySheets.map { max(1,$0.repeatCount) },backs:displaySheets.map(showsBackInPreview))
     }
     var showsAllSides:Bool {
         get { project.allSheetsPreview ?? (previewGeometry.blockCount>1) }

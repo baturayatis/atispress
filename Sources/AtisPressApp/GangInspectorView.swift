@@ -72,14 +72,21 @@ struct GangSidebarView: View {
     @ObservedObject var model: Workspace
     var body: some View {
         VStack(alignment:.leading,spacing:8) {
-            HStack { Text("Karışık İşler").font(.headline); Spacer(); if model.project.sourcePreparation?.split == nil && model.project.sourcePreparation?.hiddenGuideGroups.isEmpty != false { Button("PDF ekle…",action:model.chooseGangPDFs) } }.padding(10)
+            HStack { Text(model.project.team == nil ? "Karışık İşler" : "Takım Düzeni").font(.headline); Spacer(); if model.project.team == nil, model.project.sourcePreparation?.split == nil && model.project.sourcePreparation?.hiddenGuideGroups.isEmpty != false { Button("PDF ekle…",action:model.chooseGangPDFs) } }.padding(10)
             ForEach(model.gangAssets,id:\.saved.id) { asset in Text(asset.saved.reference.fileName).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1).padding(.horizontal) }
             if let layout = model.currentSheet?.gangLayout { Text(layout.summary).font(.callout).padding(.horizontal) }
+            if let team = model.plan.teamSummary {
+                Text("\(team.pageCount) sayfa · \(model.plan.sheets.count) düzen · \(team.plateCount) kalıp/renk · \(model.plan.totalPressSheets) tabaka")
+                    .font(.caption).padding(.horizontal)
+                Picker("Düzen", selection: Binding(get: { model.sheetIndex }, set: model.selectPreviewSheet)) {
+                    ForEach(model.plan.sheets.indices, id: \.self) { index in Text("Düzen \(index + 1)").tag(index) }
+                }.padding(.horizontal)
+            }
             List(selection:$model.selectedGangJobID) {
                 ForEach(model.project.gang?.jobs ?? []) { job in
                     VStack(alignment:.leading,spacing:5) {
                         HStack { Circle().fill(Color(nsColor:DesignSystem.jobTint(job.tint,fill:false))).frame(width:10,height:10); Text(job.name).fontWeight(.medium) }
-                        Text("Adet \(job.quantity) + fire \(job.waste.quantities(for:job.quantity)?.waste ?? 0) · \(job.back == nil ? "Tek yüz" : "Çift yüz")").font(.system(size:12))
+                        if model.project.team == nil { Text("Adet \(job.quantity) + fire \(job.waste.quantities(for:job.quantity)?.waste ?? 0) · \(job.back == nil ? "Tek yüz" : "Çift yüz")").font(.system(size:12)) }
                         if let result = model.currentSheet?.gangLayout?.jobs.first(where: { $0.job.id==job.id }) {
                             Text("\(result.copiesPerSheet) adet/tabaka · Fazla: \(result.surplus) adet").font(.system(size:12))
                             ForEach(result.serialPlan.fields) { field in Text("Seri: \(result.serialPlan.range(field:field,repetition:model.repetition) ?? "—")").font(.system(size:12)) }

@@ -45,6 +45,7 @@ public struct GangJobResult: Equatable, Sendable {
     public var serialPlan: SerialNumberPlan
 }
 public struct GangSheetLayout: Equatable, Sendable {
+    public var isTeam = false
     public var samePlate: Bool
     public var blocks: [GangBlock]
     public var jobs: [GangJobResult]

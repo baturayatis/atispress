@@ -225,12 +225,13 @@ final class AllSheetsDocument: NSView {
     override var isFlipped: Bool { true }
     @discardableResult func updateGeometry() -> Bool {
         guard let model else { return false }
-        guard lastSheets != model.displaySheets || lastOptions != model.overlays || lastMarks != model.project.exportMarks || lastSource !== model.source || lastFocus != model.ui.focusedArea || lastSheetInfo != model.project.sheetInfo || lastGeneratedBleed != model.plan.generatedBleed || lastBleedAmount != model.project.settings.bleed || lastProduction != model.project.autoLayout?.production else { return false }
-        let geometryChanged = lastSheets.map { $0.size } != model.displaySheets.map { $0.size } || lastSheets.map { $0.repeatCount } != model.displaySheets.map { $0.repeatCount } || lastSheets.map { $0.hasContent(on:.back) } != model.displaySheets.map { $0.hasContent(on:.back) }
+        let backs = model.displaySheets.map(model.showsBackInPreview)
+        guard geometry.backs != backs || lastSheets != model.displaySheets || lastOptions != model.overlays || lastMarks != model.project.exportMarks || lastSource !== model.source || lastFocus != model.ui.focusedArea || lastSheetInfo != model.project.sheetInfo || lastGeneratedBleed != model.plan.generatedBleed || lastBleedAmount != model.project.settings.bleed || lastProduction != model.project.autoLayout?.production else { return false }
+        let geometryChanged = lastSheets.map { $0.size } != model.displaySheets.map { $0.size } || lastSheets.map { $0.repeatCount } != model.displaySheets.map { $0.repeatCount } || geometry.backs != backs
         lastSheetInfo = model.project.sheetInfo; lastGeneratedBleed = model.plan.generatedBleed; lastBleedAmount = model.project.settings.bleed; lastProduction = model.project.autoLayout?.production
         lastFocus = model.ui.focusedArea
         lastSheets = model.displaySheets; lastOptions = model.overlays; lastMarks = model.project.exportMarks; lastSource = model.source
-        geometry = SideScrollGeometry(heights: model.displaySheets.map { $0.size.height*PDFPreviewDrawing.pointsPerMM+64+headerHeight },repetitions:model.displaySheets.map { max(1,$0.repeatCount) },backs:model.displaySheets.map { $0.hasContent(on:.back) })
+        geometry = SideScrollGeometry(heights: model.displaySheets.map { $0.size.height*PDFPreviewDrawing.pointsPerMM+64+headerHeight },repetitions:model.displaySheets.map { max(1,$0.repeatCount) },backs:backs)
         let width = (model.displaySheets.map { $0.size.width*PDFPreviewDrawing.pointsPerMM+64 }.max() ?? 500)
         setFrameSize(NSSize(width:width,height:geometry.totalHeight))
         // Only the visible rows carry PDF documents, canvases and edge caches.
@@ -258,7 +259,7 @@ final class AllSheetsDocument: NSView {
         let previous = scroll.suppressReporting; scroll.suppressReporting = true
         headerHeight = height
         geometry = SideScrollGeometry(heights:model.displaySheets.map { $0.size.height*PDFPreviewDrawing.pointsPerMM+64+height },
-                                      repetitions:model.displaySheets.map { max(1,$0.repeatCount) },backs:model.displaySheets.map { $0.hasContent(on:.back) })
+                                      repetitions:model.displaySheets.map { max(1,$0.repeatCount) },backs:model.displaySheets.map(model.showsBackInPreview))
         rows.values.forEach { $0.removeFromSuperview() }; rows.removeAll()
         setFrameSize(NSSize(width:frame.width,height:geometry.totalHeight))
         scroll.documentView?.scroll(NSPoint(x:0,y:geometry.origin(location)+offset))

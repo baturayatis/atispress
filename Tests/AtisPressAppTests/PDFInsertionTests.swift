@@ -152,7 +152,7 @@ import ImpositionCore
         let sourceIDs=Set(model.pageListItems.filter{added.contains($0.id)}.compactMap(\.sourceID))
         XCTAssertEqual(sourceIDs.count,1)
         let saved=try folder().appendingPathComponent("two.atispress");try model.saveProject(as:saved)
-        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:saved)).version,21)
+        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:saved)).version,ProjectDocument.currentVersion)
         let moved=value.sources[0].url.deletingLastPathComponent().appendingPathComponent("moved.pdf")
         try FileManager.default.moveItem(at:value.sources[0].url,to:moved)
         let opened=workspace()

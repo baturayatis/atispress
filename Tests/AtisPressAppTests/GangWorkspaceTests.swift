@@ -14,11 +14,16 @@ final class GangWorkspaceTests: XCTestCase {
         try FileManager.default.createDirectory(at:url,withIntermediateDirectories:true)
         addTeardownBlock { try? FileManager.default.removeItem(at:url) }; return url
     }
-    private func pdf(_ folder: URL,_ name: String,_ size: Size,pages: Int = 1) throws -> URL {
+    private func pdf(_ folder: URL,_ name: String,_ size: Size,pages: Int = 1, distinctPages: Bool = false) throws -> URL {
         let url = folder.appendingPathComponent(name)
         var rect = CGRect(x:0,y:0,width:size.width*72/25.4,height:size.height*72/25.4)
         let context = try XCTUnwrap(CGContext(consumer:XCTUnwrap(CGDataConsumer(url:url as CFURL)),mediaBox:&rect,nil))
-        for _ in 0..<pages { context.beginPDFPage(nil); context.setFillColor(CGColor(gray:0.75,alpha:1)); context.fill(rect); context.endPDFPage() }
+        for page in 0..<pages {
+            context.beginPDFPage(nil)
+            context.setFillColor(CGColor(gray: distinctPages ? CGFloat(page) / CGFloat(pages) : 0.75, alpha: 1))
+            context.fill(rect)
+            context.endPDFPage()
+        }
         context.closePDF(); return url
     }
     private func settle(_ model: Workspace) async throws {
@@ -28,6 +33,83 @@ final class GangWorkspaceTests: XCTestCase {
         }
         XCTFail("Gang workspace did not settle")
     }
+    func testTeamImportPairPlacementProjectRoundTripAndVectorExport() async throws {
+        let directory = try folder()
+        let input = try pdf(directory, "team.pdf", Size(55, 35), pages: 13, distinctPages: true)
+        let workspace = model()
+        workspace.open(input)
+        try await settle(workspace)
+        XCTAssertTrue(workspace.showingTeamImportChoice)
+        XCTAssertEqual(workspace.project.binding, .stepAndRepeat)
+        XCTAssertNil(workspace.project.team)
+        workspace.startTeam()
+        workspace.project.sheet.size = Size(160, 135)
+        workspace.project.sheet.orientation = .portrait
+        workspace.basicQuantity = 3
+        workspace.setTeamDuplex(true)
+        let first = try XCTUnwrap(workspace.project.gang?.jobs.first)
+        workspace.swapTeamPage(jobID: first.id, side: .back, with: 4)
+        XCTAssertEqual(workspace.project.gang?.jobs.first?.back?.number, 4)
+        XCTAssertEqual(workspace.project.gang?.jobs.dropFirst().first?.back?.number, 2)
+        try await settle(workspace)
+        XCTAssertTrue(workspace.plan.canExport, "\(workspace.plan.issues)")
+        XCTAssertGreaterThan(workspace.plan.sheets.count, 1)
+        workspace.manualGang()
+        try await settle(workspace)
+        let last = try XCTUnwrap(workspace.project.gang?.jobs.last)
+        workspace.swapTeamPlacements(first.id, last.id)
+        try await settle(workspace)
+        XCTAssertTrue(workspace.plan.canExport, "\(workspace.plan.issues)")
+        XCTAssertTrue(workspace.plan.sheets[0].front.slots.contains { $0.sourcePageNumber == last.front.number })
+        let saved = directory.appendingPathComponent("team.atispress")
+        try workspace.saveProject(as: saved)
+        let document = try ProjectDocument.decode(Data(contentsOf: saved))
+        XCTAssertEqual(document.version, ProjectDocument.currentVersion)
+        XCTAssertEqual(document.state.gangSources?.count, 1)
+        XCTAssertNotNil(document.state.project.team?.manualLayouts)
+        let opened = model()
+        try await opened.loadProject(at: saved)
+        try await settle(opened)
+        XCTAssertEqual(opened.project, workspace.project)
+        XCTAssertEqual(opened.plan.sheets, workspace.plan.sheets)
+        XCTAssertEqual(opened.plan.teamSummary, workspace.plan.teamSummary)
+        let source = try XCTUnwrap(opened.source)
+        let plan = opened.plan
+        let output = directory.appendingPathComponent("imposed.pdf")
+        let export = try await Task.detached {
+            try PDFExporter.export(plan: plan, source: source, destination: .singlePDF(output), marks: .none)
+        }.value
+        XCTAssertEqual(export.sheetCount, plan.totalPressSheets)
+        XCTAssertEqual(export.pageCount, 2 * plan.totalPressSheets)
+        let rendered = try XCTUnwrap(CGPDFDocument(output as CFURL))
+        XCTAssertEqual(rendered.numberOfPages, export.pageCount)
+        let verification = try await Task.detached {
+            try ExportVerification.check(files: export.files, plan: plan, source: source,
+                                         marks: .none, includeBlankBacks: true)
+        }.value
+        XCTAssertTrue(verification.passed, "\(verification.differences)")
+    }
+
+    func testVersion21ClassicProjectOpensWithIdenticalPlan() async throws {
+        let directory = try folder()
+        let input = try pdf(directory, "classic.pdf", Size(55, 35), pages: 2)
+        let workspace = model()
+        workspace.open(input)
+        try await settle(workspace)
+        let saved = directory.appendingPathComponent("classic.atispress")
+        try workspace.saveProject(as: saved)
+        var legacy = try ProjectDocument.decode(Data(contentsOf: saved))
+        legacy.version = 21
+        try legacy.encoded().write(to: saved)
+        let opened = model()
+        try await opened.loadProject(at: saved)
+        try await settle(opened)
+        XCTAssertEqual(opened.project, workspace.project)
+        XCTAssertEqual(opened.plan.sheets, workspace.plan.sheets)
+        XCTAssertEqual(opened.plan.teamSummary, workspace.plan.teamSummary)
+        XCTAssertNil(opened.project.team)
+    }
+
     func testMultiplePDFsSettingsSerialsAndManualPlanRoundtripSchemaNine() async throws {
         let folder = try folder(),a = try pdf(folder,"cards.pdf",Size(55,35),pages:2),b = try pdf(folder,"labels.pdf",Size(30,45))
         let workspace = model(); workspace.setMode(.gang); workspace.addGangPDFs([a,b]); try await settle(workspace)

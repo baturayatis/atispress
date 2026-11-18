@@ -4,7 +4,7 @@ import ImpositionCore
 struct FireControlsView: View {
     @ObservedObject var model: Workspace
     private var waste: Binding<WasteSettings> {
-        Binding(get: { model.selectedGangJob?.waste ?? model.project.stepAndRepeat.waste ?? WasteSettings() },set: { value in if let id = model.selectedGangJob?.id { model.editGangJob(id) { $0.waste = value } } else { model.project.stepAndRepeat.waste = value } })
+        Binding(get: { model.workflowWaste }, set: { model.workflowWaste = $0 })
     }
     var body: some View {
         VStack(alignment: .leading,spacing: 6) {
@@ -23,11 +23,16 @@ struct FireControlsView: View {
                     IntegerInput(title:"Fire",value:waste.fixed)
                 }
             }
-            Picker("Fire kopyalar",selection: waste.numberCopies) {
-                Text("Numarasız").tag(false); Text("Numaralı").tag(true)
-            }.pickerStyle(.segmented).inspectorSetting(model,"Fire kopyalar",SettingGuidance.detail("Fire kopyalar"))
-            if waste.wrappedValue.numberCopies {
-                Text("Seri aralığı fireyi içerir. Bitiş no, müşteri adedini belirler.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+            if model.project.team != nil {
+                Text("Fire her düzenin fiziksel tabaka adedine eklenir.").font(.system(size:12))
+                    .foregroundStyle(DesignSystem.muted)
+            } else {
+                Picker("Fire kopyalar",selection: waste.numberCopies) {
+                    Text("Numarasız").tag(false); Text("Numaralı").tag(true)
+                }.pickerStyle(.segmented).inspectorSetting(model,"Fire kopyalar",SettingGuidance.detail("Fire kopyalar"))
+                if waste.wrappedValue.numberCopies {
+                    Text("Seri aralığı fireyi içerir. Bitiş no, müşteri adedini belirler.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                }
             }
             if let sheet = model.currentSheet,let summary = sheet.productionSummary { Text(summary).font(.system(size:12)).textSelection(.enabled) }
             else { Text("Fire, Adet üzerine eklenir; yüzde yukarı yuvarlanır.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1) }

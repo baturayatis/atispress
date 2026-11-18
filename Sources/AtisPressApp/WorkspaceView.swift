@@ -32,6 +32,10 @@ struct WorkspaceView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.refreshRecentFiles() }
         .overlay { if dropTarget { RoundedRectangle(cornerRadius: 10).stroke(DesignSystem.teal,lineWidth: 4).padding(5).allowsHitTesting(false) } }
         .onDrop(of: [.fileURL],isTargeted: $dropTarget,perform: model.acceptDrop)
+        .confirmationDialog("Çok sayfalı PDF", isPresented: $model.showingTeamImportChoice, titleVisibility: .visible) {
+            Button("Takım olarak diz", action: model.startTeam)
+            Button("Olduğu gibi kullan", role: .cancel) {}
+        }
         .alert("İşlem tamamlanamadı",isPresented: Binding(get: { model.error != nil },set: { if !$0 { model.error = nil } })) {
             Button("Tamam") { model.error = nil; model.pdfLoadFailure=nil }
             if let failure=model.pdfLoadFailure {Button("Tanı bilgisini kopyala") {model.copyPDFDiagnostic(failure)}}
@@ -199,7 +203,7 @@ struct WorkspaceView: View {
             }
             if model.showsAllSides, !model.displaySheets.isEmpty {
                 AllSheetsPreview(model:model)
-            } else if let sheet = model.currentSheet,model.side == .back,!sheet.hasContent(on: .back),sheet.diagnosticBounds == nil {
+            } else if let sheet = model.currentSheet,model.side == .back,!model.showsBackInPreview(sheet),sheet.diagnosticBounds == nil {
                 ContentUnavailableView("Arka yüz yok",systemImage: "doc",description: Text("Bu işin arka yüzünde içerik yok."))
                     .frame(maxWidth: .infinity,maxHeight: .infinity)
             } else if let sheet = model.currentSheet, let side = model.currentSide {

@@ -62,7 +62,8 @@ struct InspectorView: View {
             switch group {
             case 1:methodControls
             case 2:
-                if model.project.binding == .gang {GangInspectorView(model:model)}
+                if model.project.team != nil { TeamInspectorView(model: model) }
+                else if model.project.binding == .gang { GangInspectorView(model:model) }
                 else {
                     ForEach(Array(model.project.repeatJobs.enumerated()),id:\.offset) {index,job in
                         Picker("İş \(index+1) yüzleri",selection:Binding(get:{model.jobPageLayout(frontPage:job.front.number)},set:{model.setJobPageLayout(frontPage:job.front.number,mode:$0)})) {
@@ -74,6 +75,8 @@ struct InspectorView: View {
             case 4:PresetInspectorView(model:model)
             default:
                 workflowProduct
+                if model.project.team != nil { TeamInspectorView(model: model) }
+                else if model.canStartTeam { Button("Takım olarak diz", action: model.startTeam) }
                 RescaleInspectorView(model:model)
                 if model.project.binding == .stepAndRepeat {Toggle("Adet hesapla (her iş için)",isOn:model.optionalCountBinding($model.project.stepAndRepeat.quantity,name:"quantity",defaultValue:1000))}
             }

@@ -18,7 +18,7 @@ struct DimensionInput:View {
 }
 extension Workspace {
     var manualSettingCount:Int { AutoLayoutField.allCases.filter { isManual($0) || project.autoLayout?.presetFields?.contains($0) == true }.count }
-    var showsTurnControl:Bool { plan.hasBackContent || project.repeatJobs.contains { $0.back != nil } || project.isBooklet || project.isLeafBinding && project.pages.count > 1 }
+    var showsTurnControl:Bool { project.team?.duplex ?? (plan.hasBackContent || project.repeatJobs.contains { $0.back != nil } || project.isBooklet || project.isLeafBinding && project.pages.count > 1) }
     var turnLabel:String {
         switch project.settings.turnMethod { case .sheetwise:return "Ayrı kalıp (sheetwise)"; case .workAndTurn:return "Yandan çevir (work-and-turn)"; case .workAndTumble:return "Baştan çevir (work-and-tumble)" }
     }

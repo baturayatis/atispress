@@ -17,6 +17,25 @@ In an environment that prevents nested `sandbox-exec` (including the current
 agent environment), use `swift build --disable-sandbox` and
 `swift test --disable-sandbox`. Xcode can also open `Package.swift` directly.
 
+## Takım Düzeni
+
+Çok sayfalı bir PDF açınca **Takım olarak diz** seçeneği, sayfaları aynı
+işte bir araya getirir. **Olduğu gibi kullan** mevcut PDF açma düzenini
+kullanır. **İş** panelinde tek veya çift yüzü seçin. Çift yüzde ilk
+eşleme 1–2, 3–4 şeklindedir. Ön ve arka sayfa menüleri sayfaların yerini
+değiştirir. Bir çiftin kesim ölçüleri eşleşmelidir.
+
+**Tabaka** panelinde özel ölçü, yön ve çevirme yöntemini seçin. Kenar,
+maşa ve taşma ayarları yerleşime dahildir. Gerekirse takım birden fazla
+düzene bölünür. Tekrarlar tam takım halinde eklenir. Fire her düzende
+gerekli fiziksel tabaka sayısına uygulanır. Otomatik arama sınırlıdır ve
+bulduğu düzenin optimum olduğunu garanti etmez.
+
+Sol listedeki **Düzen** seçicisi ilgili tabakanın önizlemesine gider.
+**Elle yerleştir** ile blokları sürükleyebilir, ölçülü konum girebilir
+ve sayfaların yerleşimini değiştirebilirsiniz. Çakışmalar ve sığmayan
+bloklar dışa aktarmayı durdurur. Önizleme ve PDF çıktı aynı planı kullanır.
+
 ## Sayfa listesi
 
 Sayfalar listesindeki … ve sağ tık menüsüyle çoğaltma, listeden silme,
@@ -33,7 +52,7 @@ Boş satırlar komşu sayfanın ölçüsünü alır ve kitap forma hesabına kat
 Kitapta sayfa sayısı ve eklenecek boşlar listede gösterilir.
 
 Liste kimlikleri, sırası, baskı seçimi, boşlar, kaynaklar ve Ön/Arka çiftleri
-.atispress şema 21 ile saklanır. Şema 1–20 projeleri açılır. Her işlem tek undo adımıdır. Önizleme ve çıktı ortak
+.atispress şema 22 ile saklanır. Şema 1–21 projeleri açılır. Her işlem tek undo adımıdır. Önizleme ve çıktı ortak
 planın aynı kaynak sayfa referanslarını kullanır.
 
 ### Başka PDF’lerden sayfa ekleme
@@ -93,7 +112,7 @@ kapsamı ve elle kontrol listesi [docs/STATUS.md](docs/STATUS.md) içindedir.
 Güncel uygulama sürümü **0.4.0 (build 6)**. Sürüm kaynağı
 `packaging/Info.plist`; Hakkında, tanı bilgisi ve güncelleme karşılaştırması
 aynı paket sürümünü kullanır. `swift run` için de 0.4.0 / 6 yedeği bulunur.
-Proje dosyası şeması bağımsızdır ve **21**’dir; eski projeler açılır.
+Proje dosyası şeması bağımsızdır ve **22**’dir; eski projeler açılır.
 
 **macOS 14 veya üzeri** gerekir. Intel ve Apple Silicon Mac’ler aynı universal
 uygulamayı kullanır.
