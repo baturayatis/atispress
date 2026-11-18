@@ -10,7 +10,10 @@ struct PDFImageColorEditor {
 
     private func resolved(_ key: String, in dictionary: Data) throws -> Data? {
         guard let tokens = file.value(key, pdfTokens(dictionary)), let first = tokens.first, let last = tokens.last else { return nil }
-        if tokens.count == 3, last.text == "R", let id = Int(first.text) { return try file.dictionary(id, maximumBytes: 256 * 1024) }
+        if tokens.count == 3, last.text == "R", let id = Int(first.text),
+           let generation = Int(tokens[1].text), file.offsets[id]?.1 == generation {
+            return try file.dictionary(id, maximumBytes: 256 * 1024)
+        }
         guard first.text == "<<", last.text == ">>" else { throw SourcePreparationError.unsafeGuides }
         return dictionary.subdata(in: first.range.lowerBound..<last.range.upperBound)
     }
@@ -40,14 +43,195 @@ struct PDFImageColorEditor {
         throw SourcePreparationError.unsafeGuides
     }
 
+    private struct Target {
+        let name: String
+        let id: Int
+        let dictionary: Data
+        let stream: CGPDFStreamRef
+        let live: CGPDFDictionaryRef
+        let form: Scope?
+    }
+
+    private struct Scope {
+        let content: Data
+        let uses: [PDFContentToken]
+        let resources: Data
+        let objects: Data
+        let live: CGPDFDictionaryRef
+        let targets: [Target]
+        let path: String
+    }
+
+    private struct Budget {
+        var visits = 4096
+        var bytes = 32 * 1024 * 1024
+
+        mutating func consume(_ count: Int) -> Bool {
+            guard count <= bytes else { return false }
+            bytes -= count
+            return true
+        }
+    }
+
+    private func scope(content: Data, resources: Data?, live: CGPDFDictionaryRef?, group: Bool,
+                       path: String, ancestors: Set<Int>, budget: inout Budget,
+                       warnings: inout Set<String>) throws -> (Scope?, Bool) {
+        guard content.count <= 4 * 1024 * 1024, budget.consume(content.count) else {
+            warnings.insert("\(path): İçerik akışı inceleme sınırını aşıyor.")
+            return (nil, false)
+        }
+        let tokens = pdfTokens(content)
+        guard tokens.last?.text != "BI" else {
+            warnings.insert("\(path): Satır içi görsel (BI) bulundu. Bu içerik akışı özgün haliyle kullanıldı.")
+            return (nil, false)
+        }
+        var uses: [PDFContentToken] = []
+        var depth = 0
+        for index in tokens.indices {
+            switch tokens[index].text {
+            case "<<", "[": depth += 1
+            case ">>", "]": depth -= 1
+            case "Do" where depth == 0 && index > 0 && tokens[index - 1].text.hasPrefix("/"):
+                uses.append(tokens[index - 1])
+            default: break
+            }
+        }
+        var safe = !group && Self.allowsCMYKAdjustment(tokens: tokens, resources: live)
+        let names = Set(uses.map(\.text))
+        guard !names.isEmpty else { return (nil, safe) }
+        guard let resources, let objects = try? resolved("/XObject", in: resources),
+              let live, let liveObjects = Self.dictionary("XObject", in: live) else {
+            warnings.insert("\(path): /Resources veya /XObject sözlüğü çözümlenemedi.")
+            return (nil, false)
+        }
+        guard budget.consume(resources.count + objects.count) else {
+            warnings.insert("\(path): Kaynak sözlükleri toplam inceleme sınırını aşıyor.")
+            return (nil, false)
+        }
+        let objectTokens = pdfTokens(objects)
+        var targets: [Target] = []
+        for name in names.sorted() {
+            try Task.checkCancellation()
+            let location = "\(path) \(name)"
+            guard budget.visits > 0 else {
+                warnings.insert("PDF nesne inceleme sınırına ulaşıldı. Kalan nesneler özgün haliyle kullanıldı.")
+                safe = false
+                break
+            }
+            budget.visits -= 1
+            guard !name.contains("#") else {
+                warnings.insert("\(location): Kaçış kodlu kaynak adı desteklenmiyor.")
+                safe = false
+                continue
+            }
+            var stream: CGPDFStreamRef?
+            guard let reference = file.value(name, objectTokens), reference.count == 3,
+                  reference.last?.text == "R", let id = Int(reference[0].text),
+                  let generation = Int(reference[1].text), file.offsets[id]?.1 == generation,
+                  let dictionary = try? file.dictionary(id, maximumBytes: 256 * 1024),
+                  CGPDFDictionaryGetStream(liveObjects, String(name.dropFirst()), &stream),
+                  let stream, let object = CGPDFStreamGetDictionary(stream) else {
+                warnings.insert("\(location): XObject akış başvurusu çözümlenemedi.")
+                safe = false
+                continue
+            }
+            guard budget.consume(dictionary.count) else {
+                warnings.insert("\(location): Nesne sözlüğü toplam inceleme sınırını aşıyor.")
+                safe = false
+                break
+            }
+            let subtype = Self.name("Subtype", in: object)
+            var child: Scope?
+            switch subtype {
+            case "Image":
+                if !ancestors.isEmpty, let colorName = Self.name("ColorSpace", in: object),
+                   !["DeviceGray", "DeviceRGB", "DeviceCMYK"].contains(colorName) {
+                    // Quartz can silently fail to draw a Form image whose
+                    // ColorSpace depends on a named resource.
+                    warnings.insert("\(location): Form görselinde adlandırılmış /ColorSpace /\(colorName) güvenli biçimde görüntülenemiyor.")
+                    safe = false
+                    continue
+                }
+                safe = safe && Self.colorSpace(object, resources: live) != nil
+            case "Form":
+                guard ancestors.count < 8, !ancestors.contains(id) else {
+                    let reason = ancestors.contains(id) ? "Form döngüsü bulundu." : "8 düzeylik iç içe Form sınırı aşıldı."
+                    warnings.insert("\(location): \(reason)")
+                    safe = false
+                    continue
+                }
+                let formTokens = pdfTokens(dictionary)
+                let specialKeys = ["/F", "/FFilter", "/FDecodeParms", "/Ref", "/PS"]
+                let unsupportedKeys = specialKeys.filter { file.value($0, formTokens) != nil }
+                guard unsupportedKeys.isEmpty else {
+                    warnings.insert("\(location): Dış kaynak veya PostScript kullanan Form desteklenmiyor (\(unsupportedKeys.joined(separator: ", "))).")
+                    safe = false
+                    continue
+                }
+                guard let formResources = try? resolved("/Resources", in: dictionary),
+                      let liveFormResources = Self.dictionary("Resources", in: object) else {
+                    warnings.insert("\(location): Formun kendi /Resources sözlüğü yok veya okunamıyor.")
+                    safe = false
+                    continue
+                }
+                var format = CGPDFDataFormat.raw
+                guard let bytes = CGPDFStreamCopyData(stream, &format), format == .raw else {
+                    warnings.insert("\(location): Form içerik akışı çözümlenemedi.")
+                    safe = false
+                    continue
+                }
+                let nested = try scope(content: bytes as Data, resources: formResources, live: liveFormResources,
+                                       group: file.value("/Group", formTokens) != nil, path: location,
+                                       ancestors: ancestors.union([id]), budget: &budget, warnings: &warnings)
+                safe = safe && nested.1
+                guard let nestedScope = nested.0 else { continue }
+                child = nestedScope
+            default:
+                warnings.insert("\(location): XObject türü desteklenmiyor (\(subtype ?? "Subtype yok")).")
+                safe = false
+                continue
+            }
+            targets.append(Target(name: name, id: id, dictionary: dictionary, stream: stream, live: object, form: child))
+        }
+        return (Scope(content: content, uses: uses, resources: resources, objects: objects,
+                      live: live, targets: targets, path: path), safe)
+    }
+
     func variant(pages: Set<Int>, adjustment: ImageColorAdjustment) throws -> (Data?, [String]) {
-        guard adjustment.isValid else { return (nil, ["Renk değerleri geçersiz. Görseller özgün renkleriyle kullanıldı."]) }
-        var output = file.data
+        let result = try process(pages: pages, adjustment: adjustment, inspect: false)
+        return (result.0, result.1.warnings)
+    }
+
+    func inspect(pages: Set<Int>) throws -> PDFColorInspection {
+        // The same decode and ICC round trip checks also run before sliders are enabled.
+        var probe = ImageColorAdjustment()
+        probe.contrast = 0
+        return try process(pages: pages, adjustment: probe, inspect: true).1
+    }
+
+    private func process(pages: Set<Int>, adjustment: ImageColorAdjustment, inspect: Bool)
+        throws -> (Data?, PDFColorInspection) {
+        guard adjustment.isValid else {
+            return (nil, PDFColorInspection(warnings: ["Renk değerleri geçersiz."]))
+        }
+        var output = inspect ? Data() : file.data
         output.append(10)
         var entries: [Int: (Int, Int)] = [:]
         var next = (file.offsets.keys.max() ?? 0) + 1
         var warnings = Set<String>()
-        func append(_ id: Int, generation: Int, dictionary: Data, stream: Data? = nil) {
+        var editable: [Int: Int] = [:]
+        var budget = Budget()
+        var sampleBudget = 96 * 1024 * 1024
+        var changedPages = 0
+
+        func append(dictionary: Data, stream: Data? = nil, existingID: Int? = nil) -> Int? {
+            guard output.count + dictionary.count + (stream?.count ?? 0) <= 96 * 1024 * 1024 else {
+                warnings.insert("Renk düzenleme çıktı sınırı aşıldı. Sınıra takılan nesneler özgün haliyle kullanıldı.")
+                return nil
+            }
+            let id = existingID ?? next
+            if existingID == nil { next += 1 }
+            let generation = existingID.flatMap { file.offsets[$0]?.1 } ?? 0
             entries[id] = (output.count, generation)
             output.append(Data("\(id) \(generation) obj\n".utf8))
             output.append(dictionary)
@@ -57,114 +241,100 @@ struct PDFImageColorEditor {
                 output.append(Data("\nendstream".utf8))
             }
             output.append(Data("\nendobj\n".utf8))
+            return id
+        }
+
+        // Rewrite only Do operands in copied scopes. The original objects can
+        // also be used by masks, patterns, annotations or other pages.
+        func rewrite(_ scope: Scope, allowsCMYK: Bool) throws -> (Data, Data)? {
+            var objects = scope.objects
+            var resources = scope.resources
+            var aliases: [String: String] = [:]
+            var replacements: [Int: Int] = [:]
+            var attempted = Set<Int>()
+            for target in scope.targets {
+                try Task.checkCancellation()
+                let location = "\(scope.path) \(target.name)"
+                var replacement = replacements[target.id]
+                if attempted.insert(target.id).inserted {
+                    var dictionary = target.dictionary
+                    if let form = target.form {
+                        if let (content, formResources) = try rewrite(form, allowsCMYK: allowsCMYK) {
+                            set("/Resources", to: formResources, in: &dictionary)
+                            set("/Length", to: Data(String(content.count).utf8), in: &dictionary)
+                            set("/Filter", to: nil, in: &dictionary)
+                            set("/DecodeParms", to: nil, in: &dictionary)
+                            replacement = append(dictionary: dictionary, stream: content)
+                        }
+                    } else {
+                        var notes = Set<String>()
+                        var components: Int?
+                        let bytes = try adjusted(target.stream, dictionary: target.live, resources: scope.live,
+                                                 adjustment: adjustment, allowsCMYK: allowsCMYK, inspect: inspect,
+                                                 sampleBudget: &sampleBudget, components: &components, warnings: &notes)
+                        warnings.formUnion(notes.map { "\(location): \($0)" })
+                        if let components { editable[target.id] = components }
+                        if let bytes {
+                            set("/Length", to: Data(String(bytes.count).utf8), in: &dictionary)
+                            set("/Filter", to: Data("/FlateDecode".utf8), in: &dictionary)
+                            set("/DecodeParms", to: nil, in: &dictionary)
+                            replacement = append(dictionary: dictionary, stream: bytes)
+                        }
+                    }
+                    replacements[target.id] = replacement
+                }
+                guard let replacement else { continue }
+                var alias = "/AtisPressColor\(replacement)"
+                while file.value(alias, pdfTokens(objects)) != nil { alias += "_" }
+                set(alias, to: Data("\(replacement) 0 R".utf8), in: &objects)
+                aliases[target.name] = alias
+            }
+            guard !aliases.isEmpty else { return nil }
+            var content = scope.content
+            for use in scope.uses.reversed() {
+                if let alias = aliases[use.text] { content.replaceSubrange(use.range, with: Data(alias.utf8)) }
+            }
+            set("/XObject", to: objects, in: &resources)
+            return (content, resources)
         }
 
         for number in pages.sorted() {
             try Task.checkCancellation()
-            guard file.pages.indices.contains(number - 1), let page = document.page(at: number),
-                  let content = pdfPageContent(page), content.count <= 4 * 1024 * 1024 else {
-                warnings.insert("Bazı sayfa içerikleri güvenli biçimde incelenemedi.")
+            let path = "Sayfa \(number)"
+            guard number > 0, file.pages.indices.contains(number - 1),
+                  let page = document.page(at: number),
+                  let content = pdfPageContent(page) else {
+                warnings.insert("\(path): Sayfa veya /Contents akışı okunamadı.")
                 continue
             }
             let pageID = file.pages[number - 1]
-            var dictionary = try file.dictionary(pageID, maximumBytes: 256 * 1024)
-            let tokens = pdfTokens(content)
-            if tokens.last?.text == "BI" {
-                warnings.insert("Satır içi görseller özgün renkleriyle kullanıldı.")
-                // The tokenizer stops before inline binary data. Later image uses
-                // on this page may share a name, so keep the entire page unchanged.
+            guard var dictionary = try? file.dictionary(pageID, maximumBytes: 256 * 1024) else {
+                warnings.insert("\(path): Sayfa sözlüğü okunamadı.")
                 continue
             }
-            let uses = tokens.indices.dropFirst().compactMap { index -> PDFContentToken? in
-                guard tokens[index].text == "Do", tokens[index - 1].text.hasPrefix("/") else { return nil }
-                return tokens[index - 1]
-            }
-            let names = Set(uses.map(\.text))
-            guard !names.isEmpty else { continue }
-            guard var resources = try resources(for: dictionary), var objects = try resolved("/XObject", in: resources),
-                  let liveResources = Self.liveResources(page), let liveObjects = Self.dictionary("XObject", in: liveResources) else {
-                warnings.insert("Bazı PDF görsel kaynakları güvenli biçimde incelenemedi.")
-                continue
-            }
-            var allowsCMYK: Bool?
-            var aliases: [String: String] = [:]
-            var replacementImages: [Int: Int] = [:]
-            for name in names.sorted() {
-                try Task.checkCancellation()
-                var stream: CGPDFStreamRef?
-                guard !name.contains("#"), CGPDFDictionaryGetStream(liveObjects, String(name.dropFirst()), &stream),
-                      let stream, let image = CGPDFStreamGetDictionary(stream) else {
-                    warnings.insert("Bazı PDF görsel kaynakları güvenli biçimde incelenemedi.")
-                    continue
-                }
-                guard Self.name("Subtype", in: image) == "Image" else {
-                    warnings.insert("İç içe Form içeriği özgün renkleriyle kullanıldı.")
-                    continue
-                }
-                guard let reference = file.value(name, pdfTokens(objects)), reference.count == 3,
-                      reference.last?.text == "R", let id = Int(reference[0].text),
-                      let generation = Int(reference[1].text), file.offsets[id]?.1 == generation else {
-                    warnings.insert("Bazı görsel başvuruları güvenli biçimde değiştirilemedi.")
-                    continue
-                }
-                let newID: Int
-                if let existing = replacementImages[id] { newID = existing }
-                else {
-                    guard let imageData = try adjusted(stream, dictionary: image, resources: liveResources, adjustment: adjustment,
-                                                       allowsCMYK: {
-                        if let allowsCMYK { return allowsCMYK }
-                        let allowed = Self.allowsCMYKAdjustment(tokens: tokens, names: names, page: page,
-                                                               resources: liveResources, xObjects: liveObjects)
-                        allowsCMYK = allowed
-                        return allowed
-                    }, warnings: &warnings) else { continue }
-                    guard output.count + imageData.count <= 96 * 1024 * 1024 else {
-                        warnings.insert("Renk düzenleme bellek sınırını aşan görseller özgün renkleriyle kullanıldı.")
-                        continue
-                    }
-                    var imageDictionary = try file.dictionary(id, maximumBytes: 256 * 1024)
-                    set("/Length", to: Data(String(imageData.count).utf8), in: &imageDictionary)
-                    set("/Filter", to: Data("/FlateDecode".utf8), in: &imageDictionary)
-                    set("/DecodeParms", to: nil, in: &imageDictionary)
-                    newID = next
-                    next += 1
-                    replacementImages[id] = newID
-                    append(newID, generation: 0, dictionary: imageDictionary, stream: imageData)
-                }
-                var alias = "/AtisPressColor\(newID)"
-                while file.value(alias, pdfTokens(objects)) != nil { alias += "_" }
-                set(alias, to: Data("\(newID) 0 R".utf8), in: &objects)
-                aliases[name] = alias
-            }
-            if !aliases.isEmpty {
-                // Use private aliases only at the edited Do operands. Forms,
-                // masks or other pages may still reference the original name.
-                var revised = content
-                for use in uses.reversed() {
-                    if let alias = aliases[use.text] { revised.replaceSubrange(use.range, with: Data(alias.utf8)) }
-                }
-                guard output.count + revised.count <= 96 * 1024 * 1024 else {
-                    warnings.insert("Renk düzenleme bellek sınırını aşan görseller özgün renkleriyle kullanıldı.")
-                    continue
-                }
-                let streamID = next
-                next += 1
-                append(streamID, generation: 0, dictionary: Data("<< /Length \(revised.count) >>".utf8), stream: revised)
-                set("/Contents", to: Data("\(streamID) 0 R".utf8), in: &dictionary)
-                set("/XObject", to: objects, in: &resources)
-                set("/Resources", to: resources, in: &dictionary)
-                append(pageID, generation: file.offsets[pageID]?.1 ?? 0, dictionary: dictionary)
-            }
+            let (pageScope, safeCMYK) = try scope(content: content, resources: try? resources(for: dictionary),
+                                                  live: Self.liveResources(page),
+                                                  group: file.value("/Group", pdfTokens(dictionary)) != nil,
+                                                  path: path, ancestors: [], budget: &budget, warnings: &warnings)
+            guard let pageScope, let (revised, resources) = try rewrite(pageScope, allowsCMYK: safeCMYK),
+                  let streamID = append(dictionary: Data("<< /Length \(revised.count) >>".utf8), stream: revised) else { continue }
+            set("/Contents", to: Data("\(streamID) 0 R".utf8), in: &dictionary)
+            set("/Resources", to: resources, in: &dictionary)
+            if append(dictionary: dictionary, existingID: pageID) != nil { changedPages += 1 }
         }
-        if entries.isEmpty {
-            warnings.insert("Seçili işte renk düzenlemesine uygun görsel bulunamadı.")
-            return (nil, warnings.sorted())
+        if editable.isEmpty {
+            warnings.insert("Seçili sayfalarda renk düzenlemesine uygun görsel bulunamadı.")
         }
-        return (file.appendingXref(to: output, entries: entries, size: next), warnings.sorted())
+        let result = PDFColorInspection(editableCount: editable.count,
+                                        saturationCount: editable.values.filter { $0 > 1 }.count,
+                                        warnings: warnings.sorted())
+        guard changedPages > 0 else { return (nil, result) }
+        return (file.appendingXref(to: output, entries: entries, size: next), result)
     }
 
     private func adjusted(_ stream: CGPDFStreamRef, dictionary: CGPDFDictionaryRef, resources: CGPDFDictionaryRef,
-                          adjustment: ImageColorAdjustment, allowsCMYK: () -> Bool, warnings: inout Set<String>) throws -> Data? {
+                          adjustment: ImageColorAdjustment, allowsCMYK: Bool, inspect: Bool,
+                          sampleBudget: inout Int, components eligible: inout Int?, warnings: inout Set<String>) throws -> Data? {
         guard let colorSpace = Self.colorSpace(dictionary, resources: resources) else {
             warnings.insert("CMYK, spot ve desteklenmeyen renk uzayları özgün renkleriyle kullanıldı.")
             return nil
@@ -179,30 +349,40 @@ struct PDFImageColorEditor {
                 warnings.insert("Özel renk dönüşüm amacı olan CMYK görseller özgün renkleriyle kullanıldı.")
                 return nil
             }
-            guard allowsCMYK() else {
+            guard allowsCMYK else {
                 warnings.insert("Spot renk, üst baskı veya birleşik grafik durumu içerebilen sayfalardaki CMYK görseller özgün renkleriyle kullanıldı.")
                 return nil
             }
         }
         if components == 1 && adjustment.saturation != 1 {
             warnings.insert("Doygunluk gri tonlamalı görsellere uygulanmadı.")
-            if adjustment.brightness == 0 && adjustment.contrast == 1 { return nil }
         }
         let excluded = ["SMask", "Mask", "ImageMask", "SMaskInData", "Decode", "F", "FFilter", "FDecodeParms", "Alternates"]
-        guard !excluded.contains(where: { key in
+        let unsupportedKeys = excluded.filter { key in
             var object: CGPDFObjectRef?
             return CGPDFDictionaryGetObject(dictionary, key, &object)
-        }) else {
-            warnings.insert("Maskeli, saydamlık bilgili veya özel kod çözmeli görseller özgün renkleriyle kullanıldı.")
+        }
+        guard unsupportedKeys.isEmpty else {
+            let keys = unsupportedKeys.map { "/" + $0 }.joined(separator: ", ")
+            warnings.insert("Maskeli, özel kod çözmeli veya dış kaynaklı görsel (\(keys)) özgün renkleriyle kullanıldı.")
             return nil
         }
         var width: CGPDFInteger = 0, height: CGPDFInteger = 0, bits: CGPDFInteger = 0
-        guard CGPDFDictionaryGetInteger(dictionary, "Width", &width), CGPDFDictionaryGetInteger(dictionary, "Height", &height),
-              CGPDFDictionaryGetInteger(dictionary, "BitsPerComponent", &bits), bits == 8,
-              width > 0, height > 0, width <= 12_000_000 / height / components else {
-            warnings.insert("8 bit dışındaki veya boyut sınırını aşan görseller özgün renkleriyle kullanıldı.")
+        guard CGPDFDictionaryGetInteger(dictionary, "BitsPerComponent", &bits), bits == 8 else {
+            warnings.insert("Görselin /BitsPerComponent değeri 8 değil veya eksik.")
             return nil
         }
+        guard CGPDFDictionaryGetInteger(dictionary, "Width", &width), CGPDFDictionaryGetInteger(dictionary, "Height", &height),
+              width > 0, height > 0, width <= 12_000_000 / height / components else {
+            warnings.insert("Görsel boyutları geçersiz veya örnek sayısı sınırı aşıyor.")
+            return nil
+        }
+        let sampleCount = width * height * components
+        guard sampleCount <= sampleBudget else {
+            warnings.insert("Görsel örnekleri toplam inceleme sınırını aşıyor.")
+            return nil
+        }
+        sampleBudget -= sampleCount
         let filter = Self.name("Filter", in: dictionary)
         var filterObject: CGPDFObjectRef?
         let hasFilter = CGPDFDictionaryGetObject(dictionary, "Filter", &filterObject)
@@ -241,10 +421,14 @@ struct PDFImageColorEditor {
                 warnings.insert("ICC profili doğrulanamayan veya çift yönlü dönüşümü olmayan CMYK görseller özgün renkleriyle kullanıldı.")
                 return nil
             }
-            guard edited != data else { return nil }
+            eligible = components
+            guard !inspect, edited != data else { return nil }
             data = edited
             warnings.insert("CMYK görseller kendi ICC profillerine geri dönüştürüldü. Düzenlenen piksellerde mürekkep oranları değişebilir.")
         } else {
+            eligible = components
+            guard !inspect else { return nil }
+            if components == 1 && adjustment.brightness == 0 && adjustment.contrast == 1 { return nil }
             try Self.applyAdjustment(adjustment, to: &data, components: components)
         }
         var capacity = compressBound(uLong(data.count))
@@ -279,15 +463,13 @@ struct PDFImageColorEditor {
         }
     }
 
-    private static func allowsCMYKAdjustment(tokens: [PDFContentToken], names: Set<String>, page: CGPDFPage,
-                                             resources: CGPDFDictionaryRef, xObjects: CGPDFDictionaryRef) -> Bool {
+    private static func allowsCMYKAdjustment(tokens: [PDFContentToken], resources: CGPDFDictionaryRef?) -> Bool {
         // A simple page scope provides no place for an overprinting or
         // spot-painted object to interact with a changed separation.
         let complexOperators: Set<String> = ["gs", "sh", "SCN", "scn", "ri"]
         if tokens.contains(where: { complexOperators.contains($0.text) }) { return false }
-        if let pageDictionary = page.dictionary, dictionary("Group", in: pageDictionary) != nil { return false }
         let processSpaces: Set<String> = ["/DeviceGray", "/DeviceRGB", "/DeviceCMYK"]
-        let fonts = dictionary("Font", in: resources)
+        let fonts = resources.flatMap { dictionary("Font", in: $0) }
         for index in tokens.indices {
             switch tokens[index].text {
             case "CS", "cs":
@@ -298,13 +480,7 @@ struct PDFImageColorEditor {
             default: break
             }
         }
-        return names.allSatisfy { key in
-            var stream: CGPDFStreamRef?
-            guard CGPDFDictionaryGetStream(xObjects, String(key.dropFirst()), &stream), let stream,
-                  let image = CGPDFStreamGetDictionary(stream), name("Subtype", in: image) == "Image",
-                  colorSpace(image, resources: resources) != nil else { return false }
-            return true
-        }
+        return true
     }
 
     private static func supportsDCTParameters(_ image: CGPDFDictionaryRef, components: Int) -> Bool {

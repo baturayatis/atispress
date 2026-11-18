@@ -34,21 +34,35 @@ final class ImageColorTests: XCTestCase {
         return try writePDF(objects)
     }
 
-    private func writePDF(_ objects: [Data]) throws -> URL {
+    private func writePDF(_ objects: [Data], xrefStream: Bool = false) throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: folder) }
         let url = folder.appendingPathComponent("images.pdf")
-        var data = Data("%PDF-1.4\n".utf8)
+        var data = Data((xrefStream ? "%PDF-1.5\n" : "%PDF-1.4\n").utf8)
         var offsets: [Int] = []
         for (i, object) in objects.enumerated() {
             offsets.append(data.count)
             data.append(Data("\(i + 1) 0 obj\n".utf8)); data.append(object); data.append(Data("\nendobj\n".utf8))
         }
         let xref = data.count
-        data.append(Data("xref\n0 \(objects.count + 1)\n0000000000 65535 f \n".utf8))
-        for offset in offsets { data.append(Data(String(format: "%010d 00000 n \n", offset).utf8)) }
-        data.append(Data("trailer\n<< /Size \(objects.count + 1) /Root 1 0 R >>\nstartxref\n\(xref)\n%%EOF\n".utf8))
+        if xrefStream {
+            let id = objects.count + 1
+            var rows = Data([0, 0, 0, 0, 0, 255, 255])
+            for offset in offsets + [xref] {
+                rows.append(1)
+                for shift in [24, 16, 8, 0] { rows.append(UInt8(truncatingIfNeeded: offset >> shift)) }
+                rows.append(contentsOf: [0, 0])
+            }
+            data.append(Data("\(id) 0 obj\n".utf8))
+            data.append(stream("/Type /XRef /W [1 4 2] /Size \(id + 1) /Root 1 0 R", rows))
+            data.append(Data("\nendobj\n".utf8))
+        } else {
+            data.append(Data("xref\n0 \(objects.count + 1)\n0000000000 65535 f \n".utf8))
+            for offset in offsets { data.append(Data(String(format: "%010d 00000 n \n", offset).utf8)) }
+            data.append(Data("trailer\n<< /Size \(objects.count + 1) /Root 1 0 R >>\n".utf8))
+        }
+        data.append(Data("startxref\n\(xref)\n%%EOF\n".utf8))
         try data.write(to: url)
         return url
     }
@@ -83,6 +97,10 @@ final class ImageColorTests: XCTestCase {
         let url = try fixture()
         let original = try Data(contentsOf: url)
         let source = try await PDFSource.open(url)
+        let inspection = try PDFColorVariants.inspect(source: source, pages: [1])
+        XCTAssertEqual(inspection.editableCount, 2)
+        XCTAssertTrue(inspection.warnings.contains { $0.contains("/Nested: Formun kendi /Resources") })
+        XCTAssertTrue(inspection.warnings.contains { $0.contains("/Masked:") && $0.contains("/SMask") })
         let document = try XCTUnwrap(CGPDFDocument(url as CFURL))
         let page = try XCTUnwrap(document.page(at: 1))
         var adjustment = ImageColorAdjustment()
@@ -413,6 +431,132 @@ final class ImageColorTests: XCTestCase {
                 let contents = String(decoding: try Data(contentsOf: output), as: UTF8.self)
                 let tokens = extra.contains(" gs") ? [#"/OP\s+true"#, #"/op\s+true"#, #"/OPM\s+1"#] : [#"/Separation\s+/Brand"#]
                 for token in tokens { XCTAssertNotNil(contents.range(of: token, options: .regularExpression), token) }
+            }
+        }
+    }
+
+    private func formFixture(cmyk: Bool = false, inline: Bool = false, xrefStream: Bool = false,
+                             namedColor: Bool = false, dct: Bool = false) throws -> URL {
+        let space = cmyk ? CGColorSpace.genericCMYK : CGColorSpace.sRGB
+        let profile = try XCTUnwrap(CGColorSpace(name: space)?.copyICCData()) as Data
+        let sample: [UInt8] = cmyk ? [45, 70, 105, 15] : [80, 40, 20]
+        let group = cmyk ? "" : "/Group << /S /Transparency /I true /CS /DeviceRGB >>"
+        let color = namedColor ? "/PhotoICC" : "[/ICCBased 8 0 R]"
+        let colorResource = namedColor ? "/ColorSpace << /PhotoICC [/ICCBased 8 0 R] >>" : ""
+        let encoding = dct ? "/Width 8 /Height 8 /Filter /DCTDecode" : "/Width 1 /Height 1"
+        let photo = dct ? try jpeg(samples: sample + sample, components: 3) : Data(sample)
+        let pageContent = """
+        /Outer Do q 1 0 0 1 65 20 cm /Outer Do Q
+        BT /F 12 Tf 10 90 Td (Page proof) Tj ET
+        """
+        var inner = Data("q 0 0 20 30 re W n 30 0 0 30 0 0 cm /Photo Do Q BT /F 10 Tf 0 34 Td (Form proof) Tj ET".utf8)
+        if inline {
+            inner.append(Data(" BI /W 1 /H 1 /BPC 8 /CS /G ID ".utf8))
+            inner.append(127)
+            inner.append(Data(" EI".utf8))
+        }
+        return try writePDF([
+            Data("<< /Type /Catalog /Pages 2 0 R >>".utf8),
+            Data("<< /Type /Pages /Count 1 /Kids [3 0 R] >>".utf8),
+            Data("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 140] /Resources << /Font << /F 9 0 R >> /XObject << /Outer 5 0 R >> >> /Contents 4 0 R >>".utf8),
+            stream("", Data(pageContent.utf8)),
+            stream("/Type /XObject /Subtype /Form /BBox [0 0 45 55] /Matrix [1 0 0 1 10 15] /Resources << /XObject << /Inner 6 0 R >> >>", Data("/Inner Do".utf8)),
+            stream("/Type /XObject /Subtype /Form /BBox [0 0 45 55] /Matrix [1 0 0 1 5 5] \(group) /Resources 10 0 R", inner),
+            stream("/Type /XObject /Subtype /Image \(encoding) /BitsPerComponent 8 /ColorSpace \(color)", photo),
+            stream("/N \(sample.count)", profile),
+            Data("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".utf8),
+            Data("<< /XObject << /Photo 7 0 R >> /Font << /F 9 0 R >> \(colorResource) >>".utf8)
+        ], xrefStream: xrefStream)
+    }
+
+    private func displayedChild(_ form: CGPDFStreamRef) throws -> CGPDFStreamRef {
+        let tokens = pdfTokens(try samples(form))
+        let use = try XCTUnwrap(tokens.firstIndex { $0.text == "Do" })
+        let name = String(tokens[use - 1].text.dropFirst())
+        var resources: CGPDFDictionaryRef?, objects: CGPDFDictionaryRef?, result: CGPDFStreamRef?
+        XCTAssertTrue(CGPDFDictionaryGetDictionary(try XCTUnwrap(CGPDFStreamGetDictionary(form)), "Resources", &resources))
+        XCTAssertTrue(CGPDFDictionaryGetDictionary(try XCTUnwrap(resources), "XObject", &objects))
+        XCTAssertTrue(CGPDFDictionaryGetStream(try XCTUnwrap(objects), name, &result))
+        return try XCTUnwrap(result)
+    }
+
+    func testNestedFormsKeepTransformClipTransparencyICCAndVectorExport() async throws {
+        let url = try formFixture()
+        let original = try Data(contentsOf: url)
+        let source = try await PDFSource.open(url)
+        let inspection = try PDFColorVariants.inspect(source: source, pages: [1])
+        XCTAssertEqual(inspection.editableCount, 1, "\(inspection.warnings)")
+        XCTAssertEqual(inspection.saturationCount, 1)
+        XCTAssertTrue(inspection.warnings.isEmpty)
+        var slot = Slot(sourcePageNumber: 1, origin: Point(8, 8), size: source.pages[0].trimSize)
+        var adjustment = ImageColorAdjustment()
+        adjustment.brightness = 0.2
+        slot.imageColor = adjustment
+        let plan = ImpositionPlan(sheets: [Sheet(size: Size(110, 85), front: Side(slots: [slot]), back: Side())])
+        let prepared = try PDFColorVariants.prepare(source: source, plan: plan)
+        let page = try XCTUnwrap(prepared.page(for: slot), "\(prepared.warnings)")
+        let originalInner = try displayedChild(image(page, name: "Outer"))
+        let inner = try displayedChild(displayedImage(page, at: 0))
+        XCTAssertEqual(try samples(displayedChild(originalInner)), Data([80, 40, 20]))
+        XCTAssertEqual(try samples(displayedChild(inner)), Data([131, 91, 71]))
+        let originalTokens = pdfTokens(try samples(originalInner)).map(\.text)
+        let editedTokens = pdfTokens(try samples(inner)).map(\.text)
+        let operand = try XCTUnwrap(originalTokens.firstIndex(of: "Do")) - 1
+        XCTAssertEqual(originalTokens.enumerated().filter { $0.offset != operand }.map(\.element),
+                       editedTokens.enumerated().filter { $0.offset != operand }.map(\.element))
+        let innerDictionary = try XCTUnwrap(CGPDFStreamGetDictionary(inner))
+        var matrix: CGPDFArrayRef?, group: CGPDFDictionaryRef?
+        XCTAssertTrue(CGPDFDictionaryGetArray(innerDictionary, "Matrix", &matrix))
+        XCTAssertTrue(CGPDFDictionaryGetDictionary(innerDictionary, "Group", &group))
+        let output = url.deletingLastPathComponent().appendingPathComponent("forms-out.pdf")
+        _ = try PDFExporter.export(plan: plan, source: source, destination: .singlePDF(output), marks: .none)
+        let pdf = try XCTUnwrap(PDFDocument(url: output))
+        XCTAssertTrue(pdf.string?.contains("Form proof") == true)
+        XCTAssertTrue(pdf.string?.contains("Page proof") == true)
+        let printed = try XCTUnwrap(pdf.page(at: 0)?.pageRef)
+        let profile = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB)?.copyICCData()) as Data
+        XCTAssertTrue(try exportedProfiles(page).contains(profile))
+        XCTAssertTrue(try exportedProfiles(printed).contains(profile))
+        let scale = PDFPreviewDrawing.pointsPerMM
+        let originalPage = try XCTUnwrap(CGPDFDocument(url as CFURL)?.page(at: 1))
+        let inside = CGPoint(x: 20, y: 25), outside = CGPoint(x: 40, y: 25)
+        XCTAssertNotEqual(try pixel(page, inside), try pixel(originalPage, inside))
+        XCTAssertEqual(try pixel(page, outside), try pixel(originalPage, outside))
+        for point in [inside, outside, CGPoint(x: 85, y: 45)] {
+            let shifted = CGPoint(x: point.x + slot.x * scale, y: point.y + slot.y * scale)
+            XCTAssertEqual(try pixel(printed, shifted), try pixel(page, point), accuracy: 3)
+        }
+        XCTAssertEqual(try Data(contentsOf: url), original)
+    }
+
+    func testNestedCMYKJPEGAndUnsupportedStructuresUseSameDiagnosticsForInspectionAndRender() async throws {
+        for (cmyk, dct, inline, xref, named, reason) in [
+            (true, false, false, false, false, ""),
+            (false, true, false, false, false, ""),
+            (false, false, true, false, false, "/Outer /Inner: Satır içi"),
+            (false, false, false, true, false, "başvuru akışı (/XRef)"),
+            (false, false, false, false, true, "adlandırılmış /ColorSpace /PhotoICC")
+        ] {
+            let url = try formFixture(cmyk: cmyk, inline: inline, xrefStream: xref, namedColor: named, dct: dct)
+            let source = try await PDFSource.open(url)
+            let inspection = try PDFColorVariants.inspect(source: source, pages: [1])
+            XCTAssertEqual(inspection.editableCount, reason.isEmpty ? 1 : 0, "\(inspection.warnings)")
+            var slot = Slot(sourcePageNumber: 1, origin: Point(8, 8), size: source.pages[0].trimSize)
+            var adjustment = ImageColorAdjustment()
+            adjustment.brightness = 0.25
+            slot.imageColor = adjustment
+            let plan = ImpositionPlan(sheets: [Sheet(size: Size(110, 85), front: Side(slots: [slot]), back: Side())])
+            let prepared = try PDFColorVariants.prepare(source: source, plan: plan)
+            if reason.isEmpty {
+                let page = try XCTUnwrap(prepared.page(for: slot), "\(prepared.warnings)")
+                let inner = try displayedChild(displayedImage(page, at: 0))
+                let editedSamples = try samples(displayedChild(inner))
+                XCTAssertEqual(editedSamples.count, cmyk ? 4 : 8 * 8 * 3)
+                if cmyk { XCTAssertNotEqual(editedSamples, Data([45, 70, 105, 15])) }
+            } else {
+                XCTAssertNil(prepared.page(for: slot))
+                XCTAssertEqual(inspection.warnings, prepared.warnings)
+                XCTAssertTrue(inspection.warnings.contains { $0.contains(reason) }, "\(inspection.warnings)")
             }
         }
     }

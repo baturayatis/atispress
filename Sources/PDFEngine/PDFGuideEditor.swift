@@ -21,41 +21,58 @@ struct PDFClassicFile {
     var info:String?
     var previous:Int = 0
     var pages:[Int] = []
+    enum StructureError: String, Error {
+        case start = "PDF başlangıç çapraz başvurusu (startxref) eksik veya bozuk."
+        case table = "PDF çapraz başvuru tablosu veya /Prev zinciri bozuk."
+        case stream = "PDF çapraz başvuru akışı (/XRef) kullanıyor."
+        case hybrid = "PDF karma çapraz başvuru yapısı (/XRefStm) kullanıyor."
+        case signed = "PDF imza bayt aralığı (/ByteRange) içeriyor."
+        case encrypted = "PDF şifreleme sözlüğü (/Encrypt) içeriyor."
+        case pages = "PDF sayfa ağacı güvenli biçimde çözümlenemedi."
+        case size = "PDF 64 MB renk düzenleme sınırını aşıyor."
+    }
+
     init(_ data:Data) throws {
-        guard data.count<64*1024*1024,let text=String(data:data,encoding:.isoLatin1),let start=text.range(of:"startxref",options:.backwards),let position=Int(text[start.upperBound...].split(whereSeparator:{$0.isWhitespace}).first ?? "") else {throw SourcePreparationError.unsafeGuides}
-        guard !text.contains("/ByteRange") else {throw SourcePreparationError.unsafeGuides}
+        guard data.count<64*1024*1024 else {throw StructureError.size}
+        guard let text=String(data:data,encoding:.isoLatin1),let start=text.range(of:"startxref",options:.backwards),let position=Int(text[start.upperBound...].split(whereSeparator:{$0.isWhitespace}).first ?? "") else {throw StructureError.start}
+        guard !text.contains("/ByteRange") else {throw StructureError.signed}
         self.data=data;previous=position
         var next:Int?=position,visited=Set<Int>()
         while let at=next {
-            guard at>=0,at<data.count,visited.insert(at).inserted else {throw SourcePreparationError.unsafeGuides}
+            guard at>=0,at<data.count,visited.insert(at).inserted else {throw StructureError.table}
+            let header = pdfTokens(data.subdata(in: at..<min(at + 4096, data.count)))
+            if header.count >= 4, header[2].text == "obj",
+               value("/Type", Array(header.dropFirst(3)))?.first?.text == "/XRef" { throw StructureError.stream }
             let tail=data.subdata(in:at..<data.count),tokens=pdfTokens(tail)
-            guard tokens.first?.text=="xref",let trailer=tokens.firstIndex(where:{$0.text=="trailer"}) else {throw SourcePreparationError.unsafeGuides}
+            guard tokens.first?.text=="xref",let trailer=tokens.firstIndex(where:{$0.text=="trailer"}) else {throw StructureError.table}
             var i=1
             while i<trailer {
-                guard i+1<trailer,let first=Int(tokens[i].text),let count=Int(tokens[i+1].text),count>=0,count<1_000_000 else {throw SourcePreparationError.unsafeGuides};i+=2
+                guard i+1<trailer,let first=Int(tokens[i].text),let count=Int(tokens[i+1].text),first>=0,first<=Int(Int32.max),count>=0,count<1_000_000 else {throw StructureError.table};i+=2
                 for n in 0..<count {
-                    guard i+2<trailer,let offset=Int(tokens[i].text),let generation=Int(tokens[i+1].text) else {throw SourcePreparationError.unsafeGuides}
+                    guard i+2<trailer,let offset=Int(tokens[i].text),let generation=Int(tokens[i+1].text) else {throw StructureError.table}
                     if offsets[first+n]==nil { offsets[first+n] = tokens[i+2].text=="n" ? (offset,generation):(-1,generation) };i+=3
                 }
             }
             let dict=Array(tokens[(trailer+1)...])
-            if value("/Encrypt",dict) != nil {throw SourcePreparationError.unsafeGuides}
+            if value("/Encrypt",dict) != nil {throw StructureError.encrypted}
+            if value("/XRefStm",dict) != nil {throw StructureError.hybrid}
             if root.isEmpty,let r=value("/Root",dict) {root=r.map(\.text).joined(separator:" ")}
             if info==nil,let r=value("/Info",dict) {info=r.map(\.text).joined(separator:" ")}
             next=value("/Prev",dict).flatMap{$0.first}.flatMap{Int($0.text)}
         }
-        guard let rootID=Int(root.split(separator:" ").first ?? ""),let pageID=reference("/Pages",try dictionary(rootID)) else {throw SourcePreparationError.unsafeGuides}
+        guard let rootID=Int(root.split(separator:" ").first ?? ""),let catalog=try? dictionary(rootID),let pageID=reference("/Pages",catalog) else {throw StructureError.pages}
         var seen=Set<Int>()
-        func descend(_ id:Int) throws {
-            guard seen.insert(id).inserted,seen.count<100_000 else {throw SourcePreparationError.unsafeGuides}
-            let d=try dictionary(id),t=pdfTokens(d)
+        func descend(_ id:Int, depth:Int) throws {
+            guard depth<64,seen.insert(id).inserted,seen.count<100_000 else {throw StructureError.pages}
+            guard let d=try? dictionary(id,maximumBytes:256*1024) else {throw StructureError.pages}
+            let t=pdfTokens(d)
             if value("/Type",t)?.first?.text=="/Page" {pages.append(id);return}
-            guard let kids=value("/Kids",t) else {throw SourcePreparationError.unsafeGuides}
+            guard let kids=value("/Kids",t) else {throw StructureError.pages}
             for i in kids.indices where kids[i].text=="R" {
-                guard i>=2,let child=Int(kids[i-2].text) else {throw SourcePreparationError.unsafeGuides};try descend(child)
+                guard i>=2,let child=Int(kids[i-2].text) else {throw StructureError.pages};try descend(child,depth:depth+1)
             }
         }
-        try descend(pageID)
+        try descend(pageID,depth:0)
     }
     func dictionary(_ id:Int, maximumBytes: Int = .max) throws -> Data {
         guard let (offset,_) = offsets[id],offset>=0,offset<data.count else {throw SourcePreparationError.unsafeGuides}
@@ -132,7 +149,7 @@ public enum PDFGuideEditor {
         guard !before.isEmpty,before.count==now.count,groups.allSatisfy({id in current.groups.contains{$0.id==id && $0.canHide}}),zip(before,now).allSatisfy({a,b in
             a.page==b.page && a.groupID==b.groupID && a.paintRange==b.paintRange && a.bounds==b.bounds && a.segments.count==b.segments.count && zip(a.segments,b.segments).allSatisfy{$0.0==$1.0 && $0.1==$1.1}
         }) else {throw SourcePreparationError.unsafeGuides}
-        let original=try PDFClassicFile(bytes);guard original.pages.count==doc.numberOfPages else {throw SourcePreparationError.unsafeGuides}
+        guard let original=try? PDFClassicFile(bytes),original.pages.count==doc.numberOfPages else {throw SourcePreparationError.unsafeGuides}
         var changed:[Int:Data]=[:]
         for number in Set(analysis.strokes.filter{groups.contains($0.groupID)}.map(\.page)) {
             guard let page=doc.page(at:number),var data=pdfPageContent(page) else {throw SourcePreparationError.unsafeGuides}

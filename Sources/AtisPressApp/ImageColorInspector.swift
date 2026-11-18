@@ -1,11 +1,40 @@
 import SwiftUI
 import ImpositionCore
+import PDFEngine
 
 struct ImageColorInspector: View {
     @ObservedObject var model: Workspace
     @State private var frontPage: Int?
 
+    private struct InspectionKey: Equatable {
+        let source: UUID?
+        let pages: Set<Int>
+    }
+
+    @State private var inspectedKey: InspectionKey?
+    @State private var inspection: PDFColorInspection?
+
+    private var inspectionKey: InspectionKey {
+        let gangID = model.project.binding == .gang ? model.selectedGangJob?.id : nil
+        let repeatPage = model.project.binding == .stepAndRepeat
+            ? model.project.repeatJobs.first(where: { $0.front.number == frontPage })?.front.number ??
+                model.project.repeatJobs.first?.front.number
+            : nil
+        let slots = model.plan.sheets
+            .filter { repeatPage == nil || $0.repeatLayout?.frontPageNumber == repeatPage }
+            .flatMap { $0.front.slots + $0.back.slots }
+            .filter { gangID == nil || $0.gangJobID == gangID }
+        return InspectionKey(source: model.source?.id, pages: Set(slots.compactMap(\.sourcePageNumber)))
+    }
+
     var body: some View {
+        let key = inspectionKey
+        let current = inspectedKey == key ? inspection : nil
+        return groupBoxContent(current: current, key: key)
+            .task(id: key) { await inspect(key) }
+    }
+
+    private func groupBoxContent(current: PDFColorInspection?, key: InspectionKey) -> some View {
         GroupBox("Baskı Öncesi Renk Düzenleme") {
             VStack(alignment: .leading, spacing: 8) {
                 if model.project.binding == .gang, let job = model.selectedGangJob {
@@ -23,7 +52,7 @@ struct ImageColorInspector: View {
                     controls(Binding(
                         get: { model.project.gang?.jobs.first { $0.id == job.id }?.imageColor ?? ImageColorAdjustment() },
                         set: { value in model.editGangJob(job.id) { $0.imageColor = value.isNeutral ? nil : value } }
-                    ))
+                    ), inspection: current)
                 } else if model.project.binding == .stepAndRepeat,
                           let job = model.project.repeatJobs.first(where: { $0.front.number == frontPage }) ?? model.project.repeatJobs.first {
                     Picker("İş", selection: Binding(get: { job.front.number }, set: selectFront)) {
@@ -32,9 +61,9 @@ struct ImageColorInspector: View {
                                 .tag(row.front.number)
                         }
                     }
-                    controls(settings(job.front.number))
+                    controls(settings(job.front.number), inspection: current)
                 } else if !model.project.pages.isEmpty {
-                    controls(settings(0))
+                    controls(settings(0), inspection: current)
                 }
                 Picker("Önizleme", selection: $model.previewOriginalColors) {
                     Text("Özgün").tag(true)
@@ -44,11 +73,26 @@ struct ImageColorInspector: View {
                 if model.planning || model.preparingColorPreview {
                     ProgressView("Renk önizlemesi hazırlanıyor…").controlSize(.small)
                 }
-                ForEach(model.colorVariants?.warnings ?? [], id: \.self) { warning in
+                if let current {
+                    Text("Düzenlenebilir görsel nesnesi: \(current.editableCount)").font(.caption)
+                } else if !key.pages.isEmpty {
+                    ProgressView("PDF görselleri inceleniyor…").controlSize(.small)
+                }
+                let warnings = Set((current?.warnings ?? []) + (model.colorVariants?.warnings ?? []))
+                ForEach(warnings.sorted(), id: \.self) { warning in
                     Label(warning, systemImage: "exclamationmark.triangle").font(.caption)
                 }
             }.padding(5)
         }
+    }
+
+    private func inspect(_ key: InspectionKey) async {
+        guard let source = model.source, source.id == key.source, !key.pages.isEmpty else { return }
+        let worker = Task.detached(priority: .userInitiated) { try PDFColorVariants.inspect(source: source, pages: key.pages) }
+        let result = await withTaskCancellationHandler(operation: { await worker.result }, onCancel: { worker.cancel() })
+        guard !Task.isCancelled else { return }
+        inspection = try? result.get()
+        inspectedKey = key
     }
 
     private func selectFront(_ number: Int) {
@@ -66,11 +110,11 @@ struct ImageColorInspector: View {
         })
     }
 
-    private func controls(_ value: Binding<ImageColorAdjustment>) -> some View {
+    private func controls(_ value: Binding<ImageColorAdjustment>, inspection: PDFColorInspection?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            slider("Parlaklık", value: value.brightness, range: -0.5...0.5)
-            slider("Kontrast", value: value.contrast, range: 0...2)
-            slider("Doygunluk", value: value.saturation, range: 0...2)
+            slider("Parlaklık", value: value.brightness, range: -0.5...0.5).disabled((inspection?.editableCount ?? 0) == 0)
+            slider("Kontrast", value: value.contrast, range: 0...2).disabled((inspection?.editableCount ?? 0) == 0)
+            slider("Doygunluk", value: value.saturation, range: 0...2).disabled((inspection?.saturationCount ?? 0) == 0)
             Button("Sıfırla") { value.wrappedValue = ImageColorAdjustment() }.disabled(value.wrappedValue.isNeutral)
         }
     }

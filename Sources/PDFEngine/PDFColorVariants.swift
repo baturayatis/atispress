@@ -2,6 +2,12 @@ import Foundation
 import CoreGraphics
 import ImpositionCore
 
+public struct PDFColorInspection: Sendable {
+    public var editableCount: Int = 0
+    public var saturationCount: Int = 0
+    public var warnings: [String] = []
+}
+
 /// Immutable render variants for a plan. Each variant uses copy-on-write PDF
 /// resources, so different jobs can apply different values to the same page.
 public final class PDFColorVariants: @unchecked Sendable {
@@ -29,17 +35,48 @@ public final class PDFColorVariants: @unchecked Sendable {
         return requests
     }
 
+    private enum OpenError: String, Error {
+        case unreadable = "Renk düzenleme için kaynak PDF okunamadı."
+        case pageMismatch = "Çapraz başvuru tablosundaki sayfalar PDF görüntüleyicisiyle eşleşmiyor."
+    }
+
+    private static func editor(for source: PDFSource) throws -> PDFImageColorEditor {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: source.url.path),
+              let length = attributes[.size] as? NSNumber else { throw OpenError.unreadable }
+        guard length.intValue < 64 * 1024 * 1024 else { throw PDFClassicFile.StructureError.size }
+        guard let data = try? Data(contentsOf: source.url) else { throw OpenError.unreadable }
+        let file = try PDFClassicFile(data)
+        guard let provider = CGDataProvider(data: data as CFData),
+              let document = CGPDFDocument(provider) else { throw OpenError.unreadable }
+        guard document.numberOfPages == file.pages.count else { throw OpenError.pageMismatch }
+        return PDFImageColorEditor(file: file, document: document)
+    }
+
+    private static func diagnostic(_ error: Error) -> String {
+        let reason = (error as? PDFClassicFile.StructureError)?.rawValue ??
+            (error as? OpenError)?.rawValue ?? error.localizedDescription
+        return "\(reason) Görseller özgün renkleriyle kullanıldı."
+    }
+
+    public static func inspect(source: PDFSource, pages: Set<Int>) throws -> PDFColorInspection {
+        guard !pages.isEmpty else { return PDFColorInspection() }
+        do {
+            try Task.checkCancellation()
+            return try editor(for: source).inspect(pages: pages)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return PDFColorInspection(warnings: [diagnostic(error)])
+        }
+    }
+
     public static func prepare(source: PDFSource, plan: ImpositionPlan) throws -> PDFColorVariants {
         let requests = requests(in: plan)
         guard !requests.isEmpty else { return PDFColorVariants() }
-        let unsupported = "Bu PDF’nin nesne yapısı güvenli renk düzenlemesini desteklemiyor. Görseller özgün renkleriyle kullanıldı."
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: source.url.path),
-              let length = attributes[.size] as? NSNumber, length.intValue < 64 * 1024 * 1024,
-              let data = try? Data(contentsOf: source.url), let file = try? PDFClassicFile(data),
-              let document = CGPDFDocument(source.url as CFURL), document.numberOfPages == file.pages.count else {
-            return PDFColorVariants(warnings: [unsupported])
-        }
-        let editor = PDFImageColorEditor(file: file, document: document)
+        try Task.checkCancellation()
+        let editor: PDFImageColorEditor
+        do { editor = try self.editor(for: source) }
+        catch { return PDFColorVariants(warnings: [diagnostic(error)]) }
         var variants: [ImageColorAdjustment: Variant] = [:]
         var totalBytes = 0
         var warnings = Set<String>()
@@ -57,8 +94,8 @@ public final class PDFColorVariants: @unchecked Sendable {
                     continue
                 }
                 guard let provider = CGDataProvider(data: data as CFData),
-                      let changed = CGPDFDocument(provider), changed.numberOfPages == document.numberOfPages else {
-                    warnings.insert(unsupported)
+                      let changed = CGPDFDocument(provider), changed.numberOfPages == editor.document.numberOfPages else {
+                    warnings.insert("Düzenlenmiş PDF yeniden açılamadı veya sayfa sayısı değişti. Özgün sayfalar kullanıldı.")
                     continue
                 }
                 variants[adjustment] = Variant(document: changed)
@@ -66,7 +103,7 @@ public final class PDFColorVariants: @unchecked Sendable {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                warnings.insert(unsupported)
+                warnings.insert(diagnostic(error))
             }
         }
         return PDFColorVariants(variants: variants, warnings: warnings.sorted())
