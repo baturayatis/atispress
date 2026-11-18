@@ -78,6 +78,24 @@ extension Workspace {
             if visible>0 {findings.append(PDFPreflightFinding("source-guides",page:1,"Dosyada baskıya girebilecek kılavuz çizgileri var (\(visible) çizgi)"))}
             if input.guides.rasterFramesSuspected {findings.append(PDFPreflightFinding("raster-guides",page:1,"Kılavuz benzeri çerçeveler raster görüntünün parçası; ayrı çizgi olarak gizlenemez."))}
         }
+        if let tone = project.settings.tone {
+            var tonedPages: [String: Set<Int>] = [:]
+            for sheet in plan.sheets {
+                for (side, slots) in [(SideKind.front,sheet.front.slots),(.back,sheet.back.slots)] {
+                    for slot in slots {
+                        guard let page = slot.sourcePageNumber else { continue }
+                        let face = slot.itemSide ?? side
+                        let value = tone.value(forPage: page,side: face)
+                        guard value != 0 else { continue }
+                        let label = face == .front ? "Ön" : "Arka"
+                        tonedPages["\(label) yüz ton ayarı \(value > 0 ? "+" : "")\(value) uygulanıyor.",default: []].insert(page)
+                    }
+                }
+            }
+            for (label, pages) in tonedPages {
+                findings += pages.map { PDFPreflightFinding("tone",page: $0,severity: .notice,label) }
+            }
+        }
         var groups: [String:PreflightRow] = [:]
         for var finding in findings {
             if finding.code == "rgb",project.autoLayout?.production != .offset { finding.severity = .notice }

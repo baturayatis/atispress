@@ -83,7 +83,7 @@ import PDFEngine
         XCTAssertEqual(InspectorRegistry.owner(.exportColorBar), .press)
         XCTAssertEqual(InspectorRegistry.owner(.exportSheetInfo), .press)
         XCTAssertEqual(InspectorRegistry.owner(.columns), .montage)
-        XCTAssertEqual(InspectorPanel.press.groups(for: model.project), [.colorControls, .preview, .colorSizes, .sheetInfo])
+        XCTAssertEqual(InspectorPanel.press.groups(for: model.project), [.tone, .colorControls, .preview, .colorSizes, .sheetInfo])
         XCTAssertEqual(InspectorPanel.output.groups(for: model.project), [.output, .preflight])
         XCTAssertEqual(InspectorPanel.montage.groups(for: model.project), [.products, .placement, .jobFaces])
         model.setMode(.gang)
@@ -314,7 +314,7 @@ extension IconPanelTests {
                 }
             }
             XCTAssertTrue(seen.isSuperset(of: [.method, .placement, .scale, .internalCuts, .separation,
-                                              .serialContent, .colorControls, .preview, .colorSizes, .preflight]))
+                                              .serialContent, .tone, .colorControls, .preview, .colorSizes, .preflight]))
             XCTAssertEqual(seen.contains(.cover), model.project.isBooklet || model.project.isLeafBinding)
         }
     }

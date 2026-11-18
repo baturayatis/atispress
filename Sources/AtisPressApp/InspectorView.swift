@@ -112,6 +112,7 @@ struct InspectorView: View {
         case .serialRange: SerialInspectorView(model:model,compact:true,section:2)
         case .serialAppearance: SerialInspectorView(model:model,compact:true,section:3)
         case .serialPosition: SerialInspectorView(model:model,compact:true,section:4)
+        case .tone: ToneControls(model: model)
         case .colorControls: ExportMarksView(model:model,inline:true,scope:.colorControls)
         case .colorSizes: ColorControlSizeView(model:model)
         case .sheetInfo: ExportMarksView(model:model,inline:true,scope:.info)
@@ -444,5 +445,88 @@ struct PreviewScopePicker:View {
         Picker("Görünüm",selection:Binding(get:{ model.project.allSheetsPreview ?? model.showsAllSides },set:{ model.showsAllSides = $0 })) {
             Text("Tüm yüzler").tag(true); Text("Tek yüz").tag(false)
         }.pickerStyle(.segmented).frame(maxWidth:240)
+    }
+}
+
+
+private struct ToneControls: View {
+    @ObservedObject var model: Workspace
+    @State private var pageScope = false
+    @State private var chosenPage: Int?
+    @State private var face: SideKind = .front
+
+    private var pages: [Int] { model.source?.pages.map(\.number) ?? [] }
+    private var selectedSourcePage: Int? {
+        guard model.selectedPages.count == 1, let selection = model.selectedPages.first else { return nil }
+        if let items = model.project.pageItems { return items.first { $0.id == selection }?.sourcePage }
+        return selection
+    }
+    private var page: Int? {
+        [chosenPage,selectedSourcePage,model.currentSide?.slots.compactMap(\.sourcePageNumber).first,pages.first]
+            .compactMap { $0 }.first { pages.contains($0) }
+    }
+    private var amount: Binding<Int> {
+        Binding(get: {
+            let tone = model.project.settings.tone ?? ArtworkTone()
+            if pageScope, let page { return tone.value(forPage: page,side: face) }
+            return ArtworkTone.clamped(tone.job[face] ?? 0)
+        },set: { update($0) })
+    }
+    private func update(_ value: Int?) {
+        guard !pageScope || page != nil else { return }
+        var tone = model.project.settings.tone ?? ArtworkTone()
+        tone.set(value,page: pageScope ? page : nil,side: face)
+        model.project.settings.tone = tone == ArtworkTone() ? nil : tone
+    }
+    private func showPage() {
+        guard pageScope, let page else {
+            if !pageScope { model.side = face }
+            return
+        }
+        for (index,sheet) in model.displaySheets.enumerated() {
+            for (side, slots) in [(SideKind.front,sheet.front.slots),(.back,sheet.back.slots)] {
+                if slots.contains(where: { $0.sourcePageNumber == page && ($0.itemSide ?? side) == face }) {
+                    model.sheetIndex = index
+                    model.side = side
+                    return
+                }
+            }
+        }
+    }
+    var body: some View {
+        Picker("Kapsam",selection: $pageScope) {
+            Text("Tüm iş").tag(false)
+            Text("Seçili sayfa").tag(true)
+        }.pickerStyle(.segmented)
+        if pageScope {
+            Picker("PDF sayfası",selection: Binding(get: { page },set: { chosenPage = $0; showPage() })) {
+                if pages.isEmpty { Text("Sayfa yok").tag(Int?.none) }
+                ForEach(pages,id: \.self) { Text("Sayfa \($0)").tag(Optional($0)) }
+            }
+        }
+        Picker("Yüz",selection: $face) {
+            Text("Ön").tag(SideKind.front)
+            Text("Arka").tag(SideKind.back)
+        }.pickerStyle(.segmented)
+            .onChange(of: face) { _, _ in showPage() }
+        HStack {
+            Slider(value: Binding(get: { Double(amount.wrappedValue) },set: { amount.wrappedValue = Int($0) }),
+                   in: -50...50,step: 1) { Text("Ton") }
+                .accessibilityLabel("Ton")
+            TextField("Ton değeri",value: amount,format: .number)
+                .multilineTextAlignment(.trailing).frame(width: 58)
+                .accessibilityLabel("Ton değeri")
+                .inspectorTarget("artworkTone")
+        }.disabled(pageScope && page == nil)
+        HStack {
+            Button("Sıfırla") { update(0) }
+            if pageScope, let page, model.project.settings.tone?.pages[page]?[face] != nil {
+                Button("İş tonunu kullan") { update(nil) }
+            }
+        }.disabled(pageScope && page == nil)
+        .onChange(of: model.selectedPages) { _, _ in chosenPage = nil }
+        .onChange(of: model.source?.id) { _, _ in chosenPage = nil }
+        .onAppear { face = model.side }
+        .help("Varsayılan iş tonu, sayfaya özel değer girildiğinde o yüz için geçersiz kılınır.")
     }
 }

@@ -12,6 +12,7 @@ struct PreviewCanvas: NSViewRepresentable {
     var printedInfo: String = ""
     let generatedBleed: GeneratedBleedSettings
     var bleedAmount: Double = 3
+    var tone: ArtworkTone? = nil
     let highlighted: Set<Int>
     let zoomAction: Int
     let zoomFactor: CGFloat
@@ -61,7 +62,7 @@ struct PreviewCanvas: NSViewRepresentable {
         canvas.focusArea = focusArea
         canvas.repetition = repetition; canvas.selectedSerial = selectedSerial
         canvas.selectSerial = selectSerial; canvas.moveSerial = moveSerial; canvas.moveGangBlock = moveGangBlock; canvas.beginEdit = beginEdit; canvas.endEdit = endEdit
-        canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed,controlMarks: controlMarks,bleedAmount:bleedAmount,info:printedInfo)
+        canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed,controlMarks: controlMarks,bleedAmount:bleedAmount,info:printedInfo,tone:tone)
     }
 }
 
@@ -115,6 +116,7 @@ final class SheetCanvasView: NSView {
     private(set) var dragPosition:Point?
     var serialPosition:((UUID)->Point?)?
     private var colorControls: PDFColorControlRenderer.Geometry?
+    private var tone: ArtworkTone?
     private var generatedOverlay: GeneratedBleedOverlay?
     private var vectorDocument: CGPDFDocument?
     private var loading = Set<Int>()
@@ -133,12 +135,13 @@ final class SheetCanvasView: NSView {
     @objc private func magnificationEnded() { needsDisplay = true }
     override var isOpaque: Bool { true }
     override var acceptsFirstResponder: Bool { true }
-    func configure(sheet: Sheet,side: Side,source: PDFSource?,overlays: PreviewOverlays,highlighted: Set<Int>,sheetIndex: Int = 0,kind: SideKind = .front,generatedBleed: GeneratedBleedSettings = GeneratedBleedSettings(),controlMarks: ExportMarks = .none,bleedAmount: Double = 3,info:String = "") {
+    func configure(sheet: Sheet,side: Side,source: PDFSource?,overlays: PreviewOverlays,highlighted: Set<Int>,sheetIndex: Int = 0,kind: SideKind = .front,generatedBleed: GeneratedBleedSettings = GeneratedBleedSettings(),controlMarks: ExportMarks = .none,bleedAmount: Double = 3,info:String = "",tone: ArtworkTone? = nil) {
         if self.source !== source {
             self.source = source; loading = []; failedRasters = []
             vectorDocument = source.flatMap { CGPDFDocument($0.url as CFURL) }
         }
         generatedOverlay = (generatedBleed.enabled || sheet.generatedBleedByJob.values.contains { $0.enabled }) ? source.map { GeneratedBleedOverlay(settings: generatedBleed,cache: $0.edgeSamples,jobSettings: sheet.generatedBleedByJob) } : nil
+        self.tone = tone
         printedInfo = info
         printedMarks = controlMarks
         var previewMarks = controlMarks
@@ -203,7 +206,7 @@ final class SheetCanvasView: NSView {
                 if scale < 0.85 && slot.rescale == nil && raster == nil && !failedRasters.contains(number) { loadRaster(number,pixels: rasterPixels) }
                 // A vector fallback avoids flashing empty trim rectangles while the bleed raster loads.
                 try? PDFPlanRenderer.drawSlot(slot,page: page,in: context,
-                    reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),repetition: repetition,raster: raster,overlays: extensions,pass: .artwork)
+                    reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),repetition: repetition,raster: raster,overlays: extensions,pass: .artwork,tone: tone?.value(for: slot,on: sideKind) ?? 0)
             } else {
                 context.setFillColor((slot.bookRegion == nil ? DesignSystem.blankNS : DesignSystem.paperNS).cgColor); context.fill(rect)
                 if slot.bookRegion == nil {

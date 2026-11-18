@@ -22,6 +22,7 @@ final class InspectorSearchTests: XCTestCase {
         XCTAssertEqual(InspectorSearchEntry.matches("tabaka a4").first?.id, "sheet.a4")
         XCTAssertTrue(InspectorSearchEntry.matches("giyotin dikey").contains { $0.id == "verticalCut" })
         XCTAssertTrue(InspectorSearchEntry.matches("firma teklif").contains { $0.id == "quoteCompany" })
+        XCTAssertEqual(InspectorSearchEntry.matches("ton").first?.id, "artworkTone")
         XCTAssertTrue(InspectorSearchEntry.matches("parlaklık").isEmpty)
         XCTAssertTrue(InspectorSearchEntry.matches("  -- ").isEmpty)
         let entries = InspectorSearchEntry.entries

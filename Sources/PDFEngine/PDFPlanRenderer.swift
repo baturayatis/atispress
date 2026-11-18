@@ -100,16 +100,16 @@ public enum PDFPlanRenderer {
     }
     public static func drawSlot(_ slot: Slot,page: CGPDFPage?,in context: CGContext,
                                 reference: SlotReference,repetition: Int = 0,raster: PDFPageRaster? = nil,
-                                overlays: [any PDFSlotOverlay] = [],pass: SlotPass = .all) throws {
+                                overlays: [any PDFSlotOverlay] = [],pass: SlotPass = .all,tone: Int = 0) throws {
         context.saveGState()
         defer { context.restoreGState() }
         let placementTransform = PDFPreviewDrawing.bindingTransform(slot)
         let transform = PDFPreviewDrawing.slotTransform(slot).concatenating(placementTransform)
         let trim = PDFPreviewDrawing.localTrim(slot)
         // Match the bleed's vector detail even when the preview has a low-zoom raster.
-        let useVector = page != nil && overlays.contains {
+        let useVector = page != nil && (tone != 0 || overlays.contains {
             ($0 as? GeneratedBleedOverlay)?.mirrorsArtwork(in: slot) == true
-        }
+        })
         var localClip = trim
         if let clip = slot.artworkClip {
             let bounds = CGRect(x: clip.origin.x,y: clip.origin.y,width: clip.size.width,height: clip.size.height)
@@ -144,6 +144,17 @@ public enum PDFPlanRenderer {
         }
         try artwork()
         if pass != .mirrorBleed {
+            if tone != 0, page != nil, slot.sourcePageNumber != nil {
+                context.saveGState()
+                context.setBlendMode(.normal)
+                let amount = ArtworkTone.clamped(tone)
+                context.setFillColor(CGColor(gray: amount > 0 ? 1 : 0,alpha: CGFloat(abs(amount))/100))
+                let bounds = slot.artworkClip.map {
+                    CGRect(x: $0.origin.x,y: $0.origin.y,width: $0.size.width,height: $0.size.height)
+                } ?? trim.applying(transform)
+                context.fill(bounds)
+                context.restoreGState()
+            }
             context.concatenate(PDFPreviewDrawing.slotTransform(slot))
             try extensionsFor(.overArtwork)
         }
@@ -151,7 +162,7 @@ public enum PDFPlanRenderer {
     /// Context units are sheet millimetres. Only document content and selected plan marks are drawn.
     public static func drawSide(_ side: Side,sheet: Sheet,document: CGPDFDocument,in context: CGContext,
                                 sheetIndex: Int,kind: SideKind,repetition: Int,options: PDFRenderOptions,
-                                overlays: [any PDFSlotOverlay] = [],controlMarks: ExportMarks = .none) throws {
+                                overlays: [any PDFSlotOverlay] = [],controlMarks: ExportMarks = .none,tone: ArtworkTone? = nil) throws {
         let serials: [any PDFSlotOverlay] = [GangSerialOverlay(sheet: sheet)]
         try drawMirrorBleed(side,document: document,in: context,sheetIndex: sheetIndex,kind: kind,
                             repetition: repetition,overlays: overlays)
@@ -160,7 +171,7 @@ public enum PDFPlanRenderer {
             let page = slot.sourcePageNumber.flatMap { document.page(at: $0) }
             if slot.sourcePageNumber != nil && page == nil { throw PDFExportError.missingPage(slot.sourcePageNumber!) }
             try drawSlot(slot,page: page,in: context,reference: SlotReference(sheet: sheetIndex,side: kind,slot: index),
-                         repetition: repetition,overlays: overlays+serials,pass: .artwork)
+                         repetition: repetition,overlays: overlays+serials,pass: .artwork,tone: tone?.value(for: slot,on: kind) ?? 0)
         }
         drawMarks(side.marks,sheetSize: sheet.size,in: context,options: options)
         if options.punch { drawPunchMarks(side.punchMarks,in:context) }

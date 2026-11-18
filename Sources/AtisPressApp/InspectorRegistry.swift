@@ -25,7 +25,7 @@ enum InspectorPanel: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .dimensions: return "Kenar, maşa, taşma ve hedef ebat ayarları."
         case .cut: return "Kesim işaretleri, iç kesimler ve işaret ölçüleri."
-        case .press: return "Renk skalası, diz işaretleri, tabaka bilgisi ve önizleme katmanları."
+        case .press: return "Ton, renk skalası, diz işaretleri ve tabaka bilgisi."
         case .separation: return "PDF bölgelerini, sayfa bölmeyi ve kaynak kılavuzlarını düzenleyin."
         case .montage: return "Yüz eşlemesini, yerleşimi ve cilt ayrıntılarını ayarlayın."
         default: return title
@@ -108,7 +108,7 @@ enum InspectorGroup: String, Identifiable, Hashable {
     case binding, cover, bookPaper, spine, blanks
     case edges, bleed, generatedBleed, scale, printedMarks, internalCuts, cutMeasures, separation
     case serialFields, serialContent, serialRange, serialAppearance, serialPosition
-    case colorControls, colorSizes, sheetInfo, preview
+    case tone, colorControls, colorSizes, sheetInfo, preview
     case cost, labor, result, quote, priceLibrary, output, preflight
 
     var id: Self { self }
@@ -145,6 +145,7 @@ enum InspectorGroup: String, Identifiable, Hashable {
         case .serialRange: return "Aralık"
         case .serialAppearance: return "Görünüm"
         case .serialPosition: return "Konum"
+        case .tone: return "Ton"
         case .colorControls: return "Renk skalası ve diz işaretleri"
         case .colorSizes: return "Skala ve diz ölçüleri"
         case .sheetInfo: return "Tabaka bilgisi"
@@ -258,7 +259,7 @@ extension InspectorPanel {
         case .cut: return [.printedMarks, .internalCuts, .cutMeasures]
         case .separation: return [.separation]
         case .serial: return [.serialFields, .serialContent, .serialRange, .serialAppearance, .serialPosition]
-        case .press: return [.colorControls, .preview, .colorSizes, .sheetInfo]
+        case .press: return [.tone, .colorControls, .preview, .colorSizes, .sheetInfo]
         case .price: return [.cost, .labor, .result, .quote, .priceLibrary]
         case .output: return [.output, .preflight]
         }

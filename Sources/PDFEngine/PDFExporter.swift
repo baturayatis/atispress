@@ -187,7 +187,7 @@ public enum PDFExporter {
                         context.scaleBy(x: PDFPreviewDrawing.pointsPerMM,y: PDFPreviewDrawing.pointsPerMM)
                         context.clip(to: CGRect(x: 0,y: 0,width: sheet.size.width,height: sheet.size.height))
                         try PDFPlanRenderer.drawSide(side,sheet: sheet,document: document,in: context,sheetIndex: index,
-                                                     kind: kind,repetition: repetition,options: .artworkOnly,overlays: overlays)
+                                                     kind: kind,repetition: repetition,options: .artworkOnly,overlays: overlays,tone: plan.tone)
                         let info = marks.sheetInfo ? PDFSheetInfoContext(jobName: sheet.gangJobNames ?? jobName,date: date,
                             sheetNumber: firstPhysical+repetition,
                             totalSheets: totalSheets,side: kind,production: production).text(settings: sheetInfo,sheet: sheet,dateLabel: dateLabel) : ""

@@ -18,6 +18,12 @@ public enum ImpositionPlanner {
     }
     /// Produces the sole geometry source for both preview and future PDF export.
     public static func plan(_ source: Project) -> ImpositionPlan {
+        var result = geometryPlan(source)
+        result.tone = source.settings.tone
+        return result
+    }
+
+    private static func geometryPlan(_ source: Project) -> ImpositionPlan {
         if let items=source.pageItems {return planPageItems(source,items:items)}
         if source.hasRescaling {
             let invalid = source.hasInvalidScaling

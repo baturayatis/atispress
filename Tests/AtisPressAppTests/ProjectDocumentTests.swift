@@ -77,6 +77,50 @@ final class ProjectDocumentTests: XCTestCase {
             return Data(bytes: try XCTUnwrap(context.data),count: context.bytesPerRow*context.height)
         }
     }
+    func testToneProjectPresetAndLegacyDefaults() async throws {
+        let (folder,pdf) = try fixture()
+        let model = workspace()
+        model.open(pdf)
+        try await settle(model)
+        model.project = Project(pages: try XCTUnwrap(model.source).pages.map(\.sourcePage),
+            sheet: SheetSpec(size: Size(150,110)),stepAndRepeat: StepAndRepeatSettings(columns: 1,rows: 1,quantity: 1))
+        try await settle(model)
+        var tone = ArtworkTone()
+        tone.set(-30,page: nil,side: .front)
+        tone.set(30,page: nil,side: .back)
+        tone.set(0,page: 1,side: .front)
+        tone.set(80,page: 2,side: .back)
+        XCTAssertEqual(tone.value(forPage: 1,side: .front),0)
+        XCTAssertEqual(tone.value(forPage: 2,side: .front),-30)
+        XCTAssertEqual(tone.value(forPage: 2,side: .back),50)
+        XCTAssertEqual(tone.value(forPage: 3,side: .back),30)
+        let swapped = Slot(sourcePageNumber: 2,origin: Point(0,0),size: Size(10,10),itemSide: .back)
+        XCTAssertEqual(tone.value(for: swapped,on: .front),50)
+        model.project.settings.tone = tone
+        try await settle(model)
+        XCTAssertEqual(model.plan.tone,tone)
+        XCTAssertTrue(model.plan.canExport,"\(model.plan.issues)")
+        XCTAssertTrue(model.preflightRows.contains { $0.severity == .notice && $0.explanation.contains("ton ayarı") })
+        let file = folder.appendingPathComponent("ton.atispress")
+        try model.saveProject(as: file)
+        let restored = workspace()
+        try await restored.loadProject(at: file)
+        try await settle(restored)
+        XCTAssertEqual(restored.project.settings.tone,tone)
+        XCTAssertEqual(restored.plan.tone,tone)
+        let preset = JobPreset(name: "Ton",settings: PresetSettings(project: model.project,overlays: model.overlays))
+        let pack = try PresetPack.decode(PresetPack(presets: [preset]).encoded())
+        XCTAssertEqual(pack.presets.first?.settings.apply(to: Workspace.newProject(),name: "Ton").settings.tone,tone)
+
+        model.project.settings.tone = nil
+        var legacy = ProjectDocument(state: model.state)
+        legacy.version = 25
+        XCTAssertNil(try ProjectDocument.decode(legacy.encoded()).state.project.settings.tone)
+        XCTAssertFalse(model.preflightRows.contains { $0.explanation.contains("ton ayarı") })
+        let oldPreset = JobPreset(name: "Eski",settings: PresetSettings(project: model.project,overlays: model.overlays))
+        XCTAssertNil(try PresetPack.decode(PresetPack(presets: [oldPreset]).encoded()).presets.first?.settings.settings.tone)
+    }
+
     func testVersionedJSONRoundtripAndUnknownVersionRejected() async throws {
         let (model,_,_) = try await populated()
         let file = ProjectDocument(state: model.state)

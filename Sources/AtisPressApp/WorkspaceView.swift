@@ -207,7 +207,7 @@ struct WorkspaceView: View {
                 ContentUnavailableView("Arka yüz yok",systemImage: "doc",description: Text("Bu işin arka yüzünde içerik yok."))
                     .frame(maxWidth: .infinity,maxHeight: .infinity)
             } else if let sheet = model.currentSheet, let side = model.currentSide {
-                PreviewCanvas(sheet: sheet,side: side,sheetIndex: model.sheetIndex,sideKind: model.side,source: model.source,overlays: model.overlays,printedInfo:model.sheetInfoText(sheet:sheet,number:model.plan.sheets.prefix(model.sheetIndex).reduce(0) { $0+$1.repeatCount }+model.repetition+1,kind:model.side),generatedBleed: model.plan.generatedBleed,bleedAmount:model.project.settings.bleed,
+                PreviewCanvas(sheet: sheet,side: side,sheetIndex: model.sheetIndex,sideKind: model.side,source: model.source,overlays: model.overlays,printedInfo:model.sheetInfoText(sheet:sheet,number:model.plan.sheets.prefix(model.sheetIndex).reduce(0) { $0+$1.repeatCount }+model.repetition+1,kind:model.side),generatedBleed: model.plan.generatedBleed,bleedAmount:model.project.settings.bleed,tone:model.project.settings.tone,
                               highlighted: model.highlightedSlots,zoomAction: model.zoomAction,zoomFactor:model.zoomFactor,zoomModel:model,focusArea:model.ui.focusedArea,moveSheet:model.movePreviewSheet,
                               repetition: model.repetition,selectedSerial: model.selectedSerialID,
                               selectSerial: model.selectSerial,moveSerial: { model.moveSerialField($0,to: $1,snap:false) },controlMarks: model.project.exportMarks,moveGangBlock: { model.moveGangBlock($0,to:$1) },beginEdit:model.beginUndoGroup,endEdit:model.endUndoGroup)

@@ -334,6 +334,99 @@ final class GeneratedBleedTests: XCTestCase {
         }
     }
 
+    func testArtworkToneBlendsBothFacesBeforePrintMarksAndQR() async throws {
+        let folder = try folder(), input = try oxygenFixture(in: folder,size: Size(86.7,54))
+        let originalBytes = try Data(contentsOf: input)
+        let source = try await PDFSource.open(input), original = try XCTUnwrap(CGPDFDocument(input as CFURL))
+        var p = project(source,gutter: 2)
+        p.pages = source.pages.map(\.sourcePage)
+        p.sheet = SheetSpec(size: Size(150,105),margins: Insets(left: 15,right: 15,top: 15,bottom: 15),gutter: 2)
+        p.settings.cropMarkLength = 4
+        p.settings.cropMarkOffset = 4
+        p.stepAndRepeat = StepAndRepeatSettings(columns: 1,rows: 1,allowRotation: false,quantity: 1)
+        p.stepAndRepeat.pageLayout = PageLayoutSettings()
+        p.stepAndRepeat.pageLayout?.mode = .duplex
+        var qr = SerialField(start: 1,digits: 4,prefix: "TON-",sides: .both,position: Point(28,15))
+        qr.kind = .qr
+        qr.codeSettings.humanReadable = true
+        p.serialFields = [qr, SerialField(prefix: "SERI-",sides: .both,position: Point(8,8))]
+        var marks = ExportMarks.none
+        marks.crop = true; marks.colorBar = true; marks.sheetInfo = true
+        var info = SheetInfoSettings()
+        info.date = false
+        var baseline: [[CGPoint: [Double]]] = [[:],[:]]
+        for value in [0,-30,30] {
+            var tone = ArtworkTone()
+            tone.set(value,page: nil,side: .front)
+            tone.set(-value,page: nil,side: .back)
+            p.settings.tone = tone
+            let plan = ImpositionPlanner.plan(p)
+            let sheet = try XCTUnwrap(plan.sheets.first)
+            XCTAssertTrue(plan.canExport,"\(plan.issues)")
+            let target = folder.appendingPathComponent("tone-\(value).pdf")
+            let result = try PDFExporter.export(plan: plan,source: source,destination: .singlePDF(target),
+                marks: marks,jobName: "TON KART",sheetInfo: info)
+            XCTAssertEqual(result.pageCount,2)
+            let pdf = try XCTUnwrap(CGPDFDocument(target as CFURL))
+            let written = try XCTUnwrap(PDFDocument(url: target))
+            XCTAssertNil(try Data(contentsOf: target).range(of: Data("/Subtype /Image".utf8)))
+            for (index,kind,side) in [(0,SideKind.front,sheet.front),(1,.back,sheet.back)] {
+                let bitmap = try Bitmap(sheet.size), preview = try Bitmap(sheet.size)
+                let slot = try XCTUnwrap(side.slots.first)
+                bitmap.context.scaleBy(x: 1/ppmm,y: 1/ppmm)
+                bitmap.context.drawPDFPage(try XCTUnwrap(pdf.page(at: index+1)))
+                try PDFPlanRenderer.drawSide(side,sheet: sheet,document: original,in: preview.context,
+                    sheetIndex: 0,kind: kind,repetition: 0,options: .artworkOnly,
+                    overlays: [GeneratedBleedOverlay(settings: plan.generatedBleed,cache: source.edgeSamples)],tone: plan.tone)
+                let infoText = PDFSheetInfoContext(jobName: "TON KART",date: Date(),sheetNumber: 1,totalSheets: 1,
+                    side: kind,production: .digital).text(settings: info,sheet: sheet,dateLabel: "")
+                PDFExportMarkRenderer.draw(side: side,sheet: sheet,in: preview.context,settings: marks,info: infoText,kind: kind)
+                let text = try XCTUnwrap(written.page(at: index)?.string)
+                for marker in ["TON KART","TON-0001","SERI-"] { XCTAssertTrue(text.contains(marker),text) }
+
+                let amount = index == 0 ? value : -value
+                let alpha = Double(abs(amount))/100
+                let targetChannel = amount > 0 ? 1.0 : 0.0
+                let originalColor = index == 0 ? [0.12,0.35,0.8] : [0.83,0.24,0.16]
+                let expected = originalColor.map { $0*(1-alpha)+targetChannel*alpha }
+                for y in [5.0,-2.0] { // Trim and generated bleed.
+                    let point = CGPoint(x: 16,y: y).applying(PDFPreviewDrawing.slotTransform(slot))
+                    assertColor(bitmap.color(point.x,point.y),expected)
+                    assertColor(preview.color(point.x,point.y),bitmap.color(point.x,point.y))
+                }
+                let outside = CGPoint(x: 16,y: -3.6).applying(PDFPreviewDrawing.slotTransform(slot))
+                assertColor(bitmap.color(outside.x,outside.y),[1,1,1])
+
+                let crop = try XCTUnwrap(PDFExportMarkRenderer.geometry(side: side,sheet: sheet,settings: marks)
+                    .segments.first { $0.kind == .crop })
+                let patches = PDFColorControlRenderer.geometry(sheet: sheet,settings: marks,kind: kind).patches
+                XCTAssertFalse(patches.isEmpty)
+                var protectedPoints = patches.map { CGPoint(x: $0.bounds.midX,y: $0.bounds.midY) }
+                protectedPoints.append(CGPoint(x: (crop.start.x+crop.end.x)/2,y: (crop.start.y+crop.end.y)/2))
+                let placement = try XCTUnwrap(sheet.serialPlacements(side: side,kind: kind,repetition: 0)
+                    .first { $0.field.kind == .qr })
+                let qrGeometry = try PDFSerialCodeDrawing.geometry(placement)
+                for y in 0..<qrGeometry.matrix.height {
+                    for x in 0..<qrGeometry.matrix.width {
+                        let point = CGPoint(x: (Double(x+qrGeometry.quietZone)+0.5)*qrGeometry.moduleWidth,
+                            y: qrGeometry.codeBounds.height-(Double(y+qrGeometry.quietZone)+0.5)*qrGeometry.moduleWidth)
+                            .applying(PDFSerialDrawing.transform(placement)).applying(PDFPreviewDrawing.slotTransform(slot))
+                        let dark = qrGeometry.matrix.isDark(x: x,y: y)
+                        XCTAssertEqual(bitmap.color(point.x,point.y)[0] < 0.5,dark)
+                        protectedPoints.append(point)
+                    }
+                }
+                for point in protectedPoints {
+                    let pixel = bitmap.color(point.x,point.y)
+                    if value == 0 { baseline[index][point] = pixel }
+                    else { XCTAssertEqual(pixel,try XCTUnwrap(baseline[index][point])) }
+                    assertColor(preview.color(point.x,point.y),pixel)
+                }
+            }
+        }
+        XCTAssertEqual(try Data(contentsOf: input),originalBytes)
+    }
+
     func testReflectionRepeatsWhenTrimIsNarrowerThanBleed() async throws {
         let folder = try folder(), input = try oxygenFixture(in: folder, size: Size(4,5))
         let source = try await PDFSource.open(input)

@@ -116,8 +116,44 @@ public struct GeneratedBleedSettings: Equatable, Sendable, Codable {
         tolerance.isFinite && (0...1).contains(tolerance) && color.components.allSatisfy { $0.isFinite && (0...1).contains($0) }
     }
 }
+public struct ArtworkTone: Equatable, Sendable, Codable {
+    public struct Faces: Equatable, Sendable, Codable {
+        public var front: Int?
+        public var back: Int?
+        public init(front: Int? = nil, back: Int? = nil) {
+            self.front = front; self.back = back
+        }
+        public subscript(_ side: SideKind) -> Int? {
+            get { side == .front ? front : back }
+            set { if side == .front { front = newValue } else { back = newValue } }
+        }
+    }
+    public var job = Faces()
+    public var pages: [Int: Faces] = [:]
+    public init() {}
+    public static func clamped(_ value: Int) -> Int { min(50,max(-50,value)) }
+
+    public func value(forPage page: Int, side: SideKind) -> Int {
+        Self.clamped(pages[page]?[side] ?? job[side] ?? 0)
+    }
+    public func value(for slot: Slot, on side: SideKind) -> Int {
+        guard let page = slot.sourcePageNumber else { return 0 }
+        return value(forPage: page,side: slot.itemSide ?? side)
+    }
+    public mutating func set(_ value: Int?, page: Int?, side: SideKind) {
+        let value = value.map(Self.clamped)
+        if let page {
+            var faces = pages[page] ?? Faces()
+            faces[side] = value
+            pages[page] = faces == Faces() ? nil : faces
+        } else {
+            job[side] = value == 0 ? nil : value
+        }
+    }
+}
 public struct ImpositionSettings: Equatable, Sendable, Codable {
     public var bleed: Double
+    public var tone: ArtworkTone? = nil
     public var cropMarkLength: Double
     public var cropMarkOffset: Double
     public var safeAreaInset: Double
@@ -376,6 +412,7 @@ public struct ImpositionPlan: Sendable {
     public var groupedIssues: [ValidationIssue]? = nil
     public var addedBlankPages: Int
     public var signaturePageCount: Int
+    public var tone: ArtworkTone? = nil
     public var generatedBleed: GeneratedBleedSettings
     public var totalPressSheets: Int {
         sheets.reduce(0) { total,sheet in

@@ -152,6 +152,7 @@ struct InspectorSearchEntry: Identifiable {
         .init("patchSize", "Renk yaması", .press, .colorSizes, "skala yama ölçü mm") { $0.project.exportMarks.colorBar || $0.overlays.colorBar },
         .init("barSide", "Skala konumu", .press, .colorSizes, "maşa kenar") { $0.project.exportMarks.colorBar || $0.overlays.colorBar },
         .init("sheetInfo", "Tabaka bilgi şeridi", .press, .sheetInfo, "iş adı tarih tabaka no ön arka"),
+        .init("artworkTone", "Ton", .press, .tone, "açık koyu beyaz siyah ön arka"),
         .init("previewCrop", "Kesim çizgisi kılavuzu", .press, .preview, "önizleme katman"),
         .init("previewFold", "Katlama kılavuzu", .press, .preview, "önizleme kırım katman") { $0.project.isBooklet || $0.project.isLeafBinding },
         .init("previewPunch", "Delik kılavuzları", .press, .preview, "önizleme spiral katman") { $0.project.isLeafBinding },

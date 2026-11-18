@@ -61,7 +61,9 @@ final class Workspace: ObservableObject {
             if !restoring && !applyingAutomatic && !normalizingDigits { normalizeSerialDigits() }
             refreshModified()
             if applyingAutomatic { return }
+            if oldValue.settings.tone != project.settings.tone { plan.tone = project.settings.tone }
             var previous = oldValue
+            previous.settings.tone = project.settings.tone
             previous.exportMarks = project.exportMarks
             previous.includeBlankBacks = project.includeBlankBacks
             previous.sheetInfo = project.sheetInfo
@@ -672,8 +674,9 @@ final class Workspace: ObservableObject {
             do { try await Task.sleep(for: .milliseconds(140)) } catch { return }
             guard !Task.isCancelled else { return }
             let worker = Task.detached(priority: .userInitiated) { ImpositionPlanner.plan(snapshot) }
-            let next = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            var next = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             guard !Task.isCancelled, revision == token else { return }
+            next.tone = project.settings.tone
             plan = next; planning = false
             inspectBindingStrips()
             normalizeSerialDigits()
