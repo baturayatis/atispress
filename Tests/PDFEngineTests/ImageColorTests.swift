@@ -291,8 +291,9 @@ final class ImageColorTests: XCTestCase {
         XCTAssertNil(try PDFJPEGImageSamples.decode(jpeg.prefix(10), width: 8, height: 8, components: 1, pdfICC: nil))
     }
 
-    private func cmykFixture(profile: Data, extra: String = "", flate: Bool = false) throws -> URL {
-        let colorSpaces = "/ColorSpace << /Spot [/Separation /Brand /DeviceCMYK 9 0 R] >>"
+    private func cmykFixture(profile: Data, extra: String = "", flate: Bool = false, defaultCMYK: Bool = false) throws -> URL {
+        let defaultSpace = defaultCMYK ? "/DefaultCMYK [/ICCBased 7 0 R]" : ""
+        let colorSpaces = "/ColorSpace << /Spot [/Separation /Brand /DeviceCMYK 9 0 R] \(defaultSpace) >>"
         let extStates = "/ExtGState << /Overprint << /OP true /op true /OPM 1 >> >>"
         let image = "/Type /XObject /Subtype /Image /Width 2 /Height 1 /BitsPerComponent 8 /ColorSpace"
         let ink: [UInt8] = [0, 0, 0, 0, 70, 100, 130, 50]
@@ -432,6 +433,103 @@ final class ImageColorTests: XCTestCase {
                 let tokens = extra.contains(" gs") ? [#"/OP\s+true"#, #"/op\s+true"#, #"/OPM\s+1"#] : [#"/Separation\s+/Brand"#]
                 for token in tokens { XCTAssertNotNil(contents.range(of: token, options: .regularExpression), token) }
             }
+        }
+    }
+
+    func testExplicitInstalledCMYKProfileTagsUnprofiledImageAndExportsMatchingSeparations() async throws {
+        let profile = try Data(contentsOf: URL(fileURLWithPath: "/System/Library/ColorSync/Profiles/Generic CMYK Profile.icc"))
+        let id = PDFCMYKProfiles.fingerprint(profile)
+        XCTAssertTrue(PDFCMYKProfiles.installed().contains { $0.id == id })
+        let url = try cmykFixture(profile: profile, flate: true)
+        let original = try Data(contentsOf: url)
+        let source = try await PDFSource.open(url)
+        let before = try PDFColorVariants.inspect(source: source, pages: [1])
+        XCTAssertEqual(before.editableCount, 1)
+        XCTAssertEqual(before.unprofiledCMYKCount, 1)
+        XCTAssertTrue(before.warnings.contains { $0.contains("profil seçilmedi") })
+        let after = try PDFColorVariants.inspect(source: source, pages: [1], cmykProfileID: id)
+        XCTAssertEqual(after.editableCount, 2, "\(after.warnings)")
+        XCTAssertEqual(after.unprofiledCMYKCount, 1)
+
+        var slot = Slot(sourcePageNumber: 1, origin: Point(8, 8), size: source.pages[0].trimSize)
+        func plan(_ slot: Slot) -> ImpositionPlan {
+            ImpositionPlan(sheets: [Sheet(size: Size(110, 85), front: Side(slots: [slot]), back: Side())])
+        }
+        var adjustment = ImageColorAdjustment()
+        adjustment.cmykProfileID = id
+        slot.imageColor = adjustment
+        let tagged = try PDFColorVariants.prepare(source: source, plan: plan(slot))
+        let page = try XCTUnwrap(tagged.page(for: slot), "\(tagged.warnings)")
+        XCTAssertEqual(try names(page).first, "Press")
+        let originalDevice = try image(page, name: "Device")
+        let taggedDevice = try displayedImage(page, at: 1)
+        XCTAssertNil(try iccProfile(in: originalDevice))
+        XCTAssertEqual(try iccProfile(in: taggedDevice), profile)
+        XCTAssertEqual(try samples(taggedDevice), try samples(originalDevice))
+
+        adjustment.brightness = 0.25
+        slot.imageColor = adjustment
+        let edited = try PDFColorVariants.prepare(source: source, plan: plan(slot))
+        let preview = try XCTUnwrap(edited.page(for: slot))
+        let editedDevice = try displayedImage(preview, at: 1)
+        XCTAssertEqual(try iccProfile(in: editedDevice), profile)
+        XCTAssertNotEqual(try samples(editedDevice), try samples(originalDevice))
+        let output = url.deletingLastPathComponent().appendingPathComponent("assigned-cmyk.pdf")
+        let report = try PDFExporter.export(plan: plan(slot), source: source, destination: .singlePDF(output), marks: .none)
+        XCTAssertTrue(report.notes.contains { $0.contains("TAC") })
+        let pdf = try XCTUnwrap(PDFDocument(url: output))
+        XCTAssertTrue(pdf.string?.contains("Vector CMYK proof") == true)
+        let printed = try XCTUnwrap(pdf.page(at: 0)?.pageRef)
+        XCTAssertTrue(try exportedProfiles(printed).contains(profile))
+        let scale = PDFPreviewDrawing.pointsPerMM
+        let point = CGPoint(x: 160, y: 40)
+        let shifted = CGPoint(x: point.x + slot.x * scale, y: point.y + slot.y * scale)
+        XCTAssertEqual(try pixel(printed, shifted), try pixel(preview, point), accuracy: 3)
+        XCTAssertEqual(try Data(contentsOf: url), original)
+    }
+
+    func testMissingNonCMYKAndCorruptProfilesAreNeverAssigned() async throws {
+        let profile = try XCTUnwrap(CGColorSpace(name: CGColorSpace.genericCMYK)?.copyICCData()) as Data
+        let rgb = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB)?.copyICCData()) as Data
+        var corrupt = profile
+        corrupt[0] = 0xff
+        XCTAssertFalse(PDFCMYKImageColor.canAdjust(profile: rgb))
+        XCTAssertFalse(PDFCMYKImageColor.canAdjust(profile: corrupt))
+        let url = try cmykFixture(profile: profile)
+        let source = try await PDFSource.open(url)
+        let ids = ["missing-profile", PDFCMYKProfiles.fingerprint(rgb), PDFCMYKProfiles.fingerprint(corrupt)]
+        for id in ids {
+            let inspection = try PDFColorVariants.inspect(source: source, pages: [1], cmykProfileID: id)
+            XCTAssertEqual(inspection.editableCount, 1)
+            XCTAssertTrue(inspection.warnings.contains { $0.contains("Yerine profil atanmadı") })
+            var adjustment = ImageColorAdjustment()
+            adjustment.cmykProfileID = id
+            var slot = Slot(sourcePageNumber: 1, origin: Point(8, 8), size: source.pages[0].trimSize)
+            slot.imageColor = adjustment
+            let plan = ImpositionPlan(sheets: [Sheet(size: Size(110, 85), front: Side(slots: [slot]), back: Side())])
+            let prepared = try PDFColorVariants.prepare(source: source, plan: plan)
+            XCTAssertNil(prepared.page(for: slot))
+            XCTAssertTrue(prepared.warnings.contains { $0.contains("Yerine profil atanmadı") })
+        }
+    }
+
+    func testExplicitProfileDoesNotOverridePDFDefaultCMYKOrOverprint() async throws {
+        let profile = try Data(contentsOf: URL(fileURLWithPath: "/System/Library/ColorSync/Profiles/Generic CMYK Profile.icc"))
+        let id = PDFCMYKProfiles.fingerprint(profile)
+        for (extra, hasDefault, reason) in [("", true, "/DefaultCMYK"), ("/Overprint gs", false, "üst baskı")] {
+            let url = try cmykFixture(profile: profile, extra: extra, defaultCMYK: hasDefault)
+            let source = try await PDFSource.open(url)
+            let inspection = try PDFColorVariants.inspect(source: source, pages: [1], cmykProfileID: id)
+            XCTAssertEqual(inspection.unprofiledCMYKCount, 0)
+            XCTAssertTrue(inspection.warnings.contains { $0.contains(reason) }, "\(inspection.warnings)")
+            var adjustment = ImageColorAdjustment()
+            adjustment.cmykProfileID = id
+            var slot = Slot(sourcePageNumber: 1, origin: Point(8, 8), size: source.pages[0].trimSize)
+            slot.imageColor = adjustment
+            let plan = ImpositionPlan(sheets: [Sheet(size: Size(110, 85), front: Side(slots: [slot]), back: Side())])
+            let prepared = try PDFColorVariants.prepare(source: source, plan: plan)
+            XCTAssertNil(prepared.page(for: slot))
+            XCTAssertTrue(prepared.warnings.contains { $0.contains(reason) })
         }
     }
 

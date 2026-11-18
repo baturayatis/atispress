@@ -9,10 +9,12 @@ struct ImageColorInspector: View {
     private struct InspectionKey: Equatable {
         let source: UUID?
         let pages: Set<Int>
+        let profileID: String?
     }
 
     @State private var inspectedKey: InspectionKey?
     @State private var inspection: PDFColorInspection?
+    @State private var profiles: [PDFCMYKProfileOption]?
 
     private var inspectionKey: InspectionKey {
         let gangID = model.project.binding == .gang ? model.selectedGangJob?.id : nil
@@ -24,7 +26,9 @@ struct ImageColorInspector: View {
             .filter { repeatPage == nil || $0.repeatLayout?.frontPageNumber == repeatPage }
             .flatMap { $0.front.slots + $0.back.slots }
             .filter { gangID == nil || $0.gangJobID == gangID }
-        return InspectionKey(source: model.source?.id, pages: Set(slots.compactMap(\.sourcePageNumber)))
+        let profileID = gangID == nil ? model.project.imageColorJobs?[repeatPage ?? 0]?.cmykProfileID
+            : model.selectedGangJob?.imageColor?.cmykProfileID
+        return InspectionKey(source: model.source?.id, pages: Set(slots.compactMap(\.sourcePageNumber)), profileID: profileID)
     }
 
     var body: some View {
@@ -32,6 +36,7 @@ struct ImageColorInspector: View {
         let current = inspectedKey == key ? inspection : nil
         return groupBoxContent(current: current, key: key)
             .task(id: key) { await inspect(key) }
+            .task { await loadProfiles() }
     }
 
     private func groupBoxContent(current: PDFColorInspection?, key: InspectionKey) -> some View {
@@ -88,11 +93,19 @@ struct ImageColorInspector: View {
 
     private func inspect(_ key: InspectionKey) async {
         guard let source = model.source, source.id == key.source, !key.pages.isEmpty else { return }
-        let worker = Task.detached(priority: .userInitiated) { try PDFColorVariants.inspect(source: source, pages: key.pages) }
+        let worker = Task.detached(priority: .userInitiated) {
+            try PDFColorVariants.inspect(source: source, pages: key.pages, cmykProfileID: key.profileID)
+        }
         let result = await withTaskCancellationHandler(operation: { await worker.result }, onCancel: { worker.cancel() })
         guard !Task.isCancelled else { return }
         inspection = try? result.get()
         inspectedKey = key
+    }
+
+    private func loadProfiles() async {
+        let worker = Task.detached(priority: .userInitiated) { PDFCMYKProfiles.installed() }
+        let result = await withTaskCancellationHandler(operation: { await worker.value }, onCancel: { worker.cancel() })
+        if !Task.isCancelled { profiles = result }
     }
 
     private func selectFront(_ number: Int) {
@@ -112,10 +125,36 @@ struct ImageColorInspector: View {
 
     private func controls(_ value: Binding<ImageColorAdjustment>, inspection: PDFColorInspection?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
+            if (inspection?.unprofiledCMYKCount ?? 0) > 0 || value.wrappedValue.cmykProfileID != nil {
+                profilePicker(value.cmykProfileID)
+            }
             slider("Parlaklık", value: value.brightness, range: -0.5...0.5).disabled((inspection?.editableCount ?? 0) == 0)
             slider("Kontrast", value: value.contrast, range: 0...2).disabled((inspection?.editableCount ?? 0) == 0)
             slider("Doygunluk", value: value.saturation, range: 0...2).disabled((inspection?.saturationCount ?? 0) == 0)
             Button("Sıfırla") { value.wrappedValue = ImageColorAdjustment() }.disabled(value.wrappedValue.isNeutral)
+        }
+    }
+
+    private func profilePicker(_ selection: Binding<String?>) -> some View {
+        let options = profiles ?? []
+        return VStack(alignment: .leading, spacing: 4) {
+            Picker("Profilsiz CMYK için ICC", selection: selection) {
+                Text("Profil atanmasın").tag(nil as String?)
+                ForEach(options) { option in
+                    let duplicateName = options.contains { $0.id != option.id && $0.name == option.name }
+                    Text(duplicateName ? "\(option.name) (\(option.id.prefix(8)))" : option.name).tag(Optional(option.id))
+                }
+                if let saved = selection.wrappedValue, !options.contains(where: { $0.id == saved }) {
+                    Text(profiles == nil ? "Kayıtlı profil aranıyor…" : "Kayıtlı profil kullanılamıyor").tag(Optional(saved))
+                }
+            }
+            .help("Seçilen yüklü ICC profili yalnız gömülü profili olmayan uygun CMYK görsellere atanır.")
+            if profiles?.isEmpty == true {
+                Text("Çift yönlü dönüşümü destekleyen yüklü CMYK baskı profili bulunamadı.").font(.caption)
+            }
+            if selection.wrappedValue != nil {
+                Text("Profil ataması renk görünümünü değiştirebilir. Renk ayarları toplam mürekkep kaplamasını (TAC) değiştirebilir.").font(.caption)
+            }
         }
     }
 

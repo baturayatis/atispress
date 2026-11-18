@@ -5,6 +5,7 @@ import ImpositionCore
 public struct PDFColorInspection: Sendable {
     public var editableCount: Int = 0
     public var saturationCount: Int = 0
+    public var unprofiledCMYKCount: Int = 0
     public var warnings: [String] = []
 }
 
@@ -54,11 +55,13 @@ public final class PDFColorVariants: @unchecked Sendable {
         return "\(reason) Görseller özgün renkleriyle kullanıldı."
     }
 
-    public static func inspect(source: PDFSource, pages: Set<Int>) throws -> PDFColorInspection {
+    public static func inspect(source: PDFSource, pages: Set<Int>, cmykProfileID: String? = nil) throws -> PDFColorInspection {
         guard !pages.isEmpty else { return PDFColorInspection() }
         do {
             try Task.checkCancellation()
-            return try editor(for: source).inspect(pages: pages)
+            let editor = try editor(for: source)
+            let profile = cmykProfileID.flatMap(PDFCMYKProfiles.resolve)
+            return try editor.inspect(pages: pages, cmykProfileID: cmykProfileID, selectedProfile: profile)
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -78,12 +81,21 @@ public final class PDFColorVariants: @unchecked Sendable {
         var totalBytes = 0
         var warnings = Set<String>()
         let ordered = requests.keys.sorted {
-            [$0.brightness, $0.contrast, $0.saturation].lexicographicallyPrecedes([$1.brightness, $1.contrast, $1.saturation])
+            let first = $0.cmykProfileID ?? "", second = $1.cmykProfileID ?? ""
+            if first != second { return first < second }
+            return [$0.brightness, $0.contrast, $0.saturation].lexicographicallyPrecedes([$1.brightness, $1.contrast, $1.saturation])
         }
+        var profileID: String?
+        var profile: Data?
         for adjustment in ordered {
             try Task.checkCancellation()
             do {
-                let (data, notes) = try editor.variant(pages: requests[adjustment] ?? [], adjustment: adjustment)
+                if adjustment.cmykProfileID != profileID {
+                    profileID = adjustment.cmykProfileID
+                    profile = profileID.flatMap(PDFCMYKProfiles.resolve)
+                }
+                let (data, notes) = try editor.variant(pages: requests[adjustment] ?? [], adjustment: adjustment,
+                                                       selectedProfile: profile)
                 warnings.formUnion(notes)
                 guard let data else { continue }
                 guard totalBytes + data.count <= 256 * 1024 * 1024 else {

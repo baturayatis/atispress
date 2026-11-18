@@ -3,9 +3,11 @@ public struct ImageColorAdjustment: Equatable, Hashable, Codable, Sendable {
     public var brightness: Double = 0
     public var contrast: Double = 1
     public var saturation: Double = 1
+    public var cmykProfileID: String?
     public init() {}
 
-    public var isNeutral: Bool { self == Self() }
+    public var hasSampleAdjustments: Bool { brightness != 0 || contrast != 1 || saturation != 1 }
+    public var isNeutral: Bool { !hasSampleAdjustments && cmykProfileID == nil }
     public var isValid: Bool {
         (-0.5...0.5).contains(brightness) && (0...2).contains(contrast) && (0...2).contains(saturation)
     }

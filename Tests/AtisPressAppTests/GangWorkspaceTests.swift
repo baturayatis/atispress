@@ -192,6 +192,15 @@ final class GangWorkspaceTests: XCTestCase {
         XCTAssertEqual(reopened.project.imageColorJobs, [1: adjustment])
         XCTAssertEqual(reopened.plan.sheets, workspace.plan.sheets)
         XCTAssertNotNil(reopened.previewColors?.page(for: slot))
+        var selected = ImageColorAdjustment()
+        selected.cmykProfileID = String(repeating: "a", count: 64)
+        workspace.project.imageColorJobs = [1: selected]
+        try await settle(workspace)
+        try workspace.saveProject(as: saved)
+        try await reopened.loadProject(at: saved)
+        try await settle(reopened)
+        XCTAssertEqual(reopened.project.imageColorJobs, [1: selected])
+        XCTAssertEqual(reopened.plan.sheets.first?.front.slots.first?.imageColor, selected)
         reopened.project.imageColorJobs = nil
         try await settle(reopened)
         XCTAssertNil(reopened.previewColors)

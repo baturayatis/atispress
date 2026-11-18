@@ -6,15 +6,7 @@ enum PDFCMYKImageColor {
     /// press profile. Pixels unaffected by the controls keep their ink values.
     static func adjust(_ samples: Data, width: Int, height: Int, profile: Data,
                        editRGB: (inout Data) throws -> Void) throws -> Data? {
-        guard (128...(4 * 1024 * 1024)).contains(profile.count),
-              profile.prefix(4).reduce(0, { ($0 << 8) + Int($1) }) == profile.count,
-              String(decoding: profile[12..<16], as: UTF8.self) == "prtr",
-              let press = ColorSyncProfileCreate(profile as CFData, nil)?.takeRetainedValue(),
-              ColorSyncProfileVerify(press, nil, nil),
-              ColorSyncProfileContainsTag(press, "A2B1" as CFString),
-              ColorSyncProfileContainsTag(press, "B2A1" as CFString),
-              let rgb = ColorSyncProfileCreateWithName(kColorSyncSRGBProfile.takeUnretainedValue())?.takeRetainedValue(),
-              let toRGB = transform(from: press, to: rgb), let toPress = transform(from: rgb, to: press) else { return nil }
+        guard let (toRGB, toPress) = transforms(for: profile) else { return nil }
 
         let pixelCount = width * height
         var originalRGB = Data(count: pixelCount * 3)
@@ -43,6 +35,22 @@ enum PDFCMYKImageColor {
             }
         }
         return editedCMYK
+    }
+
+    static func canAdjust(profile: Data) -> Bool { transforms(for: profile) != nil }
+
+    private static func transforms(for profile: Data) -> (ColorSyncTransform, ColorSyncTransform)? {
+        guard (128...(4 * 1024 * 1024)).contains(profile.count),
+              profile.prefix(4).reduce(0, { ($0 << 8) + Int($1) }) == profile.count,
+              String(decoding: profile[12..<20], as: UTF8.self) == "prtrCMYK",
+              let press = ColorSyncProfileCreate(profile as CFData, nil)?.takeRetainedValue(),
+              ColorSyncProfileVerify(press, nil, nil),
+              ColorSyncProfileContainsTag(press, "A2B1" as CFString),
+              ColorSyncProfileContainsTag(press, "B2A1" as CFString),
+              let rgb = ColorSyncProfileCreateWithName(kColorSyncSRGBProfile.takeUnretainedValue())?.takeRetainedValue(),
+              let toRGB = transform(from: press, to: rgb), let toPress = transform(from: rgb, to: press) else { return nil }
+
+        return (toRGB, toPress)
     }
 
     private static func transform(from: ColorSyncProfile, to: ColorSyncProfile) -> ColorSyncTransform? {

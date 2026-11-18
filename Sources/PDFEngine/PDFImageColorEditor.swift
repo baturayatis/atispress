@@ -199,19 +199,20 @@ struct PDFImageColorEditor {
                       live: live, targets: targets, path: path), safe)
     }
 
-    func variant(pages: Set<Int>, adjustment: ImageColorAdjustment) throws -> (Data?, [String]) {
-        let result = try process(pages: pages, adjustment: adjustment, inspect: false)
+    func variant(pages: Set<Int>, adjustment: ImageColorAdjustment, selectedProfile: Data? = nil) throws -> (Data?, [String]) {
+        let result = try process(pages: pages, adjustment: adjustment, selectedProfile: selectedProfile, inspect: false)
         return (result.0, result.1.warnings)
     }
 
-    func inspect(pages: Set<Int>) throws -> PDFColorInspection {
+    func inspect(pages: Set<Int>, cmykProfileID: String?, selectedProfile: Data?) throws -> PDFColorInspection {
         // The same decode and ICC round trip checks also run before sliders are enabled.
         var probe = ImageColorAdjustment()
         probe.contrast = 0
-        return try process(pages: pages, adjustment: probe, inspect: true).1
+        probe.cmykProfileID = cmykProfileID
+        return try process(pages: pages, adjustment: probe, selectedProfile: selectedProfile, inspect: true).1
     }
 
-    private func process(pages: Set<Int>, adjustment: ImageColorAdjustment, inspect: Bool)
+    private func process(pages: Set<Int>, adjustment: ImageColorAdjustment, selectedProfile: Data?, inspect: Bool)
         throws -> (Data?, PDFColorInspection) {
         guard adjustment.isValid else {
             return (nil, PDFColorInspection(warnings: ["Renk değerleri geçersiz."]))
@@ -221,7 +222,12 @@ struct PDFImageColorEditor {
         var entries: [Int: (Int, Int)] = [:]
         var next = (file.offsets.keys.max() ?? 0) + 1
         var warnings = Set<String>()
+        if adjustment.cmykProfileID != nil, selectedProfile == nil {
+            warnings.insert("Seçili CMYK ICC profili yüklü değil veya güvenli çift yönlü dönüşümü desteklemiyor. Yerine profil atanmadı.")
+        }
         var editable: [Int: Int] = [:]
+        var unprofiled = Set<Int>()
+        var embeddedProfileID: Int?
         var budget = Budget()
         var sampleBudget = 96 * 1024 * 1024
         var changedPages = 0
@@ -248,7 +254,11 @@ struct PDFImageColorEditor {
 
         // Rewrite only Do operands in copied scopes. The original objects can
         // also be used by masks, patterns, annotations or other pages.
-        func rewrite(_ scope: Scope, allowsCMYK: Bool) throws -> (Data, Data)? {
+        func rewrite(_ scope: Scope, allowsCMYK: Bool, inheritedDefault: Bool = false) throws -> (Data, Data)? {
+            var defaultSpace: CGPDFObjectRef?
+            let hasDefault = inheritedDefault || (Self.dictionary("ColorSpace", in: scope.live).map {
+                CGPDFDictionaryGetObject($0, "DefaultCMYK", &defaultSpace)
+            } ?? false)
             var objects = scope.objects
             var resources = scope.resources
             var aliases: [String: String] = [:]
@@ -261,7 +271,7 @@ struct PDFImageColorEditor {
                 if attempted.insert(target.id).inserted {
                     var dictionary = target.dictionary
                     if let form = target.form {
-                        if let (content, formResources) = try rewrite(form, allowsCMYK: allowsCMYK) {
+                        if let (content, formResources) = try rewrite(form, allowsCMYK: allowsCMYK, inheritedDefault: hasDefault) {
                             set("/Resources", to: formResources, in: &dictionary)
                             set("/Length", to: Data(String(content.count).utf8), in: &dictionary)
                             set("/Filter", to: nil, in: &dictionary)
@@ -271,17 +281,31 @@ struct PDFImageColorEditor {
                     } else {
                         var notes = Set<String>()
                         var components: Int?
+                        var needsProfile = false
                         let bytes = try adjusted(target.stream, dictionary: target.live, resources: scope.live,
                                                  dictionaryEnd: target.dictionaryEnd, adjustment: adjustment,
-                                                 allowsCMYK: allowsCMYK, inspect: inspect,
-                                                 sampleBudget: &sampleBudget, components: &components, warnings: &notes)
+                                                 allowsCMYK: allowsCMYK, hasDefault: hasDefault, selectedProfile: selectedProfile,
+                                                 inspect: inspect, sampleBudget: &sampleBudget, components: &components,
+                                                 needsProfile: &needsProfile, warnings: &notes)
                         warnings.formUnion(notes.map { "\(location): \($0)" })
                         if let components { editable[target.id] = components }
+                        if needsProfile { unprofiled.insert(target.id) }
                         if let bytes {
+                            if needsProfile, let selectedProfile {
+                                if embeddedProfileID == nil {
+                                    let profileDictionary = Data("<< /N 4 /Alternate /DeviceCMYK /Length \(selectedProfile.count) >>".utf8)
+                                    embeddedProfileID = append(dictionary: profileDictionary, stream: selectedProfile)
+                                }
+                                guard let embeddedProfileID else { continue }
+                                set("/ColorSpace", to: Data("[/ICCBased \(embeddedProfileID) 0 R]".utf8), in: &dictionary)
+                            }
                             set("/Length", to: Data(String(bytes.count).utf8), in: &dictionary)
                             set("/Filter", to: Data("/FlateDecode".utf8), in: &dictionary)
                             set("/DecodeParms", to: nil, in: &dictionary)
                             replacement = append(dictionary: dictionary, stream: bytes)
+                            if needsProfile, replacement != nil {
+                                warnings.insert("Seçili ICC profili profilsiz CMYK görsellere atandı. Renk görünümü değişebilir. Renk ayarları toplam mürekkep kaplamasını (TAC) değiştirebilir. Baskı için prova alın.")
+                            }
                         }
                     }
                     replacements[target.id] = replacement
@@ -330,6 +354,7 @@ struct PDFImageColorEditor {
         }
         let result = PDFColorInspection(editableCount: editable.count,
                                         saturationCount: editable.values.filter { $0 > 1 }.count,
+                                        unprofiledCMYKCount: unprofiled.count,
                                         warnings: warnings.sorted())
         guard changedPages > 0 else { return (nil, result) }
         let xref = file.source.count + output.count
@@ -342,16 +367,18 @@ struct PDFImageColorEditor {
     }
 
     private func adjusted(_ stream: CGPDFStreamRef, dictionary: CGPDFDictionaryRef, resources: CGPDFDictionaryRef,
-                          dictionaryEnd: Int, adjustment: ImageColorAdjustment, allowsCMYK: Bool, inspect: Bool,
-                          sampleBudget: inout Int, components eligible: inout Int?, warnings: inout Set<String>) throws -> Data? {
+                          dictionaryEnd: Int, adjustment: ImageColorAdjustment, allowsCMYK: Bool, hasDefault: Bool,
+                          selectedProfile: Data?, inspect: Bool, sampleBudget: inout Int,
+                          components eligible: inout Int?, needsProfile: inout Bool, warnings: inout Set<String>) throws -> Data? {
         guard let colorSpace = Self.colorSpace(dictionary, resources: resources) else {
             warnings.insert("CMYK, spot ve desteklenmeyen renk uzayları özgün renkleriyle kullanıldı.")
             return nil
         }
         let components = colorSpace.components
+        let unprofiled = components == 4 && colorSpace.profile == nil
         if components == 4 {
-            guard colorSpace.profile != nil else {
-                warnings.insert("Gömülü baskı ICC profili olmayan CMYK görseller özgün renkleriyle kullanıldı.")
+            if unprofiled, hasDefault {
+                warnings.insert("PDF’de /DefaultCMYK tanımlı. Görsele yeni ICC profili atanmadı.")
                 return nil
             }
             if let intent = Self.name("Intent", in: dictionary), intent != "RelativeColorimetric" {
@@ -463,20 +490,35 @@ struct PDFImageColorEditor {
             }
             data = bytes
         }
-        if components == 4, let profile = colorSpace.profile {
-            guard let edited = try PDFCMYKImageColor.adjust(data, width: width, height: height, profile: profile, editRGB: { rgb in
-                try Self.applyAdjustment(adjustment, to: &rgb, components: 3)
-            }) else {
-                warnings.insert("ICC profili doğrulanamayan veya çift yönlü dönüşümü olmayan CMYK görseller özgün renkleriyle kullanıldı.")
+        if components == 4 {
+            needsProfile = unprofiled
+            guard let profile = colorSpace.profile ?? selectedProfile else {
+                if adjustment.cmykProfileID == nil {
+                    warnings.insert("Gömülü baskı ICC profili olmayan CMYK görsel için profil seçilmedi.")
+                }
                 return nil
             }
-            eligible = components
-            guard !inspect, edited != data else { return nil }
-            data = edited
-            warnings.insert("CMYK görseller kendi ICC profillerine geri dönüştürüldü. Düzenlenen piksellerde mürekkep oranları değişebilir.")
+            if adjustment.hasSampleAdjustments {
+                guard let edited = try PDFCMYKImageColor.adjust(data, width: width, height: height, profile: profile, editRGB: { rgb in
+                    try Self.applyAdjustment(adjustment, to: &rgb, components: 3)
+                }) else {
+                    warnings.insert("ICC profili doğrulanamayan veya çift yönlü dönüşümü olmayan CMYK görseller özgün renkleriyle kullanıldı.")
+                    return nil
+                }
+                eligible = components
+                guard !inspect, unprofiled || edited != data else { return nil }
+                if !unprofiled {
+                    warnings.insert("CMYK görseller kendi ICC profillerine geri dönüştürüldü. Düzenlenen piksellerde mürekkep oranları değişebilir.")
+                }
+                data = edited
+            } else {
+                // Explicit assignment tags the existing separations when sliders are neutral.
+                guard unprofiled else { return nil }
+                eligible = components
+            }
         } else {
             eligible = components
-            guard !inspect else { return nil }
+            guard !inspect, adjustment.hasSampleAdjustments else { return nil }
             if components == 1 && adjustment.brightness == 0 && adjustment.contrast == 1 { return nil }
             try Self.applyAdjustment(adjustment, to: &data, components: components)
         }
