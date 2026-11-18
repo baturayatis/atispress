@@ -2,6 +2,7 @@ import XCTest
 import PDFKit
 import ImageIO
 import UniformTypeIdentifiers
+import zlib
 import ImpositionCore
 @testable import PDFEngine
 
@@ -270,6 +271,150 @@ final class ImageColorTests: XCTestCase {
         XCTAssertNil(try PDFJPEGImageSamples.decode(non8Bit, width: 8, height: 8, components: 1, pdfICC: nil))
 
         XCTAssertNil(try PDFJPEGImageSamples.decode(jpeg.prefix(10), width: 8, height: 8, components: 1, pdfICC: nil))
+    }
+
+    private func cmykFixture(profile: Data, extra: String = "", flate: Bool = false) throws -> URL {
+        let colorSpaces = "/ColorSpace << /Spot [/Separation /Brand /DeviceCMYK 9 0 R] >>"
+        let extStates = "/ExtGState << /Overprint << /OP true /op true /OPM 1 >> >>"
+        let image = "/Type /XObject /Subtype /Image /Width 2 /Height 1 /BitsPerComponent 8 /ColorSpace"
+        let ink: [UInt8] = [0, 0, 0, 0, 70, 100, 130, 50]
+        var imageData = Data(ink), filter = ""
+        if flate {
+            var length = compressBound(uLong(ink.count))
+            var compressed = [UInt8](repeating: 0, count: Int(length))
+            XCTAssertEqual(compress2(&compressed, &length, ink, uLong(ink.count), Z_DEFAULT_COMPRESSION), Z_OK)
+            imageData = Data(compressed.prefix(Int(length)))
+            filter = " /Filter /FlateDecode"
+        }
+        return try writePDF([
+            Data("<< /Type /Catalog /Pages 2 0 R >>".utf8),
+            Data("<< /Type /Pages /Count 1 /Kids [3 0 R] >>".utf8),
+            Data("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 140] /Resources << /Font << /F 5 0 R >> /XObject << /Press 6 0 R /Device 8 0 R >> \(colorSpaces) \(extStates) >> /Contents 4 0 R >>".utf8),
+            stream("", Data("\(extra) q 80 0 0 45 10 15 cm /Press Do Q q 80 0 0 45 100 15 cm /Device Do Q BT /F 12 Tf 10 100 Td (Vector CMYK proof) Tj ET".utf8)),
+            Data("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".utf8),
+            stream("\(image) [/ICCBased 7 0 R]\(filter)", imageData),
+            stream("/N 4", profile),
+            stream("\(image) /DeviceCMYK", Data([0, 0, 0, 0, 60, 70, 30, 100])),
+            Data("<< /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [0 0.75 0.5 0] /N 1 >>".utf8)
+        ])
+    }
+
+    private func iccProfile(in image: CGPDFStreamRef, resources: CGPDFDictionaryRef? = nil) throws -> Data? {
+        guard let imageDict = CGPDFStreamGetDictionary(image) else { return nil }
+        var array: CGPDFArrayRef?, name: UnsafePointer<CChar>?
+        if !CGPDFDictionaryGetArray(imageDict, "ColorSpace", &array),
+           CGPDFDictionaryGetName(imageDict, "ColorSpace", &name), let name, let resources {
+            var spaces: CGPDFDictionaryRef?
+            if CGPDFDictionaryGetDictionary(resources, "ColorSpace", &spaces), let spaces {
+                _ = CGPDFDictionaryGetArray(spaces, String(cString: name), &array)
+            }
+        }
+        guard let array, CGPDFArrayGetName(array, 0, &name), let name, String(cString: name) == "ICCBased" else { return nil }
+        var profile: CGPDFStreamRef?
+        guard CGPDFArrayGetStream(array, 1, &profile), let profile else { return nil }
+        return try samples(profile)
+    }
+
+    private func exportedProfiles(_ page: CGPDFPage) throws -> [Data] {
+        func scan(_ parent: CGPDFDictionaryRef?, depth: Int) throws -> [Data] {
+            var resources: CGPDFDictionaryRef?, objects: CGPDFDictionaryRef?
+            guard depth < 8, let parent, CGPDFDictionaryGetDictionary(parent, "Resources", &resources), let resources,
+                  CGPDFDictionaryGetDictionary(resources, "XObject", &objects), let objects else { return [] }
+            var streams: [CGPDFStreamRef] = []
+            CGPDFDictionaryApplyBlock(objects, { _, value, _ in
+                var stream: CGPDFStreamRef?
+                if CGPDFObjectGetValue(value, .stream, &stream), let stream { streams.append(stream) }
+                return true
+            }, nil)
+            return try streams.flatMap { stream in
+                if let profile = try iccProfile(in: stream, resources: resources) { return [profile] }
+                return try scan(CGPDFStreamGetDictionary(stream), depth: depth + 1)
+            }
+        }
+        return try scan(page.dictionary, depth: 0)
+    }
+
+    func testProfiledCMYKAdjustsOnlyTheTargetImageAndPreservesICCInExport() async throws {
+        let profile = try XCTUnwrap(CGColorSpace(name: CGColorSpace.genericCMYK)?.copyICCData()) as Data
+        let url = try cmykFixture(profile: profile, flate: true)
+        let original = try Data(contentsOf: url)
+        let source = try await PDFSource.open(url)
+        var slot = Slot(sourcePageNumber: 1, origin: Point(12, 12), size: source.pages[0].trimSize)
+        var adjustment = ImageColorAdjustment()
+        adjustment.brightness = 0.22
+        adjustment.contrast = 1.1
+        adjustment.saturation = 0.4
+        slot.imageColor = adjustment
+        let plan = ImpositionPlan(sheets: [Sheet(size: Size(110, 85), front: Side(slots: [slot]), back: Side())])
+        let colors = try PDFColorVariants.prepare(source: source, plan: plan)
+        let preview = try XCTUnwrap(colors.page(for: slot), "\(colors.warnings)")
+        let edited = try displayedImage(preview, at: 0)
+        let ink = try samples(edited)
+        XCTAssertEqual(ink.count, 8)
+        XCTAssertEqual(ink.prefix(4), Data([0, 0, 0, 0]), "Clamped white should keep its original inks")
+        XCTAssertNotEqual(ink.suffix(4), Data([70, 100, 130, 50]))
+        XCTAssertEqual(try iccProfile(in: edited), profile)
+        XCTAssertEqual(try samples(displayedImage(preview, at: 1)), Data([0, 0, 0, 0, 60, 70, 30, 100]))
+        XCTAssertTrue(colors.warnings.contains { $0.contains("profili olmayan CMYK") })
+        XCTAssertTrue(colors.warnings.contains { $0.contains("mürekkep oranları") })
+
+        let output = url.deletingLastPathComponent().appendingPathComponent("cmyk-output.pdf")
+        _ = try PDFExporter.export(plan: plan, source: source, destination: .singlePDF(output), marks: .none)
+        XCTAssertEqual(try Data(contentsOf: url), original)
+        XCTAssertTrue(try XCTUnwrap(PDFDocument(url: output)).string?.contains("Vector CMYK proof") == true)
+        let outputDoc = try XCTUnwrap(CGPDFDocument(output as CFURL))
+        let printed = try XCTUnwrap(outputDoc.page(at: 1))
+        XCTAssertTrue(try exportedProfiles(printed).contains(profile))
+        let point = CGPoint(x: 70, y: 32), pt = PDFPreviewDrawing.pointsPerMM
+        func rgb(_ page: CGPDFPage, at point: CGPoint) throws -> [UInt8] {
+            let context = try XCTUnwrap(CGContext(data: nil, width: 3, height: 3, bitsPerComponent: 8, bytesPerRow: 12,
+                                                   space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+            context.translateBy(x: 1.5 - point.x, y: 1.5 - point.y)
+            context.drawPDFPage(page)
+            let data = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+            XCTAssertEqual(data[19], 255, "The sample must cover opaque artwork")
+            return Array(UnsafeBufferPointer(start: data + 16, count: 3))
+        }
+        let originalDoc = try XCTUnwrap(CGPDFDocument(url as CFURL))
+        let before = try rgb(XCTUnwrap(originalDoc.page(at: 1)), at: point)
+        let after = try rgb(preview, at: point)
+        XCTAssertGreaterThan(after.reduce(0) { $0 + Int($1) }, before.reduce(0) { $0 + Int($1) })
+        let emitted = try rgb(printed, at: CGPoint(x: point.x + slot.x * pt, y: point.y + slot.y * pt))
+        for (expected, actual) in zip(after, emitted) { XCTAssertEqual(expected, actual, accuracy: 3) }
+    }
+
+    func testCMYKSkipsInvalidICCSpotAndOverprint() async throws {
+        let profile = try XCTUnwrap(CGColorSpace(name: CGColorSpace.genericCMYK)?.copyICCData()) as Data
+        var damaged = profile
+        let size = damaged.count
+        damaged.replaceSubrange(0..<4, with: [0x7f, 0xff, 0xff, 0xff])
+        XCTAssertEqual(damaged.count, size)
+        let cases = [
+            (damaged, "", "ICC profili doğrulanamayan"),
+            (profile, "/Overprint gs 0 0 0 1 K 0 70 m 195 70 l S", "üst baskı"),
+            (profile, "/Spot cs 1 scn 0 0 200 140 re f", "Spot renk")
+        ]
+        for (data, extra, reason) in cases {
+            let url = try cmykFixture(profile: data, extra: extra)
+            let source = try await PDFSource.open(url)
+            var slot = Slot(sourcePageNumber: 1, origin: Point(8, 8), size: source.pages[0].trimSize)
+            var adjustment = ImageColorAdjustment()
+            adjustment.brightness = 0.25
+            slot.imageColor = adjustment
+            let plan = ImpositionPlan(sheets: [Sheet(size: Size(110, 85), front: Side(slots: [slot]), back: Side())])
+            let prepared = try PDFColorVariants.prepare(source: source, plan: plan)
+            XCTAssertNil(prepared.page(for: slot))
+            XCTAssertTrue(prepared.warnings.contains { $0.contains(reason) }, "\(prepared.warnings)")
+            if !extra.isEmpty {
+                let output = url.deletingLastPathComponent().appendingPathComponent("unchanged-inks.pdf")
+                let report = try PDFExporter.export(plan: plan, source: source, destination: .singlePDF(output), marks: .none)
+                XCTAssertTrue(report.notes.contains { $0.contains(reason) })
+                let contents = String(decoding: try Data(contentsOf: output), as: UTF8.self)
+                let tokens = extra.contains(" gs") ? [#"/OP\s+true"#, #"/op\s+true"#, #"/OPM\s+1"#] : [#"/Separation\s+/Brand"#]
+                for token in tokens { XCTAssertNotNil(contents.range(of: token, options: .regularExpression), token) }
+            }
+        }
     }
 
     func testSamePageCanUseDifferentJobAdjustmentsAndResetIsOriginal() async throws {

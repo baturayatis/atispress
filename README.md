@@ -47,9 +47,15 @@ görseller ham, Flate veya desteklenen JPEG (DCT) biçimindeyse düzenlenebilir.
 Düzenlenmiş JPEG örnekleri kayıpsız Flate akışına yazılır. PDF’de atanmış
 RGB ve gri ICC profilleri korunur. Gri görsellerde doygunluk etkisizdir.
 ICC profili yalnızca JPEG’e gömülü olan veya PDF profiliyle uyuşmayan
-görseller atlanır. Özel DCT dönüşümleri, CMYK, spot, JPEG 2000, maskeli ve
+görseller atlanır. Özel DCT dönüşümleri, spot, JPEG 2000, maskeli ve
 Form içindeki görseller de düzenleme dışında kalır ve uyarı gösterilir.
-Özgün PDF, metin ve vektör çizimleri korunur.
+
+Ham veya Flate kodlu 8 bit CMYK görseller için doğrulanmış, çift yönlü
+gömülü baskı ICC profili gerekir. Renkler ColorSync ile sRGB çalışma
+uzayında düzenlenir ve aynı CMYK profiline geri dönüştürülür. Düzenlenen
+piksellerin mürekkep oranları değişebilir. Profilsiz CMYK, CMYK JPEG ve
+spot renk veya üst baskı içerebilecek karmaşık sayfalardaki CMYK görseller
+uyarıyla atlanır. Özgün PDF, metin ve vektör çizimleri korunur.
 
 ## Akıllı İş Ayırma
 

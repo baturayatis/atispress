@@ -86,6 +86,7 @@ struct PDFImageColorEditor {
                 warnings.insert("Bazı PDF görsel kaynakları güvenli biçimde incelenemedi.")
                 continue
             }
+            var allowsCMYK: Bool?
             var aliases: [String: String] = [:]
             var replacementImages: [Int: Int] = [:]
             for name in names.sorted() {
@@ -109,7 +110,14 @@ struct PDFImageColorEditor {
                 let newID: Int
                 if let existing = replacementImages[id] { newID = existing }
                 else {
-                    guard let imageData = try adjusted(stream, dictionary: image, resources: liveResources, adjustment: adjustment, warnings: &warnings) else { continue }
+                    guard let imageData = try adjusted(stream, dictionary: image, resources: liveResources, adjustment: adjustment,
+                                                       allowsCMYK: {
+                        if let allowsCMYK { return allowsCMYK }
+                        let allowed = Self.allowsCMYKAdjustment(tokens: tokens, names: names, page: page,
+                                                               resources: liveResources, xObjects: liveObjects)
+                        allowsCMYK = allowed
+                        return allowed
+                    }, warnings: &warnings) else { continue }
                     guard output.count + imageData.count <= 96 * 1024 * 1024 else {
                         warnings.insert("Renk düzenleme bellek sınırını aşan görseller özgün renkleriyle kullanıldı.")
                         continue
@@ -156,12 +164,26 @@ struct PDFImageColorEditor {
     }
 
     private func adjusted(_ stream: CGPDFStreamRef, dictionary: CGPDFDictionaryRef, resources: CGPDFDictionaryRef,
-                          adjustment: ImageColorAdjustment, warnings: inout Set<String>) throws -> Data? {
+                          adjustment: ImageColorAdjustment, allowsCMYK: () -> Bool, warnings: inout Set<String>) throws -> Data? {
         guard let colorSpace = Self.colorSpace(dictionary, resources: resources) else {
             warnings.insert("CMYK, spot ve desteklenmeyen renk uzayları özgün renkleriyle kullanıldı.")
             return nil
         }
         let components = colorSpace.components
+        if components == 4 {
+            guard colorSpace.profile != nil else {
+                warnings.insert("Gömülü baskı ICC profili olmayan CMYK görseller özgün renkleriyle kullanıldı.")
+                return nil
+            }
+            if let intent = Self.name("Intent", in: dictionary), intent != "RelativeColorimetric" {
+                warnings.insert("Özel renk dönüşüm amacı olan CMYK görseller özgün renkleriyle kullanıldı.")
+                return nil
+            }
+            guard allowsCMYK() else {
+                warnings.insert("Spot renk, üst baskı veya birleşik grafik durumu içerebilen sayfalardaki CMYK görseller özgün renkleriyle kullanıldı.")
+                return nil
+            }
+        }
         if components == 1 && adjustment.saturation != 1 {
             warnings.insert("Doygunluk gri tonlamalı görsellere uygulanmadı.")
             if adjustment.brightness == 0 && adjustment.contrast == 1 { return nil }
@@ -188,6 +210,10 @@ struct PDFImageColorEditor {
         let arrayDCT = CGPDFDictionaryGetArray(dictionary, "Filter", &filterArray) &&
             filterArray.map { CGPDFArrayGetCount($0) == 1 && CGPDFArrayGetName($0, 0, &dct) } == true &&
             dct.map { String(cString: $0) == "DCTDecode" } == true
+        if components == 4 && hasFilter && filter != "FlateDecode" {
+            warnings.insert("Yalnız ham veya Flate sıkıştırmalı CMYK görseller düzenlenebilir. Diğer CMYK görseller özgün renkleriyle kullanıldı.")
+            return nil
+        }
         var format = CGPDFDataFormat.raw
         var data: Data
         if filter == "DCTDecode" || arrayDCT {
@@ -208,6 +234,33 @@ struct PDFImageColorEditor {
             }
             data = Data(bytes as Data)
         }
+        if components == 4, let profile = colorSpace.profile {
+            guard let edited = try PDFCMYKImageColor.adjust(data, width: width, height: height, profile: profile, editRGB: { rgb in
+                try Self.applyAdjustment(adjustment, to: &rgb, components: 3)
+            }) else {
+                warnings.insert("ICC profili doğrulanamayan veya çift yönlü dönüşümü olmayan CMYK görseller özgün renkleriyle kullanıldı.")
+                return nil
+            }
+            guard edited != data else { return nil }
+            data = edited
+            warnings.insert("CMYK görseller kendi ICC profillerine geri dönüştürüldü. Düzenlenen piksellerde mürekkep oranları değişebilir.")
+        } else {
+            try Self.applyAdjustment(adjustment, to: &data, components: components)
+        }
+        var capacity = compressBound(uLong(data.count))
+        var compressed = Data(count: Int(capacity))
+        let status = compressed.withUnsafeMutableBytes { target in
+            data.withUnsafeBytes { source in
+                compress2(target.bindMemory(to: Bytef.self).baseAddress, &capacity,
+                          source.bindMemory(to: Bytef.self).baseAddress, uLong(data.count), Z_DEFAULT_COMPRESSION)
+            }
+        }
+        guard status == Z_OK else { return nil }
+        compressed.count = Int(capacity)
+        return compressed
+    }
+
+    private static func applyAdjustment(_ adjustment: ImageColorAdjustment, to data: inout Data, components: Int) throws {
         try data.withUnsafeMutableBytes { (bytes: UnsafeMutableRawBufferPointer) in
             let samples = bytes.bindMemory(to: UInt8.self)
             func adjusted(_ sample: Double) -> UInt8 {
@@ -224,17 +277,34 @@ struct PDFImageColorEditor {
                 samples[i + 2] = adjusted(luminance + (b - luminance) * adjustment.saturation)
             }
         }
-        var capacity = compressBound(uLong(data.count))
-        var compressed = Data(count: Int(capacity))
-        let status = compressed.withUnsafeMutableBytes { target in
-            data.withUnsafeBytes { source in
-                compress2(target.bindMemory(to: Bytef.self).baseAddress, &capacity,
-                          source.bindMemory(to: Bytef.self).baseAddress, uLong(data.count), Z_DEFAULT_COMPRESSION)
+    }
+
+    private static func allowsCMYKAdjustment(tokens: [PDFContentToken], names: Set<String>, page: CGPDFPage,
+                                             resources: CGPDFDictionaryRef, xObjects: CGPDFDictionaryRef) -> Bool {
+        // A simple page scope provides no place for an overprinting or
+        // spot-painted object to interact with a changed separation.
+        let complexOperators: Set<String> = ["gs", "sh", "SCN", "scn", "ri"]
+        if tokens.contains(where: { complexOperators.contains($0.text) }) { return false }
+        if let pageDictionary = page.dictionary, dictionary("Group", in: pageDictionary) != nil { return false }
+        let processSpaces: Set<String> = ["/DeviceGray", "/DeviceRGB", "/DeviceCMYK"]
+        let fonts = dictionary("Font", in: resources)
+        for index in tokens.indices {
+            switch tokens[index].text {
+            case "CS", "cs":
+                guard index >= 1, processSpaces.contains(tokens[index - 1].text) else { return false }
+            case "Tf":
+                guard index >= 2, let fonts, let font = dictionary(String(tokens[index - 2].text.dropFirst()), in: fonts),
+                      let subtype = name("Subtype", in: font), subtype != "Type3" else { return false }
+            default: break
             }
         }
-        guard status == Z_OK else { return nil }
-        compressed.count = Int(capacity)
-        return compressed
+        return names.allSatisfy { key in
+            var stream: CGPDFStreamRef?
+            guard CGPDFDictionaryGetStream(xObjects, String(key.dropFirst()), &stream), let stream,
+                  let image = CGPDFStreamGetDictionary(stream), name("Subtype", in: image) == "Image",
+                  colorSpace(image, resources: resources) != nil else { return false }
+            return true
+        }
     }
 
     private static func supportsDCTParameters(_ image: CGPDFDictionaryRef, components: Int) -> Bool {
@@ -266,6 +336,7 @@ struct PDFImageColorEditor {
             switch String(cString: named) {
             case "DeviceRGB": return (3, nil)
             case "DeviceGray": return (1, nil)
+            case "DeviceCMYK": return (4, nil)
             default:
                 guard let spaces = dictionary("ColorSpace", in: resources) else { return nil }
                 var resolved: CGPDFObjectRef?
@@ -276,6 +347,7 @@ struct PDFImageColorEditor {
                     switch String(cString: value) {
                     case "DeviceRGB": return (3, nil)
                     case "DeviceGray": return (1, nil)
+                    case "DeviceCMYK": return (4, nil)
                     default: return nil
                     }
                 }
@@ -287,12 +359,17 @@ struct PDFImageColorEditor {
               CGPDFArrayGetStream(array, 1, &stream), let stream, let dict = CGPDFStreamGetDictionary(stream) else { return nil }
         var count: CGPDFInteger = 0
         var format = CGPDFDataFormat.raw
-        guard CGPDFDictionaryGetInteger(dict, "N", &count), count == 1 || count == 3,
+        guard CGPDFDictionaryGetInteger(dict, "N", &count), [1, 3, 4].contains(count),
               let profile = CGPDFStreamCopyData(stream, &format), format == .raw,
               CFDataGetLength(profile) >= 128 else { return nil }
         let profileData = profile as Data
         guard String(decoding: profileData[36..<40], as: UTF8.self) == "acsp" else { return nil }
         let signature = String(decoding: profileData[16..<20], as: UTF8.self)
+        if count == 4 {
+            var range: CGPDFObjectRef?
+            guard signature == "CMYK", !CGPDFDictionaryGetObject(dict, "Range", &range) else { return nil }
+            return (count, profileData)
+        }
         return (count == 3 && signature == "RGB ") || (count == 1 && signature == "GRAY") ? (count, profileData) : nil
     }
 
