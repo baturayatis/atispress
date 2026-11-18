@@ -61,7 +61,7 @@ struct PreviewCanvas: NSViewRepresentable {
         canvas.focusArea = focusArea
         canvas.repetition = repetition; canvas.selectedSerial = selectedSerial
         canvas.selectSerial = selectSerial; canvas.moveSerial = moveSerial; canvas.moveGangBlock = moveGangBlock; canvas.beginEdit = beginEdit; canvas.endEdit = endEdit
-        canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed,controlMarks: controlMarks,bleedAmount:bleedAmount,info:printedInfo,colors:zoomModel?.previewColors)
+        canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed,controlMarks: controlMarks,bleedAmount:bleedAmount,info:printedInfo)
     }
 }
 
@@ -117,7 +117,6 @@ final class SheetCanvasView: NSView {
     private var colorControls: PDFColorControlRenderer.Geometry?
     private var generatedOverlay: GeneratedBleedOverlay?
     private var vectorDocument: CGPDFDocument?
-    private var colors: PDFColorVariants?
     private var edgeTask: Task<Void,Never>?
     private var loading = Set<Int>()
     private var failedRasters = Set<Int>()
@@ -135,8 +134,7 @@ final class SheetCanvasView: NSView {
     @objc private func magnificationEnded() { needsDisplay = true }
     override var isOpaque: Bool { true }
     override var acceptsFirstResponder: Bool { true }
-    func configure(sheet: Sheet,side: Side,source: PDFSource?,overlays: PreviewOverlays,highlighted: Set<Int>,sheetIndex: Int = 0,kind: SideKind = .front,generatedBleed: GeneratedBleedSettings = GeneratedBleedSettings(),controlMarks: ExportMarks = .none,bleedAmount: Double = 3,info:String = "",colors: PDFColorVariants? = nil) {
-        self.colors = colors
+    func configure(sheet: Sheet,side: Side,source: PDFSource?,overlays: PreviewOverlays,highlighted: Set<Int>,sheetIndex: Int = 0,kind: SideKind = .front,generatedBleed: GeneratedBleedSettings = GeneratedBleedSettings(),controlMarks: ExportMarks = .none,bleedAmount: Double = 3,info:String = "") {
         let edgesChanged = self.source !== source || self.side.slots != side.slots || self.generatedOverlay?.settings != generatedBleed
         if self.source !== source {
             self.source = source; loading = []; failedRasters = []
@@ -219,13 +217,12 @@ final class SheetCanvasView: NSView {
             context.saveGState()
             context.setFillColor(DesignSystem.paperNS.cgColor); context.fill(rect)
             if let number = slot.sourcePageNumber {
-                let adjusted = colors?.page(for: slot)
-                let page = adjusted ?? vectorDocument?.page(at: number)
-                let raster = adjusted == nil && scale < 0.85 && slot.rescale == nil ? source?.cachedRaster(page: number,pixels: rasterPixels) : nil
-                if adjusted == nil && scale < 0.85 && slot.rescale == nil && raster == nil && !failedRasters.contains(number) { loadRaster(number,pixels: rasterPixels) }
+                let page = vectorDocument?.page(at: number)
+                let raster = scale < 0.85 && slot.rescale == nil ? source?.cachedRaster(page: number,pixels: rasterPixels) : nil
+                if scale < 0.85 && slot.rescale == nil && raster == nil && !failedRasters.contains(number) { loadRaster(number,pixels: rasterPixels) }
                 // A vector fallback avoids flashing empty trim rectangles while the bleed raster loads.
                 try? PDFPlanRenderer.drawSlot(slot,page: page,in: context,
-                    reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),repetition: repetition,raster: raster,overlays: extensions,colorEdgeSamples: colors?.edgeSamples(for: slot))
+                    reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),repetition: repetition,raster: raster,overlays: extensions)
             } else {
                 context.setFillColor((slot.bookRegion == nil ? DesignSystem.blankNS : DesignSystem.paperNS).cgColor); context.fill(rect)
                 if slot.bookRegion == nil {

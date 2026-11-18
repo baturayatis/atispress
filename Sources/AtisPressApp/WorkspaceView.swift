@@ -32,9 +32,9 @@ struct WorkspaceView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in model.refreshRecentFiles() }
         .overlay { if dropTarget { RoundedRectangle(cornerRadius: 10).stroke(DesignSystem.teal,lineWidth: 4).padding(5).allowsHitTesting(false) } }
         .onDrop(of: [.fileURL],isTargeted: $dropTarget,perform: model.acceptDrop)
-        .confirmationDialog("Çok sayfalı PDF", isPresented: $model.showingTeamImportChoice, titleVisibility: .visible) {
-            Button("Takım olarak diz", action: model.startTeam)
-            Button("Olduğu gibi kullan", role: .cancel) {}
+        .sheet(isPresented: $model.showingTeamImportChoice) {
+            TeamPDFImportDialog(model: model)
+                .interactiveDismissDisabled()
         }
         .alert("İşlem tamamlanamadı",isPresented: Binding(get: { model.error != nil },set: { if !$0 { model.error = nil } })) {
             Button("Tamam") { model.error = nil; model.pdfLoadFailure=nil }

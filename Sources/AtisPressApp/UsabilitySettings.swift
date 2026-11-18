@@ -42,9 +42,30 @@ enum InspectorSection: String, CaseIterable, Identifiable {
         }
     }
 }
+enum TeamPDFImport: String, CaseIterable, Identifiable {
+    case ask, team, asIs
+
+    var id: Self { self }
+    var title: String {
+        switch self {
+        case .ask: return "Her seferinde sor"
+        case .team: return "Takım olarak diz"
+        case .asIs: return "Olduğu gibi kullan"
+        }
+    }
+
+    static let defaultsKey = "atispress.pdfImport.multiPage"
+}
+
 @MainActor
 final class UsabilitySettings: ObservableObject {
     private let defaults: UserDefaults
+    @Published var teamPDFImport: TeamPDFImport {
+        didSet {
+            if teamPDFImport == .ask { defaults.removeObject(forKey: TeamPDFImport.defaultsKey) }
+            else { defaults.set(teamPDFImport.rawValue, forKey: TeamPDFImport.defaultsKey) }
+        }
+    }
     @Published var mode: InspectorMode { didSet { defaults.set(mode.rawValue,forKey:"atispress.ui.mode"); if mode == .simple { search = "" } } }
     @Published var search = ""
     @Published var searchFocusRequest = 0
@@ -64,6 +85,7 @@ final class UsabilitySettings: ObservableObject {
     }
     init(defaults:UserDefaults = .standard) {
         self.defaults = defaults
+        teamPDFImport = defaults.string(forKey: TeamPDFImport.defaultsKey).flatMap(TeamPDFImport.init(rawValue:)) ?? .ask
         activePanel=defaults.string(forKey:"atispress.ui.activePanel").flatMap(InspectorPanel.init(rawValue:)) ?? .job
         railVisible=defaults.object(forKey:"atispress.ui.rail") as? Bool ?? true
         inspectorCollapsed=(defaults.object(forKey:"atispress.ui.rail") as? Bool ?? true) && defaults.bool(forKey:"atispress.ui.inspectorCollapsed")

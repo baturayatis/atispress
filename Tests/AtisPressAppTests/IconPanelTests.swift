@@ -79,7 +79,7 @@ import PDFEngine
             XCTAssertEqual(tab.title, title)
             XCTAssertNotEqual(tab.help, tab.title)
         }
-        XCTAssertEqual(InspectorRegistry.owner(editor: "ImageColorInspector", path: "imageColorJobs"), .color)
+        XCTAssertEqual(InspectorPanel.color.groups(for: model.project), ["Skala ve diz"])
         XCTAssertEqual(InspectorRegistry.owner(editor: "SourcePageTools", path: "hiddenGuideGroups"), .separation)
         XCTAssertEqual(InspectorRegistry.owner(editor: "TeamInspectorView", path: "manualLayouts"), .montage)
         XCTAssertEqual(InspectorRegistry.owner(editor: "InternalCutMarksView", path: "internalCutJobs"), .marks)

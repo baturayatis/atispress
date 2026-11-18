@@ -88,12 +88,9 @@ struct InspectorView: View {
             default:ExportMarksView(model:model,inline:true,scope:.printed)
             }
         case .color:
-            if group == 0 { ImageColorInspector(model: model) }
-            else {
-                ExportMarksView(model:model,inline:true,scope:.colorControls)
-                ColorControlSizeView(model:model)
-                previewColorControls
-            }
+            ExportMarksView(model:model,inline:true,scope:.colorControls)
+            ColorControlSizeView(model:model)
+            previewColorControls
         case .serial:SerialInspectorView(model:model,compact:true,section:group)
         case .separation:
             SourcePageTools(model:model)

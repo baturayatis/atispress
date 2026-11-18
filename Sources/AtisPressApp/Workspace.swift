@@ -95,48 +95,8 @@ final class Workspace: ObservableObject {
     @Published private(set) var gangAssets: [GangAsset] = []
     @Published var selectedGangJobID: UUID?
     @Published var selectedGangBlockID: UUID?
-    @Published private(set) var source: PDFSource? {
-        didSet {
-            if oldValue !== source { clearColorPreview() }
-        }
-    }
-    @Published private(set) var plan = ImpositionPlan() {
-        didSet { refreshColorPreview() }
-    }
-    @Published private(set) var colorVariants: PDFColorVariants?
-    @Published private(set) var preparingColorPreview = false
-    @Published var previewOriginalColors = false
-    private var colorTask: Task<Void, Never>?
-    private var colorRequests: [ImageColorAdjustment: Set<Int>] = [:]
-    private var colorRevision = UUID()
-
-    var previewColors: PDFColorVariants? { previewOriginalColors ? nil : colorVariants }
-
-    private func clearColorPreview() {
-        colorTask?.cancel()
-        colorRevision = UUID()
-        colorRequests = [:]
-        colorVariants = nil
-        preparingColorPreview = false
-    }
-
-    private func refreshColorPreview() {
-        let requests = PDFColorVariants.requests(in: plan)
-        guard requests != colorRequests else { return }
-        clearColorPreview()
-        guard let source, !requests.isEmpty else { return }
-        colorRequests = requests
-        preparingColorPreview = true
-        let token = colorRevision
-        let snapshot = plan
-        colorTask = Task {
-            let worker = Task.detached(priority: .userInitiated) { try PDFColorVariants.prepare(source: source, plan: snapshot) }
-            let result = await withTaskCancellationHandler { await worker.result } onCancel: { worker.cancel() }
-            guard !Task.isCancelled, token == colorRevision else { return }
-            colorVariants = try? result.get()
-            preparingColorPreview = false
-        }
-    }
+    @Published private(set) var source: PDFSource?
+    @Published private(set) var plan = ImpositionPlan()
     @Published private(set) var order: [Int] = [] { didSet { refreshModified() } }
     @Published var included = Set<Int>() { didSet { refreshModified() } }
     @Published var selectedPages = Set<Int>()
@@ -249,7 +209,7 @@ final class Workspace: ObservableObject {
         })
     }
     var canExportNow: Bool {
-        source != nil && plan.canExport && !plan.sheets.isEmpty && !preparingSource && !planning && !loading && !autoArranging && !exporting && !samplingBleed && !bleedSamplingFailed && !preparingColorPreview
+        source != nil && plan.canExport && !plan.sheets.isEmpty && !preparingSource && !planning && !loading && !autoArranging && !exporting && !samplingBleed && !bleedSamplingFailed
     }
     private func warmGeneratedBleed() {
         bleedTask?.cancel()
@@ -406,7 +366,6 @@ final class Workspace: ObservableObject {
                             let sourceID=next.pageItems?.first{$0.id==pair.front.number}?.sourceID ?? fallback
                             var job=GangJob(sourceID:sourceID,name:pageListTitle(pair.front.number),front:pair.front,back:pair.back)
                             job.internalCuts = next.internalCutJobs?[pair.front.number]
-                            job.imageColor = next.imageColorJobs?[pair.front.number]
                             job.quantity=project.stepAndRepeat.quantity ?? 1000;job.waste=project.stepAndRepeat.waste ?? WasteSettings()
                             job.bleed=project.settings.bleed;job.generatedBleed=project.settings.generatedBleed
                             job.serialFields=project.serialFields.filter{$0.jobIndex==index}.map{var field=$0;field.id=UUID();field.jobIndex=0;return field}
@@ -443,6 +402,13 @@ final class Workspace: ObservableObject {
     @Published var showingTeamImportChoice = false
 
     func choosePDF() { chooseFile(.pdf) }
+
+    func finishTeamImport(_ choice: TeamPDFImport, remember: Bool) {
+        guard showingTeamImportChoice, canStartTeam, choice != .ask else { return }
+        showingTeamImportChoice = false
+        if remember { ui.teamPDFImport = choice }
+        if choice == .team { startTeam() }
+    }
 
     var canStartTeam: Bool {
         sourceReference != nil && (source?.pages.count ?? 0) > 1 && project.sourcePreparation == nil
@@ -491,8 +457,6 @@ final class Workspace: ObservableObject {
             let front = draft.pages[index]
             let back = step == 2 && index + 1 < draft.pages.count ? draft.pages[index + 1] : nil
             var job = GangJob(sourceID: sourceID, name: teamPageLabel(front, back), front: front, back: back)
-            job.imageColor = draft.gang?.jobs.first { $0.front.number == front.number }?.imageColor
-                ?? draft.imageColorJobs?[front.number]
             job.internalCuts = draft.gang?.jobs.first { $0.front.number == front.number }?.internalCuts
                 ?? draft.internalCutJobs?[front.number]
             job.bleed = draft.settings.bleed
@@ -561,6 +525,7 @@ final class Workspace: ObservableObject {
     func open(_ url: URL,confirmChanges: Bool = true) {
         if project.binding == .gang && project.team == nil && project.sourcePreparation?.hasPreparedProducts != true && project.sourcePreparation?.hiddenGuideGroups.isEmpty != false && url.pathExtension.lowercased() == "pdf" { addGangPDFs([url]); return }
         guard !preparingSource,!loading, !exporting, !autoArranging, (!confirmChanges || confirmDiscard()) else { return }
+        showingTeamImportChoice = false
         if url.pathExtension.lowercased() == "atispress" {
             loading = true; error = nil; pdfLoadFailure=nil
             importTask = Task {
@@ -589,7 +554,6 @@ final class Workspace: ObservableObject {
                     snapshot.team = nil
                     snapshot.gang = nil
                     snapshot.internalCutJobs = nil
-                    snapshot.imageColorJobs = nil
                     snapshot.pages = source.pages.map(\.sourcePage)
                     snapshot.pageItems = nil
                     snapshot.pageItemNextID = nil
@@ -624,8 +588,12 @@ final class Workspace: ObservableObject {
                 loading = false
                 resetJournal(); queueAutosave()
                 recordRecentFile(source.originalURL)
-                showingTeamImportChoice = canStartTeam
-                offerRescaling()
+                if canStartTeam && ui.teamPDFImport == .team {
+                    startTeam()
+                } else {
+                    showingTeamImportChoice = canStartTeam && ui.teamPDFImport == .ask
+                    offerRescaling()
+                }
                 refreshModified()
             } catch {
                 guard !Task.isCancelled, importRevision == token else { return }
@@ -799,6 +767,7 @@ extension Workspace {
         guard !preparingSource,!loading,!exporting,!autoArranging,confirmDiscard() else { return }
         importTask?.cancel(); autoTask?.cancel(); autoArranging = false; planTask?.cancel(); bleedTask?.cancel()
         clearRecovery()
+        showingTeamImportChoice = false
         restoring = true; projectIdentifier = UUID()
         gangAssets = []; selectedGangJobID = nil; selectedGangBlockID = nil
         source = nil; sourceReference = nil; projectURL = nil; projectAccess = nil
@@ -957,6 +926,7 @@ extension Workspace {
         try Task.checkCancellation()
         clearRecovery()
         snapshot.projectID = snapshot.projectID ?? recovery?.id ?? UUID()
+        showingTeamImportChoice = false
         restoring = true; projectIdentifier = snapshot.projectID!
         planTask?.cancel(); bleedTask?.cancel(); plan = ImpositionPlan()
         gangAssets = assets; selectedGangJobID = snapshot.project.gang?.jobs.first?.id; selectedGangBlockID = nil
@@ -1336,7 +1306,6 @@ extension Workspace {
             var b = pair.back; b?.number += offset
             var job = GangJob(sourceID:id,name: source.url.deletingPathExtension().lastPathComponent+" · \(index+1)",front:f,back:b)
             job.internalCuts = baseline.internalCutJobs?[pair.front.number]
-            job.imageColor = baseline.imageColorJobs?[pair.front.number]
             job.quantity = baseline.stepAndRepeat.quantity ?? 1000
             job.waste = baseline.stepAndRepeat.waste ?? WasteSettings()
             job.bleed = baseline.settings.bleed; job.generatedBleed = baseline.settings.generatedBleed

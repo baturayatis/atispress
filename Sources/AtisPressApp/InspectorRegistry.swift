@@ -27,7 +27,7 @@ enum InspectorPanel:String,CaseIterable,Identifiable,Codable {
     }
     var help: String {
         switch self {
-        case .color: return "Görsel renklerini, renk skalasını ve diz işaretlerini ayarlayın."
+        case .color: return "Renk skalasını ve diz işaretlerini ayarlayın."
         case .separation: return "PDF bölgelerini, sayfa bölmeyi ve kaynak kılavuzlarını düzenleyin."
         case .montage: return "Yüz eşlemesini, ürün bloklarını ve tabakadaki yerleşimi ayarlayın."
         default: return title
@@ -93,7 +93,6 @@ enum InspectorRegistry {
         "PresetInspectorView": ["autoLayout"],
     ]
     static let settingsByEditor=legacySettingsByEditor.merging([
-        "ImageColorInspector": ["imageColorJobs"],
         "InternalCutMarksView": ["internalCutJobs"],
         "TeamInspectorView": ["team", "manualLayouts", "allowRotation", "duplex"],
         "SourcePageTools":Set(["columns","rows","verticalCuts","horizontalCuts","cells.product","cells.side","cellBleed","explicitTrim.width","explicitTrim.height","learnedTrimCenters","hiddenGuideGroups","ignoreSplitSuggestion"])
@@ -116,7 +115,7 @@ enum InspectorRegistry {
         case "RescaleInspectorView","ScaleWindowView":return .scaling
         case "SourcePageTools":return .separation
         case "TeamInspectorView","GangInspectorView":return .montage
-        case "ImageColorInspector","ColorControlSizeView":return .color
+        case "ColorControlSizeView":return .color
         case "InternalCutMarksView":return .marks
         case "PricingView":return .price
         case "ExportMarksView":
@@ -168,7 +167,7 @@ extension InspectorPanel {
         case .edges:return ["Kenarlar"]
         case .bleed:return ["Taşma", "Yöntem"]
         case .marks:return ["Baskı", "Ölçüler", "Bilgi", "Katmanlar", "İç Kesim"]
-        case .color:return ["Görsel düzenleme", "Skala ve diz"]
+        case .color:return ["Skala ve diz"]
         case .separation:return ["İş Ayır"]
         case .montage:return ["Ürünler", "Yerleşim"]
         case .serial:return ["Alanlar", "İçerik", "Aralık", "Görünüm", "Konum"]

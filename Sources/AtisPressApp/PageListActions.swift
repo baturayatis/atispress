@@ -207,7 +207,6 @@ extension Project {
             return updated.isEmpty ? nil : updated
         }
         internalCutJobs = retargeted(old.internalCutJobs)
-        imageColorJobs = retargeted(old.imageColorJobs)
         var original=old;original.migrateScaling()
         if var scaling=original.scaling {
             scaling.overrides=original.scaling!.overrides.flatMap {value -> [ScalingOverride] in

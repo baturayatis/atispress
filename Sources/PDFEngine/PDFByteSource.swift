@@ -2,8 +2,7 @@ import CoreGraphics
 import Darwin
 import Foundation
 
-/// Random-access PDF bytes. Variants retain this shared source plus their own
-/// incremental update. Quartz receives only the ranges it requests.
+/// Random-access PDF bytes shared by the guide parser and Quartz.
 final class PDFByteSource {
     private let handle: FileHandle
     let count: Int
@@ -52,37 +51,19 @@ final class PDFByteSource {
         return false
     }
 
-    private final class Update {
-        let source: PDFByteSource
-        let suffix: Data
-
-        init(source: PDFByteSource, suffix: Data) {
-            self.source = source
-            self.suffix = suffix
-        }
-    }
-
-    func document(appending suffix: Data = Data()) -> CGPDFDocument? {
+    func document() -> CGPDFDocument? {
         var callbacks = CGDataProviderDirectCallbacks(
             version: 0, getBytePointer: nil, releaseBytePointer: nil,
             getBytesAtPosition: { info, buffer, position, length in
-                guard let info, let position = Int(exactly: position), position >= 0 else { return 0 }
-                let update = Unmanaged<Update>.fromOpaque(info).takeUnretainedValue()
-                let source = update.source
-                let count = source.copy(to: UnsafeMutableRawBufferPointer(start: buffer, count: length), at: position)
-                guard count == min(length, max(0, source.count - position)), count < length else { return count }
-                let start = position - (source.count - count)
-                let suffix = update.suffix
-                guard start >= 0, start < suffix.count else { return count }
-                let size = min(suffix.count - start, length - count)
-                return count + suffix.copyBytes(to: UnsafeMutableRawBufferPointer(start: buffer.advanced(by: count), count: size),
-                                                from: start..<(start + size))
+                guard let info, let offset = Int(exactly: position) else { return 0 }
+                let source = Unmanaged<PDFByteSource>.fromOpaque(info).takeUnretainedValue()
+                return source.copy(to: UnsafeMutableRawBufferPointer(start: buffer, count: length), at: offset)
             },
             releaseInfo: { info in
-                if let info { Unmanaged<Update>.fromOpaque(info).release() }
+                if let info { Unmanaged<PDFByteSource>.fromOpaque(info).release() }
             })
-        let retained = Unmanaged.passRetained(Update(source: self, suffix: suffix))
-        guard let provider = CGDataProvider(directInfo: retained.toOpaque(), size: off_t(count + suffix.count), callbacks: &callbacks) else {
+        let retained = Unmanaged.passRetained(self)
+        guard let provider = CGDataProvider(directInfo: retained.toOpaque(), size: off_t(count), callbacks: &callbacks) else {
             retained.release()
             return nil
         }

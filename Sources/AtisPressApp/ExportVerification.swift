@@ -17,7 +17,6 @@ struct ExportVerification:Sendable {
         let actualCount = docs.reduce(0) { $0+$1.numberOfPages }
         if actualCount != expectedCount { result.differences.append("Sayfa sayısı: beklenen \(expectedCount), bulunan \(actualCount).") }
         guard let sourceDoc = CGPDFDocument(source.url as CFURL) else { throw PDFReadError.unreadable }
-        let colors = try PDFColorVariants.prepare(source: source, plan: plan)
         var fileIndex = 0,pageIndex = 1,physicalPage = 0
         for (sheetIndex,sheet) in plan.sheets.enumerated() {
             for repetition in 0..<sheet.repeatCount {
@@ -38,7 +37,7 @@ struct ExportVerification:Sendable {
                     guard let consumer = CGDataConsumer(data:data),let context = CGContext(consumer:consumer,mediaBox:&media,nil) else { throw PDFExportError.cannotCreatePDF }
                     context.beginPDFPage(nil); context.scaleBy(x:72/25.4,y:72/25.4)
                     let generated:[any PDFSlotOverlay] = plan.generatedBleed.enabled || !sheet.generatedBleedByJob.isEmpty ? [GeneratedBleedOverlay(settings:plan.generatedBleed,cache:source.edgeSamples,sampleIfMissing:true,jobSettings:sheet.generatedBleedByJob)] : []
-                    try PDFPlanRenderer.drawSide(side,sheet:sheet,document:sourceDoc,in:context,sheetIndex:sheetIndex,kind:kind,repetition:repetition,options:.artworkOnly,overlays:generated,colors:colors)
+                    try PDFPlanRenderer.drawSide(side,sheet:sheet,document:sourceDoc,in:context,sheetIndex:sheetIndex,kind:kind,repetition:repetition,options:.artworkOnly,overlays:generated)
                     PDFExportMarkRenderer.draw(side:side,sheet:sheet,in:context,settings:marks,info:"",kind:kind)
                     context.endPDFPage(); context.closePDF()
                     guard let provider = CGDataProvider(data:data),let expected = CGPDFDocument(provider)?.page(at:1) else { throw PDFExportError.cannotCreatePDF }

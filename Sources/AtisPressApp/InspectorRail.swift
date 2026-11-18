@@ -8,7 +8,6 @@ extension Workspace {
         if panel == .serial && !editableSerialFields.isEmpty {return true}
         if panel == .scaling && project.hasRescaling {return true}
         if panel == .separation && (project.sourcePreparation?.hasPreparedProducts == true || !(project.sourcePreparation?.hiddenGuideGroups.isEmpty ?? true)) {return true}
-        if panel == .color && (project.imageColorJobs?.isEmpty == false || project.gang?.jobs.contains { $0.imageColor != nil } == true || colorVariants?.warnings.isEmpty == false) {return true}
         if panel == .montage && (project.team != nil || workflowIssues.contains { $0.code == .gangLayout }) {return true}
         if panel == .price,let cost=project.costing,cost.margin != nil || cost.vat != nil {return true}
         if panel == .bleed && showsMissingBleedWarning {return true}

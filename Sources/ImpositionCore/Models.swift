@@ -205,7 +205,6 @@ public struct Project: Equatable, Sendable, Codable {
     public var book: BookSettings? = nil
     public var team:TeamSettings? = nil
     /// Repeat jobs use their front occurrence ID. Other non-gang jobs use zero.
-    public var imageColorJobs: [Int: ImageColorAdjustment]? = nil
     public var internalCutJobs: [Int: InternalCutMarks]? = nil
     public var gang: GangSettings? = nil
     public var sheetInfo: SheetInfoSettings? = nil
@@ -228,7 +227,7 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case imageColorJobs, internalCutJobs, team, previouslyHadBacks, pageItemNextID, pageItems, sourcePreparation, scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case internalCutJobs, team, previouslyHadBacks, pageItemNextID, pageItems, sourcePreparation, scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -244,7 +243,6 @@ public struct Project: Equatable, Sendable, Codable {
         alignment = try c.decodeIfPresent(BlockAlignment.self,forKey:.alignment)
         blankPlacement = try c.decodeIfPresent(BlankPlacement.self,forKey:.blankPlacement)
         book = try c.decodeIfPresent(BookSettings.self,forKey:.book)
-        imageColorJobs = try c.decodeIfPresent([Int: ImageColorAdjustment].self, forKey: .imageColorJobs)
         internalCutJobs = try c.decodeIfPresent([Int: InternalCutMarks].self, forKey: .internalCutJobs)
         team = try c.decodeIfPresent(TeamSettings.self,forKey:.team)
         gang = try c.decodeIfPresent(GangSettings.self,forKey: .gang)
@@ -284,7 +282,6 @@ public struct Slot: Equatable, Sendable {
     public var bookPanelIsLeft: Bool? = nil
     public var bookRegion: String? = nil
     public var gangJobID: UUID? = nil
-    public var imageColor: ImageColorAdjustment? = nil
     public var gangBlockID: UUID? = nil
     public var sourceID:UUID? = nil
     public var localSourcePage:Int? = nil

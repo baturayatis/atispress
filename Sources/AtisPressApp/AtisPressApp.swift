@@ -150,10 +150,14 @@ struct AtisPressApp: App {
                 Button("AtışPress Hakkında") { openWindow(id:"about") }
                 Button("Güncellemeleri denetle…") { UpdateChecker.shared.check(); openWindow(id:"updates") }
             }
+            CommandGroup(replacing: .appSettings) {
+                SettingsLink { Text("Ayarlar…") }.keyboardShortcut(",", modifiers: .command)
+            }
             CommandGroup(replacing: .appInfo) {
                 Button("AtışPress Hakkında") { openWindow(id:"about") }
             }
         }
+        Settings { TeamPDFImportSettings(settings: workspace.ui) }
         Window("Hata bildir…",id:"report") { HelpPanel(model:workspace,mode:"Hata bildir…") }
         Window("AtışPress Hakkında",id:"about") { HelpPanel(model:workspace,mode:"AtışPress Hakkında") }
         Window("Güncellemeleri denetle…",id:"updates") { UpdatePanel(model:workspace,checker:UpdateChecker.shared) }

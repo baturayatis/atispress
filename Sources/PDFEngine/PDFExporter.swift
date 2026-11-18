@@ -86,8 +86,6 @@ public enum PDFExporter {
                 if let number = slot.sourcePageNumber, number < 1 || number > document.numberOfPages { throw PDFExportError.missingPage(number) }
             }
         }
-        let colors = try PDFColorVariants.prepare(source: source, plan: plan)
-        notes += colors.warnings
         let jobBleed = plan.sheets.reduce(into: [UUID: GeneratedBleedSettings]()) { settings, sheet in
             settings.merge(sheet.generatedBleedByJob) { existing, _ in existing }
         }
@@ -133,13 +131,13 @@ public enum PDFExporter {
         }
         switch destination {
         case .singlePDF:
-            try write(stagedFile(0),document: document,plan: plan,marks: marks,jobName: jobName,sheetInfo: sheetInfo,production: production,date: date,dateLabel: dateLabel,keepBlankBacks: keepBlankBacks,overlays: effectiveOverlays,colors: colors,only: nil)
+            try write(stagedFile(0),document: document,plan: plan,marks: marks,jobName: jobName,sheetInfo: sheetInfo,production: production,date: date,dateLabel: dateLabel,keepBlankBacks: keepBlankBacks,overlays: effectiveOverlays,only: nil)
         case .perSheet:
             var physical = 0
             for (index,sheet) in plan.sheets.enumerated() {
                 for repetition in 0..<sheet.repeatCount {
                     try Task.checkCancellation()
-                    try write(stagedFile(physical),document: document,plan: plan,marks: marks,jobName: jobName,sheetInfo: sheetInfo,production: production,date: date,dateLabel: dateLabel,keepBlankBacks: keepBlankBacks,overlays: effectiveOverlays,colors: colors,only: (index,repetition))
+                    try write(stagedFile(physical),document: document,plan: plan,marks: marks,jobName: jobName,sheetInfo: sheetInfo,production: production,date: date,dateLabel: dateLabel,keepBlankBacks: keepBlankBacks,overlays: effectiveOverlays,only: (index,repetition))
                     physical += 1
                 }
             }
@@ -163,7 +161,7 @@ public enum PDFExporter {
         return PDFExportResult(files: published,pageCount: pageCount,sheetCount: sheetCount,notes: notes + (omittedBacks ? ["Arka yüz boş: çıktıya eklenmedi."] : []))
     }
     private static func write(_ url: URL,document: CGPDFDocument,plan: ImpositionPlan,marks: ExportMarks,jobName: String,sheetInfo: SheetInfoSettings,production: ProductionType,date: Date,dateLabel: String,keepBlankBacks: Bool,
-                              overlays: [any PDFSlotOverlay],colors: PDFColorVariants,only: (Int,Int)?) throws {
+                              overlays: [any PDFSlotOverlay],only: (Int,Int)?) throws {
         guard let consumer = CGDataConsumer(url: url as CFURL),
               let context = CGContext(consumer: consumer,mediaBox: nil,[kCGPDFContextCreator:"AtışPress"] as CFDictionary) else {
             throw PDFExportError.cannotCreatePDF
@@ -188,7 +186,7 @@ public enum PDFExporter {
                         context.scaleBy(x: PDFPreviewDrawing.pointsPerMM,y: PDFPreviewDrawing.pointsPerMM)
                         context.clip(to: CGRect(x: 0,y: 0,width: sheet.size.width,height: sheet.size.height))
                         try PDFPlanRenderer.drawSide(side,sheet: sheet,document: document,in: context,sheetIndex: index,
-                                                     kind: kind,repetition: repetition,options: .artworkOnly,overlays: overlays,colors: colors)
+                                                     kind: kind,repetition: repetition,options: .artworkOnly,overlays: overlays)
                         let info = marks.sheetInfo ? PDFSheetInfoContext(jobName: sheet.gangJobNames ?? jobName,date: date,
                             sheetNumber: firstPhysical+repetition,
                             totalSheets: totalSheets,side: kind,production: production).text(settings: sheetInfo,sheet: sheet,dateLabel: dateLabel) : ""
