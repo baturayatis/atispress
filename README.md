@@ -36,26 +36,17 @@ Sol listedeki **Düzen** seçicisi ilgili tabakanın önizlemesine gider.
 ve sayfaların yerleşimini değiştirebilirsiniz. Çakışmalar ve sığmayan
 bloklar dışa aktarmayı durdurur. Önizleme ve PDF çıktı aynı planı kullanır.
 
-## Baskı Öncesi Renk Düzenleme
+## Ton ve PDF renk bilgileri
 
-**Renk → Görsel düzenleme** altında işi seçip parlaklık, kontrast ve
-doygunluğu ayarlayın. **Özgün / Düzenlenmiş** önizlemeyi değiştirir.
-Çıktı ayarlanmış değerleri kullanır. **Sıfırla** seçili işin değerlerini kaldırır.
+**Renk → Ton** bölümünde −50 ile +50 arasında bir değer girin. Tüm iş
+veya seçili PDF sayfası için ön ve arka yüz ayrı ayarlanabilir. Pozitif
+değer beyaz, negatif değer siyah vektör katmanı uygular. Önizleme ve çıktı
+aynı katmanı kullanır. Katman kartın kesim ve taşma alanına uygulanır; baskı
+işaretleri, seri numaraları ve QR kodları kendi renklerinde çizilir.
+Ton tercihleri proje dosyasında ve hazır ayarlarda saklanır.
 
-Klasik PDF nesne tablolarındaki sayfa düzeyi 8 bit RGB ve gri tonlamalı
-görseller ham, Flate veya desteklenen JPEG (DCT) biçimindeyse düzenlenebilir.
-Düzenlenmiş JPEG örnekleri kayıpsız Flate akışına yazılır. PDF’de atanmış
-RGB ve gri ICC profilleri korunur. Gri görsellerde doygunluk etkisizdir.
-ICC profili yalnızca JPEG’e gömülü olan veya PDF profiliyle uyuşmayan
-görseller atlanır. Özel DCT dönüşümleri, spot, JPEG 2000, maskeli ve
-Form içindeki görseller de düzenleme dışında kalır ve uyarı gösterilir.
-
-Ham veya Flate kodlu 8 bit CMYK görseller için doğrulanmış, çift yönlü
-gömülü baskı ICC profili gerekir. Renkler ColorSync ile sRGB çalışma
-uzayında düzenlenir ve aynı CMYK profiline geri dönüştürülür. Düzenlenen
-piksellerin mürekkep oranları değişebilir. Profilsiz CMYK, CMYK JPEG ve
-spot renk veya üst baskı içerebilecek karmaşık sayfalardaki CMYK görseller
-uyarıyla atlanır. Özgün PDF, metin ve vektör çizimleri korunur.
+**Renk** panelinde renk skalası ve PDF renk bulguları da yer alır.
+Üretim türü, diz işaretleri ve tabaka bilgi şeridi **Baskı** panelindedir.
 
 ## Akıllı İş Ayırma
 
@@ -74,7 +65,7 @@ kırpmasını kullanır.
 
 ## İç Kesim İşaretleri
 
-**İşaretler → İç Kesim** bölümünde işi seçin. Yatay ve dikey kesimi
+**Kesim → İç Kesim** bölümünde işi seçin. Yatay ve dikey kesimi
 ayrı ayrı açabilirsiniz. **Orta** kesim ebadının yarısını kullanır.
 **Özel** konumlar yatay kesimde alt kenardan, dikey kesimde sol kenardan
 milimetre olarak ölçülür. Ölçüler ürünle birlikte döner.
@@ -100,7 +91,7 @@ Boş satırlar komşu sayfanın ölçüsünü alır ve kitap forma hesabına kat
 Kitapta sayfa sayısı ve eklenecek boşlar listede gösterilir.
 
 Liste kimlikleri, sırası, baskı seçimi, boşlar, kaynaklar ve Ön/Arka çiftleri
-.atispress şema 25 ile saklanır. Şema 1–24 projeleri açılır. Her işlem tek undo adımıdır. Önizleme ve çıktı ortak
+.atispress şema 26 ile saklanır. Şema 1–25 projeleri açılır. Her işlem tek undo adımıdır. Önizleme ve çıktı ortak
 planın aynı kaynak sayfa referanslarını kullanır.
 
 ### Başka PDF’lerden sayfa ekleme
@@ -135,16 +126,14 @@ sayfa kutuları ve taşma bilgisi PDFKit kopyalama sırasında korunur.
 
 ## Ayarlara erişim
 
-Sağdaki 72 pt simge çubuğundan bir simge seçmek, 350 pt sütunda yalnız o
-paneli açar. Paneller İş, Tabaka, Montaj, Kenarlar, Taşma, İşaretler, Renk, Seri No,
-İş Ayır, Ölçek, Cilt, Fiyat ve Çıktı sırasındadır. Cilt kitap/yaprak işlerinde
-görünür. Seçili panel hatırlanır; ilk kullanımda İş açılır.
+Sağdaki simge çubuğunda İş, Tabaka, Montaj, Ölçüler, Kesim, İş Ayır,
+Seri No, Baskı, Renk, Fiyat ve Çıktı panelleri bulunur. Başlıktan bölümleri
+açıp kapatın veya **Ayar ara** ile doğrudan ilgili kontrole gidin. Favoriler,
+panel genişliği ve açık bölümler yerel olarak hatırlanır. Genel önizleme
+kılavuzları **Tabaka** panelindedir.
 
-⌘1–⌘9 mevcut İş, Tabaka, Kenarlar, Taşma, İşaretler, Seri No, Ölçek, Cilt ve Fiyat kısayollarıdır. Çıktı simgeden veya Görüntü → Ayarlar bölümüne
-git menüsünden açılır. ⌘0 mevcut Sığdır kısayoludur. Başlığa çift tıklama
-sütunu daraltır; simgeye basmak aynı paneli açılır pencerede gösterir.
-Görüntü menüsünden simge çubuğu gizlenebilir. Yoğun panellerin Alt grup
-menüsünde adlandırılmış ayar grupları bulunur.
+⌥⌘B Baskı’yı, ⌥⌘R Renk’i açar. Mevcut ⌘1–⌘9 kısayolları korunur ve
+⌘0 önizlemeyi pencereye sığdırır.
 
 56 pt bağlam satırında etiketler kontrolün yanındadır. Dar pencerede öncelik
 sırasına göre kalan kontroller **…** altına taşınır. Panel ve üst satır aynı
@@ -157,10 +146,10 @@ kapsamı ve elle kontrol listesi [docs/STATUS.md](docs/STATUS.md) içindedir.
 
 ## Kurulum
 
-Güncel uygulama sürümü **0.4.0 (build 6)**. Sürüm kaynağı
+Bu sürüm **0.5.0 (build 7)**. Sürüm kaynağı
 `packaging/Info.plist`; Hakkında, tanı bilgisi ve güncelleme karşılaştırması
-aynı paket sürümünü kullanır. `swift run` için de 0.4.0 / 6 yedeği bulunur.
-Proje dosyası şeması bağımsızdır ve **25**’tir; eski projeler açılır.
+aynı paket sürümünü kullanır. `swift run` için de 0.5.0 / 7 yedeği bulunur.
+Proje dosyası şeması bağımsızdır ve **26**’dır; eski projeler açılır.
 
 **macOS 14 veya üzeri** gerekir. Intel ve Apple Silicon Mac’ler aynı universal
 uygulamayı kullanır.
