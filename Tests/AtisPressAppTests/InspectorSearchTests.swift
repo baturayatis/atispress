@@ -30,6 +30,29 @@ final class InspectorSearchTests: XCTestCase {
         XCTAssertEqual(InspectorSearchEntry.byID.count, entries.count)
     }
 
+    func testExistingFavoritesOpenRedistributedTools() throws {
+        let store = preferences()
+        let ids = ["artworkTone","colorBar","targets","sheetInfo","previewCrop","previewColor","colorInfo"]
+        store.set(ids, forKey: "atispress.ui.inspectorFavorites")
+        store.set("press", forKey: "atispress.ui.activePanel")
+        let model = Workspace(uiDefaults: store)
+        XCTAssertEqual(model.ui.activePanel,.color)
+        XCTAssertEqual(model.ui.inspectorFavorites,ids)
+        let before = try ProjectDocument(state: model.state).encoded()
+        for (id, panel, group) in [
+            ("artworkTone",InspectorPanel.color,InspectorGroup.tone), ("colorBar",.color,.colorControls),
+            ("targets",.cut,.registration), ("sheetInfo",.output,.sheetInfo), ("previewCrop",.sheet,.preview),
+            ("previewColor",.color,.colorControls), ("colorInfo",.color,.colorInfo)
+        ] {
+            let entry = try XCTUnwrap(InspectorSearchEntry.byID[id])
+            XCTAssertTrue(model.openInspectorControl(entry))
+            XCTAssertEqual(model.ui.activePanel,panel)
+            XCTAssertTrue(model.ui.isGroupExpanded(group,in: panel,for: model.project))
+            XCTAssertEqual(model.ui.groupRequest?.controlID,id)
+        }
+        XCTAssertEqual(try ProjectDocument(state: model.state).encoded(),before)
+    }
+
     func testSelectOpensCollapsedFlyoutAndRequestsExactControlWithoutChangingProject() throws {
         let model = Workspace(uiDefaults: preferences())
         let before = try ProjectDocument(state: model.state).encoded()

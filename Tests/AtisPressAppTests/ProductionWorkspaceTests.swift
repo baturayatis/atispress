@@ -103,6 +103,7 @@ final class ProductionWorkspaceTests: XCTestCase {
         try await settle(workspace)
         let rgb = try XCTUnwrap(workspace.preflightRows.first { $0.id.contains("rgb") })
         XCTAssertEqual(rgb.pages,[1,2]); XCTAssertEqual(rgb.severity,.notice)
+        XCTAssertTrue(rgb.isColor)
         XCTAssertTrue(workspace.preflightRows.contains { $0.id.contains("bleed") })
         workspace.enableMissingBleed()
         try await settle(workspace)
@@ -114,6 +115,7 @@ final class ProductionWorkspaceTests: XCTestCase {
         try await settle(workspace)
         let bleed = try XCTUnwrap(workspace.preflightRows.first { $0.id.contains("bleed") })
         XCTAssertEqual(bleed.pages,[1,2])
+        XCTAssertFalse(bleed.isColor)
         XCTAssertTrue(workspace.canExportNow)
     }
     func testAllProductionSettingsRoundtripAndVersionFiveMigrationKeepsLegacyPairs() async throws {

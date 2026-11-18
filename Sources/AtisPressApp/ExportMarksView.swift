@@ -4,7 +4,7 @@ import PDFEngine
 
 struct ExportMarksView: View {
     @ObservedObject var model: Workspace
-    enum Scope {case all,printed,output,info,options,colorControls}
+    enum Scope {case all,printed,output,info,options,colorControls,registration}
     var inline = false
     var scope:Scope = .all
     @ViewBuilder var body: some View {
@@ -24,6 +24,8 @@ struct ExportMarksView: View {
             if scope == .all || scope == .printed { Text("Çıktı İşaretleri").font(.headline) }
             if scope == .all || scope == .colorControls {
                 Toggle("Renk skalası (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.colorBar,.exportColorBar)).inspectorTarget("colorBar").automaticReset(model,.exportColorBar)
+            }
+            if scope == .all || scope == .registration {
                 Toggle("Diz işaretleri (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.registrationTargets,.exportTargets)).inspectorTarget("targets").automaticReset(model,.exportTargets)
                 if scope == .all {ColorControlSizeView(model:model)}
             }
@@ -78,7 +80,7 @@ struct ExportMarksView: View {
                         PDFExportMarkRenderer.geometry(side: $0, sheet: sheet, settings: model.project.exportMarks).warnings
                     }
                 }
-                if scope == .all || scope == .colorControls {
+                if scope == .all || scope == .colorControls || scope == .registration {
                     messages += PDFColorControlRenderer.geometry(sheet: sheet, settings: model.project.exportMarks).warnings
                 }
                 return messages

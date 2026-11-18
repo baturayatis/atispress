@@ -113,12 +113,18 @@ struct InspectorView: View {
         case .serialAppearance: SerialInspectorView(model:model,compact:true,section:3)
         case .serialPosition: SerialInspectorView(model:model,compact:true,section:4)
         case .tone: ToneControls(model: model)
-        case .colorControls: ExportMarksView(model:model,inline:true,scope:.colorControls)
-        case .colorSizes: ColorControlSizeView(model:model)
+        case .colorControls:
+            ExportMarksView(model:model,inline:true,scope:.colorControls)
+            previewColorControl
+        case .colorSizes: ColorControlSizeView(model:model,scope:.scale)
+        case .colorInfo:
+            PreflightView(model:model,colorOnly:true).inspectorTarget("colorInfo")
+        case .registration:
+            ExportMarksView(model:model,inline:true,scope:.registration)
+            previewRegistrationControl
+            ColorControlSizeView(model:model,scope:.registration)
         case .sheetInfo: ExportMarksView(model:model,inline:true,scope:.info)
-        case .preview:
-            overlayControls
-            previewColorControls
+        case .preview: overlayControls
         case .cost: CostingView(model:model,store:prices,inline:true,section:0)
         case .labor: CostingView(model:model,store:prices,inline:true,section:1)
         case .result: CostingView(model:model,store:prices,inline:true,section:2)
@@ -331,11 +337,13 @@ struct InspectorView: View {
             Toggle("Kenar payı / maşa (çıktıya basılmaz)",isOn: $model.overlays.pressGuides).inspectorTarget("previewGripper").inspectorSetting(model,"Kenar payı / maşa",SettingGuidance.detail("Kenar payı / maşa"))
         }.toggleStyle(.switch).frame(maxWidth: .infinity,alignment: .leading)
     }
-    private var previewColorControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Toggle("Renk skalası kılavuzu (çıktıya basılmaz)",isOn: Binding(get: { model.overlays.colorBar },set: model.setPreviewColorBar)).inspectorTarget("previewColor").inspectorSetting(model,"Renk skalası",SettingGuidance.detail("Renk skalası"))
-            Toggle("Diz kılavuzları (çıktıya basılmaz)",isOn: Binding(get: { model.overlays.registrationTargets },set: model.setPreviewTargets)).inspectorTarget("previewTargets").inspectorSetting(model,"Diz işaretleri",SettingGuidance.detail("Diz işaretleri"))
-        }.toggleStyle(.switch)
+    private var previewColorControl: some View {
+        Toggle("Renk skalası kılavuzu (çıktıya basılmaz)",isOn: Binding(get: { model.overlays.colorBar },set: model.setPreviewColorBar)).inspectorTarget("previewColor").inspectorSetting(model,"Renk skalası",SettingGuidance.detail("Renk skalası"))
+            .toggleStyle(.switch)
+    }
+    private var previewRegistrationControl: some View {
+        Toggle("Diz kılavuzları (çıktıya basılmaz)",isOn: Binding(get: { model.overlays.registrationTargets },set: model.setPreviewTargets)).inspectorTarget("previewTargets").inspectorSetting(model,"Diz işaretleri",SettingGuidance.detail("Diz işaretleri"))
+            .toggleStyle(.switch)
     }
     private func guide(_ key: WritableKeyPath<ImpositionSettings,Double>,field: AutoLayoutField,overlay: WritableKeyPath<PreviewOverlays,Bool>) -> Binding<Double> {
         model.guideDimensionBinding(key,field:field)

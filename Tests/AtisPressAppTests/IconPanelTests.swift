@@ -48,7 +48,7 @@ import PDFEngine
             XCTAssertTrue(InspectorPanel.allCases.contains(setting.panel),setting.id)
             XCTAssertFalse(setting.panel.title.isEmpty)
         }
-        XCTAssertEqual(InspectorRegistry.owner(editor:"InspectorView",path:"model.overlays.bleed"),.press)
+        XCTAssertEqual(InspectorRegistry.owner(editor:"InspectorView",path:"model.overlays.bleed"),.sheet)
         XCTAssertEqual(InspectorRegistry.owner(editor:"InspectorView",path:"sheet.margins.left"),.dimensions)
         XCTAssertEqual(InspectorRegistry.owner(editor:"InspectorView",path:"model.editableGeneratedBleed.enabled"),.dimensions)
         let fields=InspectorPanel.allCases.flatMap(InspectorRegistry.fields)
@@ -59,7 +59,7 @@ import PDFEngine
     func testTenProductionTabsPreserveNumberShortcutsAndRouteExistingControls() {
         let model = Workspace(uiDefaults: defaults())
         let tabs = InspectorPanel.allCases
-        XCTAssertEqual(tabs.map(\.title), ["İş", "Tabaka", "Montaj", "Ölçüler", "Kesim", "İş Ayır", "Seri No", "Baskı", "Fiyat", "Çıktı"])
+        XCTAssertEqual(tabs.map(\.title), ["İş", "Tabaka", "Montaj", "Ölçüler", "Kesim", "İş Ayır", "Seri No", "Renk", "Fiyat", "Çıktı"])
         XCTAssertEqual(InspectorPanel.neighbor(of: .job, step: -1, visible: tabs), .job)
         XCTAssertEqual(InspectorPanel.neighbor(of: .sheet, step: 1, visible: tabs), .montage)
         XCTAssertEqual(InspectorPanel.neighbor(of: .cut, step: 1, visible: tabs), .separation)
@@ -80,11 +80,15 @@ import PDFEngine
         XCTAssertEqual(InspectorRegistry.owner(editor: "TeamInspectorView", path: "manualLayouts"), .montage)
         XCTAssertEqual(InspectorRegistry.owner(editor: "InternalCutMarksView", path: "internalCutJobs"), .cut)
         XCTAssertEqual(InspectorRegistry.owner(.exportCrop), .cut)
-        XCTAssertEqual(InspectorRegistry.owner(.exportColorBar), .press)
-        XCTAssertEqual(InspectorRegistry.owner(.exportSheetInfo), .press)
+        XCTAssertEqual(InspectorRegistry.owner(.exportColorBar), .color)
+        XCTAssertEqual(InspectorRegistry.owner(.exportSheetInfo), .output)
+        XCTAssertEqual(InspectorRegistry.owner(.exportTargets), .cut)
+        XCTAssertEqual(InspectorRegistry.owner(.exportTargetSize), .cut)
+        XCTAssertTrue(InspectorPanel.sheet.groups(for: model.project).contains(.preview))
+        XCTAssertTrue(InspectorPanel.cut.groups(for: model.project).contains(.registration))
         XCTAssertEqual(InspectorRegistry.owner(.columns), .montage)
-        XCTAssertEqual(InspectorPanel.press.groups(for: model.project), [.tone, .colorControls, .preview, .colorSizes, .sheetInfo])
-        XCTAssertEqual(InspectorPanel.output.groups(for: model.project), [.output, .preflight])
+        XCTAssertEqual(InspectorPanel.color.groups(for: model.project), [.tone, .colorControls, .colorSizes, .colorInfo])
+        XCTAssertEqual(InspectorPanel.output.groups(for: model.project), [.output, .sheetInfo, .preflight])
         XCTAssertEqual(InspectorPanel.montage.groups(for: model.project), [.products, .placement, .jobFaces])
         model.setMode(.gang)
         XCTAssertEqual(InspectorPanel.montage.groups(for: model.project), [.products, .placement])
@@ -97,7 +101,7 @@ import PDFEngine
     func testDisclosureDefaultsShortcutOpeningAndLegacyPanelMigration() throws {
         let store = defaults()
         for (legacy, panel): (String, InspectorPanel) in [("edges", .dimensions), ("bleed", .dimensions),
-            ("scaling", .dimensions), ("marks", .cut), ("binding", .montage), ("color", .press)] {
+            ("scaling", .dimensions), ("marks", .cut), ("binding", .montage), ("color", .color), ("press", .color)] {
             store.set(legacy, forKey: "atispress.ui.activePanel")
             XCTAssertEqual(UsabilitySettings(defaults: store).activePanel, panel)
         }
@@ -106,15 +110,15 @@ import PDFEngine
         XCTAssertTrue(model.ui.isGroupExpanded(.edges, in: .dimensions, for: model.project))
         XCTAssertTrue(model.ui.isGroupExpanded(.bleed, in: .dimensions, for: model.project))
         XCTAssertFalse(model.ui.isGroupExpanded(.generatedBleed, in: .dimensions, for: model.project))
-        XCTAssertFalse(model.ui.isGroupExpanded(.preview, in: .press, for: model.project))
-        XCTAssertFalse(model.ui.isGroupExpanded(.colorSizes, in: .press, for: model.project))
+        XCTAssertFalse(model.ui.isGroupExpanded(.preview, in: .sheet, for: model.project))
+        XCTAssertFalse(model.ui.isGroupExpanded(.colorSizes, in: .color, for: model.project))
         model.ui.inspectorCollapsed = true
         model.ui.jump(.dimensions, opening: .scale)
         XCTAssertEqual(model.ui.flyoutPanel, .dimensions)
         XCTAssertEqual(model.ui.groupRequest?.group, .scale)
         XCTAssertTrue(model.ui.isGroupExpanded(.scale, in: .dimensions, for: model.project))
         model.ui.setGroupExpanded(.scale, false)
-        model.ui.jump(.press)
+        model.ui.jump(.color)
         model.ui.jump(.dimensions)
         XCTAssertFalse(model.ui.isGroupExpanded(.scale, in: .dimensions, for: model.project))
         XCTAssertEqual(try ProjectDocument(state: model.state).encoded(), before)
@@ -314,7 +318,7 @@ extension IconPanelTests {
                 }
             }
             XCTAssertTrue(seen.isSuperset(of: [.method, .placement, .scale, .internalCuts, .separation,
-                                              .serialContent, .tone, .colorControls, .preview, .colorSizes, .preflight]))
+                                              .serialContent, .tone, .colorControls, .preview, .colorSizes, .colorInfo, .registration, .sheetInfo, .preflight]))
             XCTAssertEqual(seen.contains(.cover), model.project.isBooklet || model.project.isLeafBinding)
         }
     }
