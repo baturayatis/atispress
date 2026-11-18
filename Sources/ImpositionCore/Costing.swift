@@ -94,7 +94,15 @@ public enum CostCalculator {
         if publication && run <= 0 { result.missing.append("Yayın adedi girilmedi") }
         let quantities: [Int]
         let finishingQuantities: [Int]
-        if project.binding == .gang {
+        if let team = project.team, project.binding == .gang {
+            quantities = [team.quantity]
+            finishingQuantities = plan.sheets.flatMap { sheet in
+                (sheet.gangLayout?.jobs ?? []).map { job in
+                    let count = sheet.repeatCount.multipliedReportingOverflow(by: job.copiesPerSheet)
+                    return count.overflow ? Int.max : count.partialValue
+                }
+            }
+        } else if project.binding == .gang {
             let jobs = plan.sheets.first?.gangLayout?.jobs ?? []
             quantities = (project.gang?.jobs ?? []).map { job in jobs.first { $0.job.id == job.id }?.serialPlan.totalUnits(job.quantity) ?? job.quantity }
             finishingQuantities = (project.gang?.jobs ?? []).map { job in
@@ -144,7 +152,7 @@ public enum CostCalculator {
                 if backCount > 0 { add("Dijital arka",Decimal(backCount),printing.backPrice) }
             } else if printing.kind == .offset {
                 if let colors = printing.colors,colors > 0,colors <= 32 {
-                    let faces = plan.sheets.reduce(0) { n,s in n + (s.hasContent(on:.front) ? 1 : 0) + (s.hasContent(on:.back) && project.settings.turnMethod == .sheetwise ? 1 : 0) }
+                    let faces = plan.teamSummary?.plateCount ?? plan.sheets.reduce(0) { n,s in n + (s.hasContent(on:.front) ? 1 : 0) + (s.hasContent(on:.back) && project.settings.turnMethod == .sheetwise ? 1 : 0) }
                     add("Ofset kalıp",Decimal(faces * colors),printing.platePrice)
                     add("Ofset hazırlık / ayar",Decimal(faces),printing.setupPrice)
                     add("Ofset baskı / 1000 tabaka geçişi",(Decimal(frontCount) + Decimal(backCount))/1000,printing.price)

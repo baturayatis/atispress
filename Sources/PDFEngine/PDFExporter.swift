@@ -80,8 +80,11 @@ public enum PDFExporter {
                 if let number = slot.sourcePageNumber, number < 1 || number > document.numberOfPages { throw PDFExportError.missingPage(number) }
             }
         }
-        let generated: [any PDFSlotOverlay] = (plan.generatedBleed.enabled || plan.sheets.contains { $0.generatedBleedByJob.values.contains { $0.enabled } }) ?
-            [GeneratedBleedOverlay(settings: plan.generatedBleed,cache: source.edgeSamples,sampleIfMissing: true,jobSettings: plan.sheets.first?.generatedBleedByJob ?? [:])] : []
+        let jobBleed = plan.sheets.reduce(into: [UUID: GeneratedBleedSettings]()) { settings, sheet in
+            settings.merge(sheet.generatedBleedByJob) { existing, _ in existing }
+        }
+        let generated: [any PDFSlotOverlay] = (plan.generatedBleed.enabled || jobBleed.values.contains { $0.enabled }) ?
+            [GeneratedBleedOverlay(settings: plan.generatedBleed,cache: source.edgeSamples,sampleIfMissing: true,jobSettings: jobBleed)] : []
         let effectiveOverlays = generated+overlays
         let scope = destination.scopeURL
         let accessed = scope.startAccessingSecurityScopedResource()

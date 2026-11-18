@@ -203,6 +203,7 @@ public struct Project: Equatable, Sendable, Codable {
     public var pageItemNextID:Int? = nil
     public var blankPlacement: BlankPlacement? = nil
     public var book: BookSettings? = nil
+    public var team:TeamSettings? = nil
     public var gang: GangSettings? = nil
     public var sheetInfo: SheetInfoSettings? = nil
     public var includeBlankBacks: Bool? = nil
@@ -224,7 +225,7 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case previouslyHadBacks, pageItemNextID, pageItems, sourcePreparation, scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case team, previouslyHadBacks, pageItemNextID, pageItems, sourcePreparation, scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -240,6 +241,7 @@ public struct Project: Equatable, Sendable, Codable {
         alignment = try c.decodeIfPresent(BlockAlignment.self,forKey:.alignment)
         blankPlacement = try c.decodeIfPresent(BlankPlacement.self,forKey:.blankPlacement)
         book = try c.decodeIfPresent(BookSettings.self,forKey:.book)
+        team = try c.decodeIfPresent(TeamSettings.self,forKey:.team)
         gang = try c.decodeIfPresent(GangSettings.self,forKey: .gang)
         sheetInfo = try c.decodeIfPresent(SheetInfoSettings.self,forKey: .sheetInfo)
         includeBlankBacks = try c.decodeIfPresent(Bool.self,forKey: .includeBlankBacks)
@@ -362,6 +364,7 @@ public struct ValidationIssue: Equatable, Sendable {
 }
 public struct ImpositionPlan: Sendable {
     public var sheets: [Sheet]
+    public var teamSummary:TeamSummary? = nil
     public var readingOrder: [Int?] = []
     public var blankPositions: [Int] = []
     public var signatureCount = 0

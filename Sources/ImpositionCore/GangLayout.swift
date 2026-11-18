@@ -74,6 +74,7 @@ extension Sheet {
 /// Rectangular slicing layouts: every internal node is a full straight cut.
 /// A leaf is one job's regular grid, so shared cuts never require an L-shaped knife path.
 public enum GangPlanner {
+    public static let maximumJobs=200
     private struct Candidate {
         var size: Size
         var blocks: [GangBlock]
@@ -179,15 +180,66 @@ public enum GangPlanner {
         }
         return solve((1<<jobs.count)-1).min { $0.size.width*$0.size.height < $1.size.width*$1.size.height }
     }
+    /// Bounded packing in horizontal guillotine strips. Each entry represents one copy.
+    static func shelfBlocks(jobs: [GangJob], area: Rect, gutter: Double) -> [GangBlock]? {
+        guard jobs.count <= 1000, area.size.width.isFinite, area.size.height.isFinite,
+              area.size.width > 0, area.size.height > 0, gutter >= 0, gutter.isFinite else { return nil }
+        let ordered = jobs.enumerated().sorted { a, b in
+            let aHeight = a.element.front.trimSize.height
+            let bHeight = b.element.front.trimSize.height
+            return aHeight == bHeight ? a.offset < b.offset : aHeight > bHeight
+        }
+        var x = 0.0, y = 0.0, rowHeight = 0.0
+        var blocks: [GangBlock] = []
+        for (_, job) in ordered {
+            if Task.isCancelled { return nil }
+            let trim = job.front.trimSize
+            guard trim.width.isFinite, trim.height.isFinite, trim.width > 0, trim.height > 0 else { return nil }
+            func fit() -> (size: Size, rotated: Bool)? {
+                let choices = job.allowRotation ? [(trim, false), (Size(trim.height, trim.width), true)] : [(trim, false)]
+                return choices.filter { size, _ in
+                    x + size.width <= area.size.width + 0.000001 && y + size.height <= area.size.height + 0.000001
+                }.min { a, b in
+                    let aHeight = max(a.0.height, rowHeight)
+                    let bHeight = max(b.0.height, rowHeight)
+                    return aHeight == bHeight ? a.0.width < b.0.width : aHeight < bHeight
+                }
+            }
+            var choice = fit()
+            if choice == nil && x > 0 {
+                y += rowHeight + gutter
+                x = 0
+                rowHeight = 0
+                choice = fit()
+            }
+            guard let (size, rotated) = choice else { return nil }
+            var block = GangBlock(jobID: job.id, origin: Point(area.origin.x + x, area.origin.y + area.size.height - y - size.height),
+                                  rotated: rotated)
+            let index = blocks.count
+            block.id = UUID(uuid: (84,65,75,73,77,0,0,0,0,0,0,0,0,0,UInt8(index >> 8),UInt8(index & 255)))
+            blocks.append(block)
+            x += size.width + gutter
+            rowHeight = max(rowHeight, size.height)
+        }
+        return blocks
+    }
     public static func plan(_ project: Project) -> ImpositionPlan {
+        plan(project, teamLayout: false)
+    }
+    static func plan(_ project: Project, teamLayout: Bool) -> ImpositionPlan {
+        if project.team != nil {return TeamPlanner.plan(project)}
         var result = ImpositionPlan()
         guard let gang = project.gang,!gang.jobs.isEmpty else { return result }
         func issue(_ text: String,_ severity: ValidationIssue.Severity = .error) { result.issues.append(ValidationIssue(severity,.gangLayout,text)) }
         let jobs = gang.jobs,spec = project.sheet
-        guard jobs.count <= 8,Set(jobs.map(\.id)).count == jobs.count else { issue("Karışık düzende en fazla 8 benzersiz iş desteklenir."); return result }
+        let limit = teamLayout ? maximumJobs : 8
+        guard jobs.count <= limit, Set(jobs.map(\.id)).count == jobs.count else {
+            issue("Karışık düzende en fazla \(limit) benzersiz iş desteklenir.")
+            return result
+        }
         guard [spec.size.width,spec.size.height,spec.gutter,spec.gripperWidth,spec.margins.left,spec.margins.right,spec.margins.top,spec.margins.bottom].allSatisfy({ $0.isFinite && $0 >= 0 }),spec.size.width > 0,spec.size.height > 0,
               jobs.allSatisfy({ j in j.front.number>0 && [j.front.trimSize.width,j.front.trimSize.height].allSatisfy({ $0.isFinite && $0>0 }) && j.tint.isFinite && (0...1).contains(j.tint) && j.bleed.isFinite && j.bleed>=0 && j.generatedBleed.isValid && j.waste.quantities(for: j.quantity) != nil && j.serialFields.count<=100 && Set(j.serialFields.map(\.id)).count==j.serialFields.count && j.serialFields.allSatisfy(\.isValid) }) else { issue("İş ölçüsü, adet, fire, taşma veya seri alanı geçersiz."); return result }
-        if jobs.count > 4 { issue("5–8 işte otomatik arama örneklenir: bulunan düzen giyotinle kesilebilir; en az tabaka sayısı garanti edilemedi.",.warning) }
+        if !teamLayout && jobs.count > 4 { issue("5–8 işte otomatik arama örneklenir: bulunan düzen giyotinle kesilebilir; en az tabaka sayısı garanti edilemedi.",.warning) }
         let required = jobs.map { $0.waste.quantities(for: $0.quantity)!.total }
         let mirrorsX = ImpositionPlanner.repeatMirrorsX(project)
         let samePlate = project.settings.turnMethod != .sheetwise,factor = samePlate ? 2 : 1
@@ -264,7 +316,12 @@ public enum GangPlanner {
             let blockIndex = blockIndices[b.jobID] ?? 0; blockIndices[b.jobID] = blockIndex+1
             let j = jobs.first { $0.id==b.jobID }!,w = b.rotated ? j.front.trimSize.height : j.front.trimSize.width,h = b.rotated ? j.front.trimSize.width : j.front.trimSize.height
             if b.rotated && !j.allowRotation { issue("\(j.name): 90° döndürme kapalı; blok döndürülmüş.") }
-            if let reverse = j.back,reverse.trimSize != j.front.trimSize { issue("\(j.name): ön ve arka kesim ölçüleri eşit değil.") }
+            if let reverse = j.back {
+                let difference = max(abs(reverse.trimSize.width - j.front.trimSize.width), abs(reverse.trimSize.height - j.front.trimSize.height))
+                if teamLayout ? difference > 0.0001 : reverse.trimSize != j.front.trimSize {
+                    issue("\(j.name): ön ve arka kesim ölçüleri eşit değil.")
+                }
+            }
             let start = capacities[j.id] ?? 0,c = b.columns*b.rows
             capacities[j.id] = start+c*factor
             for row in 0..<b.rows { for col in 0..<b.columns {
