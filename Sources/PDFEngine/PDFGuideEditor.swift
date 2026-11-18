@@ -15,7 +15,8 @@ public enum SourcePreparationError:LocalizedError {
 /// Incremental replacement keeps original resources and every unselected operator
 /// byte-for-byte. Xref streams/object streams/encryption are deliberately refused.
 struct PDFClassicFile {
-    let data:Data
+    let source: PDFByteSource
+    private var orderedOffsets: [Int] = []
     var offsets:[Int:(Int,Int)] = [:]
     var root:String = ""
     var info:String?
@@ -29,37 +30,63 @@ struct PDFClassicFile {
         case signed = "PDF imza bayt aralığı (/ByteRange) içeriyor."
         case encrypted = "PDF şifreleme sözlüğü (/Encrypt) içeriyor."
         case pages = "PDF sayfa ağacı güvenli biçimde çözümlenemedi."
-        case size = "PDF 64 MB renk düzenleme sınırını aşıyor."
+        case offsetLimit = "PDF klasik çapraz başvurunun 10 haneli bayt konumu sınırını aşıyor."
+        case indexLimit = "PDF çapraz başvuru kayıtları güvenli inceleme sınırını aşıyor."
     }
 
-    init(_ data:Data) throws {
-        guard data.count<64*1024*1024 else {throw StructureError.size}
-        guard let text=String(data:data,encoding:.isoLatin1),let start=text.range(of:"startxref",options:.backwards),let position=Int(text[start.upperBound...].split(whereSeparator:{$0.isWhitespace}).first ?? "") else {throw StructureError.start}
-        guard !text.contains("/ByteRange") else {throw StructureError.signed}
-        self.data=data;previous=position
-        var next:Int?=position,visited=Set<Int>()
-        while let at=next {
-            guard at>=0,at<data.count,visited.insert(at).inserted else {throw StructureError.table}
-            let header = pdfTokens(data.subdata(in: at..<min(at + 4096, data.count)))
-            if header.count >= 4, header[2].text == "obj",
-               value("/Type", Array(header.dropFirst(3)))?.first?.text == "/XRef" { throw StructureError.stream }
-            let tail=data.subdata(in:at..<data.count),tokens=pdfTokens(tail)
-            guard tokens.first?.text=="xref",let trailer=tokens.firstIndex(where:{$0.text=="trailer"}) else {throw StructureError.table}
-            var i=1
-            while i<trailer {
-                guard i+1<trailer,let first=Int(tokens[i].text),let count=Int(tokens[i+1].text),first>=0,first<=Int(Int32.max),count>=0,count<1_000_000 else {throw StructureError.table};i+=2
-                for n in 0..<count {
-                    guard i+2<trailer,let offset=Int(tokens[i].text),let generation=Int(tokens[i+1].text) else {throw StructureError.table}
-                    if offsets[first+n]==nil { offsets[first+n] = tokens[i+2].text=="n" ? (offset,generation):(-1,generation) };i+=3
+    init(source: PDFByteSource) throws {
+        self.source = source
+        // Classic xref entries contain ten decimal digits.
+        guard source.count <= 9_999_999_999 else { throw StructureError.offsetLimit }
+        let tail = source.read(max(0, source.count - 1024 * 1024)..<source.count)
+        guard let start = tail.range(of: Data("startxref".utf8), options: .backwards),
+              let first = pdfTokens(tail.subdata(in: start.upperBound..<tail.count)).first,
+              let position = Int(first.text) else { throw StructureError.start }
+        guard try !source.contains(Data("/ByteRange".utf8)) else { throw StructureError.signed }
+        previous = position
+        var next: Int? = position
+        var visited = Set<Int>()
+        var remainingEntries = 1_000_000
+        while let at = next {
+            try Task.checkCancellation()
+            guard at >= 0, at < source.count, visited.insert(at).inserted else { throw StructureError.table }
+            guard visited.count <= 256 else { throw StructureError.indexLimit }
+            var cursor = XrefCursor(source: source, position: at)
+            guard cursor.token() == "xref" else {
+                let header = pdfTokens(source.read(at..<min(at + 4096, source.count)))
+                if header.count >= 4, header[2].text == "obj",
+                   value("/Type", Array(header.dropFirst(3)))?.first?.text == "/XRef" { throw StructureError.stream }
+                throw StructureError.table
+            }
+            while true {
+                guard let token = cursor.token() else { throw StructureError.table }
+                if token == "trailer" { break }
+                guard let first = Int(token), let count = cursor.token().flatMap(Int.init),
+                      first >= 0, first <= Int(Int32.max), count >= 0 else { throw StructureError.table }
+                guard count <= remainingEntries else { throw StructureError.indexLimit }
+                remainingEntries -= count
+                for index in 0..<count {
+                    if index.isMultiple(of: 4096) { try Task.checkCancellation() }
+                    guard let offset = cursor.token().flatMap(Int.init),
+                          let generation = cursor.token().flatMap(Int.init), (0...65535).contains(generation),
+                          let flag = cursor.token(), flag == "n" || flag == "f" else { throw StructureError.table }
+                    let id = first + index
+                    if offsets[id] == nil { offsets[id] = (flag == "n" ? offset : -1, generation) }
                 }
             }
-            let dict=Array(tokens[(trailer+1)...])
-            if value("/Encrypt",dict) != nil {throw StructureError.encrypted}
-            if value("/XRefStm",dict) != nil {throw StructureError.hybrid}
-            if root.isEmpty,let r=value("/Root",dict) {root=r.map(\.text).joined(separator:" ")}
-            if info==nil,let r=value("/Info",dict) {info=r.map(\.text).joined(separator:" ")}
-            next=value("/Prev",dict).flatMap{$0.first}.flatMap{Int($0.text)}
+            let dict = pdfTokens(source.read(cursor.position..<min(cursor.position + 256 * 1024, source.count)))
+            guard dict.first?.text == "<<" else { throw StructureError.table }
+            if value("/Encrypt", dict) != nil { throw StructureError.encrypted }
+            if value("/XRefStm", dict) != nil { throw StructureError.hybrid }
+            if root.isEmpty, let r = value("/Root", dict) { root = r.map(\.text).joined(separator: " ") }
+            if info == nil, let r = value("/Info", dict) { info = r.map(\.text).joined(separator: " ") }
+            next = nil
+            if let prev = value("/Prev", dict) {
+                guard prev.count == 1, let offset = Int(prev[0].text) else { throw StructureError.table }
+                next = offset
+            }
         }
+        orderedOffsets = offsets.values.map(\.0).filter { $0 >= 0 && $0 < source.count }.sorted()
         guard let rootID=Int(root.split(separator:" ").first ?? ""),let catalog=try? dictionary(rootID),let pageID=reference("/Pages",catalog) else {throw StructureError.pages}
         var seen=Set<Int>()
         func descend(_ id:Int, depth:Int) throws {
@@ -74,14 +101,33 @@ struct PDFClassicFile {
         }
         try descend(pageID,depth:0)
     }
-    func dictionary(_ id:Int, maximumBytes: Int = .max) throws -> Data {
-        guard let (offset,_) = offsets[id],offset>=0,offset<data.count else {throw SourcePreparationError.unsafeGuides}
-        let limit=offsets.values.map(\.0).filter{$0>offset}.min() ?? data.count
-        let end = offset + min(maximumBytes, min(limit, data.count) - offset)
-        let section=data.subdata(in:offset..<end),tokens=pdfTokens(section)
-        guard tokens.count>=4,Int(tokens[0].text)==id,tokens[2].text=="obj",let start=tokens.firstIndex(where:{$0.text=="<<"}) else {throw SourcePreparationError.unsafeGuides}
-        var depth=0
-        for i in start..<tokens.count {if tokens[i].text=="<<" {depth+=1};if tokens[i].text==">>" {depth-=1;if depth==0 {return section.subdata(in:tokens[start].range.lowerBound..<tokens[i].range.upperBound)}}}
+    func dictionary(_ id:Int, maximumBytes: Int = 256 * 1024) throws -> Data {
+        try objectDictionary(id, maximumBytes: maximumBytes).bytes
+    }
+
+    func objectDictionary(_ id: Int, maximumBytes: Int = 256 * 1024) throws -> (bytes: Data, end: Int) {
+        guard let (offset, generation) = offsets[id],offset>=0,offset<source.count else {throw SourcePreparationError.unsafeGuides}
+        var low = 0, high = orderedOffsets.count
+        while low < high {
+            let middle = (low + high) / 2
+            if orderedOffsets[middle] <= offset { low = middle + 1 } else { high = middle }
+        }
+        let limit = low < orderedOffsets.count ? orderedOffsets[low] : source.count
+        let end = offset + min(maximumBytes, limit - offset)
+        let section = source.read(offset..<end), tokens = pdfTokens(section)
+        guard tokens.count >= 4, Int(tokens[0].text) == id, Int(tokens[1].text) == generation,
+              tokens[2].text == "obj", tokens[3].text == "<<" else { throw SourcePreparationError.unsafeGuides }
+        var depth = 0
+        for token in tokens.dropFirst(3) {
+            if token.text == "<<" { depth += 1 }
+            if token.text == ">>" {
+                depth -= 1
+                if depth == 0 {
+                    let end = token.range.upperBound
+                    return (section.subdata(in: tokens[3].range.lowerBound..<end), offset + end)
+                }
+            }
+        }
         throw SourcePreparationError.unsafeGuides
     }
     func reference(_ name:String,_ data:Data) -> Int? {value(name,pdfTokens(data))?.first.flatMap{Int($0.text)}}
@@ -106,7 +152,7 @@ struct PDFClassicFile {
         return nil
     }
     func replacing(_ contents:[Int:Data]) throws -> Data {
-        var output=data;output.append(Data("\n".utf8));var entries:[Int:(Int,Int)]=[:]
+        var output=source.read(0..<source.count);output.append(Data("\n".utf8));var entries:[Int:(Int,Int)]=[:]
         var next=(offsets.keys.max() ?? 0)+1
         for number in contents.keys.sorted() {
             guard pages.indices.contains(number-1),let stream=contents[number] else {throw SourcePreparationError.unsafeGuides}
@@ -123,13 +169,60 @@ struct PDFClassicFile {
     }
 
     func appendingXref(to body: Data, entries: [Int: (Int, Int)], size: Int) -> Data {
-        var output = body
-        let xref=output.count;output.append(Data("xref\n".utf8))
-        for id in entries.keys.sorted() {let (offset,generation)=entries[id]!;output.append(Data(String(format:"%d 1\n%010d %05d n \n",id,offset,generation).utf8))}
+        body + incrementalXref(at: body.count, entries: entries, size: size)
+    }
+
+    func incrementalXref(at xref: Int, entries: [Int: (Int, Int)], size: Int) -> Data {
+        var output = Data("xref\n".utf8)
+        for id in entries.keys.sorted() {let (offset,generation)=entries[id]!;output.append(Data(String(format:"%d 1\n%010lld %05d n \n",id,Int64(offset),generation).utf8))}
         output.append(Data("trailer\n<< /Size \(size) /Root \(root) /Prev \(previous) \(info.map{"/Info "+$0} ?? "") >>\nstartxref\n\(xref)\n%%EOF\n".utf8))
         return output
     }
 }
+private struct XrefCursor {
+    let source: PDFByteSource
+    var position: Int
+    private var start = 0
+    private var buffer = Data()
+
+    init(source: PDFByteSource, position: Int) {
+        self.source = source
+        self.position = position
+    }
+
+    private mutating func byte() -> UInt8? {
+        guard position < source.count else { return nil }
+        if position - start >= buffer.count {
+            start = position
+            buffer = source.read(start..<min(start + 64 * 1024, source.count))
+        }
+        return position - start < buffer.count ? buffer[position - start] : nil
+    }
+
+    private func whitespace(_ byte: UInt8) -> Bool {
+        switch byte {
+        case 0, 9, 10, 12, 13, 32: return true
+        default: return false
+        }
+    }
+
+    mutating func token() -> String? {
+        while let next = byte() {
+            if whitespace(next) { position += 1 }
+            else if next == 37 {
+                while let comment = byte(), comment != 10, comment != 13 { position += 1 }
+            } else { break }
+        }
+        var token: [UInt8] = []
+        while let next = byte(), !whitespace(next), next != 60, next != 37 {
+            guard token.count < 20 else { return nil }
+            token.append(next)
+            position += 1
+        }
+        return token.isEmpty ? nil : String(bytes: token, encoding: .ascii)
+    }
+}
+
 public enum PDFGuideEditor {
     public static func canVerify(_ document:CGPDFDocument) -> Bool {
         (1...document.numberOfPages).allSatisfy { n in
@@ -138,18 +231,26 @@ public enum PDFGuideEditor {
             return w>0 && h>0 && w<=4000 && h<=4000 && w*h<=8_000_000
         }
     }
-    public static func supports(_ url:URL) -> Bool { (try? PDFClassicFile(Data(contentsOf:url))) != nil }
+    private static func guideFile(_ url: URL) throws -> PDFByteSource {
+        let source = try PDFByteSource(url: url)
+        guard source.count < 64 * 1024 * 1024 else { throw SourcePreparationError.unsafeGuides }
+        return source
+    }
+
+    public static func supports(_ url:URL) -> Bool {
+        (try? PDFClassicFile(source: guideFile(url))) != nil
+    }
     public static func hiddenCopy(source:URL,destination:URL,analysis:PDFGuideAnalysis,groups:Set<String>) throws {
         guard source.standardizedFileURL.resolvingSymlinksInPath() != destination.standardizedFileURL.resolvingSymlinksInPath() else {throw PDFExportError.sourceOverwrite}
         guard !groups.isEmpty,groups.allSatisfy({id in analysis.groups.contains{$0.id==id && $0.canHide}}) else {throw SourcePreparationError.unsafeGuides}
-        let bytes=try Data(contentsOf:source)
-        guard let provider=CGDataProvider(data:bytes as CFData),let doc=CGPDFDocument(provider),!doc.isEncrypted else {throw SourcePreparationError.unsafeGuides}
+        let bytes = try guideFile(source)
+        guard let doc = bytes.document(), !doc.isEncrypted else {throw SourcePreparationError.unsafeGuides}
         let current=PDFGuideDetector.inspect(doc)
         let before=analysis.strokes.filter{groups.contains($0.groupID)},now=current.strokes.filter{groups.contains($0.groupID)}
         guard !before.isEmpty,before.count==now.count,groups.allSatisfy({id in current.groups.contains{$0.id==id && $0.canHide}}),zip(before,now).allSatisfy({a,b in
             a.page==b.page && a.groupID==b.groupID && a.paintRange==b.paintRange && a.bounds==b.bounds && a.segments.count==b.segments.count && zip(a.segments,b.segments).allSatisfy{$0.0==$1.0 && $0.1==$1.1}
         }) else {throw SourcePreparationError.unsafeGuides}
-        guard let original=try? PDFClassicFile(bytes),original.pages.count==doc.numberOfPages else {throw SourcePreparationError.unsafeGuides}
+        guard let original=try? PDFClassicFile(source: bytes),original.pages.count==doc.numberOfPages else {throw SourcePreparationError.unsafeGuides}
         var changed:[Int:Data]=[:]
         for number in Set(analysis.strokes.filter{groups.contains($0.groupID)}.map(\.page)) {
             guard let page=doc.page(at:number),var data=pdfPageContent(page) else {throw SourcePreparationError.unsafeGuides}

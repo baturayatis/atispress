@@ -41,13 +41,9 @@ public final class PDFColorVariants: @unchecked Sendable {
     }
 
     private static func editor(for source: PDFSource) throws -> PDFImageColorEditor {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: source.url.path),
-              let length = attributes[.size] as? NSNumber else { throw OpenError.unreadable }
-        guard length.intValue < 64 * 1024 * 1024 else { throw PDFClassicFile.StructureError.size }
-        guard let data = try? Data(contentsOf: source.url) else { throw OpenError.unreadable }
-        let file = try PDFClassicFile(data)
-        guard let provider = CGDataProvider(data: data as CFData),
-              let document = CGPDFDocument(provider) else { throw OpenError.unreadable }
+        guard let bytes = try? PDFByteSource(url: source.url) else { throw OpenError.unreadable }
+        let file = try PDFClassicFile(source: bytes)
+        guard let document = bytes.document() else { throw OpenError.unreadable }
         guard document.numberOfPages == file.pages.count else { throw OpenError.pageMismatch }
         return PDFImageColorEditor(file: file, document: document)
     }
@@ -76,6 +72,7 @@ public final class PDFColorVariants: @unchecked Sendable {
         try Task.checkCancellation()
         let editor: PDFImageColorEditor
         do { editor = try self.editor(for: source) }
+        catch is CancellationError { throw CancellationError() }
         catch { return PDFColorVariants(warnings: [diagnostic(error)]) }
         var variants: [ImageColorAdjustment: Variant] = [:]
         var totalBytes = 0
@@ -90,11 +87,11 @@ public final class PDFColorVariants: @unchecked Sendable {
                 warnings.formUnion(notes)
                 guard let data else { continue }
                 guard totalBytes + data.count <= 256 * 1024 * 1024 else {
-                    warnings.insert("Renk düzenleme bellek sınırını aşan işler özgün renkleriyle kullanıldı.")
+                    warnings.insert("Renk varyantlarının toplam artımlı güncelleme sınırı (256 MiB) aşıldı. Sınıra takılan işler özgün renkleriyle kullanıldı.")
                     continue
                 }
-                guard let provider = CGDataProvider(data: data as CFData),
-                      let changed = CGPDFDocument(provider), changed.numberOfPages == editor.document.numberOfPages else {
+                guard let changed = editor.file.source.document(appending: data),
+                      changed.numberOfPages == editor.document.numberOfPages else {
                     warnings.insert("Düzenlenmiş PDF yeniden açılamadı veya sayfa sayısı değişti. Özgün sayfalar kullanıldı.")
                     continue
                 }

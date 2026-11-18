@@ -47,6 +47,7 @@ struct PDFImageColorEditor {
         let name: String
         let id: Int
         let dictionary: Data
+        let dictionaryEnd: Int
         let stream: CGPDFStreamRef
         let live: CGPDFDictionaryRef
         let form: Scope?
@@ -128,13 +129,14 @@ struct PDFImageColorEditor {
             guard let reference = file.value(name, objectTokens), reference.count == 3,
                   reference.last?.text == "R", let id = Int(reference[0].text),
                   let generation = Int(reference[1].text), file.offsets[id]?.1 == generation,
-                  let dictionary = try? file.dictionary(id, maximumBytes: 256 * 1024),
+                  let objectDictionary = try? file.objectDictionary(id),
                   CGPDFDictionaryGetStream(liveObjects, String(name.dropFirst()), &stream),
                   let stream, let object = CGPDFStreamGetDictionary(stream) else {
                 warnings.insert("\(location): XObject akış başvurusu çözümlenemedi.")
                 safe = false
                 continue
             }
+            let dictionary = objectDictionary.bytes
             guard budget.consume(dictionary.count) else {
                 warnings.insert("\(location): Nesne sözlüğü toplam inceleme sınırını aşıyor.")
                 safe = false
@@ -191,7 +193,7 @@ struct PDFImageColorEditor {
                 safe = false
                 continue
             }
-            targets.append(Target(name: name, id: id, dictionary: dictionary, stream: stream, live: object, form: child))
+            targets.append(Target(name: name, id: id, dictionary: dictionary, dictionaryEnd: objectDictionary.end, stream: stream, live: object, form: child))
         }
         return (Scope(content: content, uses: uses, resources: resources, objects: objects,
                       live: live, targets: targets, path: path), safe)
@@ -214,7 +216,7 @@ struct PDFImageColorEditor {
         guard adjustment.isValid else {
             return (nil, PDFColorInspection(warnings: ["Renk değerleri geçersiz."]))
         }
-        var output = inspect ? Data() : file.data
+        var output = Data()
         output.append(10)
         var entries: [Int: (Int, Int)] = [:]
         var next = (file.offsets.keys.max() ?? 0) + 1
@@ -226,13 +228,13 @@ struct PDFImageColorEditor {
 
         func append(dictionary: Data, stream: Data? = nil, existingID: Int? = nil) -> Int? {
             guard output.count + dictionary.count + (stream?.count ?? 0) <= 96 * 1024 * 1024 else {
-                warnings.insert("Renk düzenleme çıktı sınırı aşıldı. Sınıra takılan nesneler özgün haliyle kullanıldı.")
+                warnings.insert("Renk varyantının artımlı güncelleme sınırı (96 MiB) aşıldı. Sınıra takılan nesneler özgün haliyle kullanıldı.")
                 return nil
             }
             let id = existingID ?? next
             if existingID == nil { next += 1 }
             let generation = existingID.flatMap { file.offsets[$0]?.1 } ?? 0
-            entries[id] = (output.count, generation)
+            entries[id] = (file.source.count + output.count, generation)
             output.append(Data("\(id) \(generation) obj\n".utf8))
             output.append(dictionary)
             if let stream {
@@ -270,7 +272,8 @@ struct PDFImageColorEditor {
                         var notes = Set<String>()
                         var components: Int?
                         let bytes = try adjusted(target.stream, dictionary: target.live, resources: scope.live,
-                                                 adjustment: adjustment, allowsCMYK: allowsCMYK, inspect: inspect,
+                                                 dictionaryEnd: target.dictionaryEnd, adjustment: adjustment,
+                                                 allowsCMYK: allowsCMYK, inspect: inspect,
                                                  sampleBudget: &sampleBudget, components: &components, warnings: &notes)
                         warnings.formUnion(notes.map { "\(location): \($0)" })
                         if let components { editable[target.id] = components }
@@ -329,11 +332,17 @@ struct PDFImageColorEditor {
                                         saturationCount: editable.values.filter { $0 > 1 }.count,
                                         warnings: warnings.sorted())
         guard changedPages > 0 else { return (nil, result) }
-        return (file.appendingXref(to: output, entries: entries, size: next), result)
+        let xref = file.source.count + output.count
+        guard xref <= 9_999_999_999 else {
+            warnings.insert(PDFClassicFile.StructureError.offsetLimit.rawValue)
+            return (nil, PDFColorInspection(warnings: warnings.sorted()))
+        }
+        output.append(file.incrementalXref(at: xref, entries: entries, size: next))
+        return (output, result)
     }
 
     private func adjusted(_ stream: CGPDFStreamRef, dictionary: CGPDFDictionaryRef, resources: CGPDFDictionaryRef,
-                          adjustment: ImageColorAdjustment, allowsCMYK: Bool, inspect: Bool,
+                          dictionaryEnd: Int, adjustment: ImageColorAdjustment, allowsCMYK: Bool, inspect: Bool,
                           sampleBudget: inout Int, components eligible: inout Int?, warnings: inout Set<String>) throws -> Data? {
         guard let colorSpace = Self.colorSpace(dictionary, resources: resources) else {
             warnings.insert("CMYK, spot ve desteklenmeyen renk uzayları özgün renkleriyle kullanıldı.")
@@ -373,13 +382,17 @@ struct PDFImageColorEditor {
             return nil
         }
         guard CGPDFDictionaryGetInteger(dictionary, "Width", &width), CGPDFDictionaryGetInteger(dictionary, "Height", &height),
-              width > 0, height > 0, width <= 12_000_000 / height / components else {
-            warnings.insert("Görsel boyutları geçersiz veya örnek sayısı sınırı aşıyor.")
+              width > 0, height > 0 else {
+            warnings.insert("Görselin /Width veya /Height değeri geçersiz.")
+            return nil
+        }
+        guard width <= 12_000_000 / height / components else {
+            warnings.insert("Görselin açılmış örnek verisi 12.000.000 bayt sınırını aşıyor.")
             return nil
         }
         let sampleCount = width * height * components
         guard sampleCount <= sampleBudget else {
-            warnings.insert("Görsel örnekleri toplam inceleme sınırını aşıyor.")
+            warnings.insert("Görsel örnekleri toplam inceleme sınırını (96 MiB) aşıyor.")
             return nil
         }
         sampleBudget -= sampleCount
@@ -394,25 +407,61 @@ struct PDFImageColorEditor {
             warnings.insert("Yalnız ham veya Flate sıkıştırmalı CMYK görseller düzenlenebilir. Diğer CMYK görseller özgün renkleriyle kullanıldı.")
             return nil
         }
-        var format = CGPDFDataFormat.raw
+        let jpeg = filter == "DCTDecode" || arrayDCT
+        guard jpeg || !hasFilter || filter == "FlateDecode" else {
+            warnings.insert("JPEG 2000, çoklu filtreli veya desteklenmeyen sıkıştırmalı görseller özgün renkleriyle kullanıldı.")
+            return nil
+        }
+        var length: CGPDFInteger = 0
+        guard CGPDFDictionaryGetInteger(dictionary, "Length", &length), length > 0 else {
+            warnings.insert("Görsel akışının /Length değeri eksik veya geçersiz.")
+            return nil
+        }
+        guard length <= 16 * 1024 * 1024 else {
+            warnings.insert("Görselin kodlanmış akışı 16 MiB sınırını aşıyor.")
+            return nil
+        }
         var data: Data
-        if filter == "DCTDecode" || arrayDCT {
+        if jpeg {
             guard Self.supportsDCTParameters(dictionary, components: components),
-                  let bytes = CGPDFStreamCopyData(stream, &format), format == .jpegEncoded,
-                  let samples = try PDFJPEGImageSamples.decode(bytes as Data, width: width, height: height,
-                                                              components: components, pdfICC: colorSpace.profile) else {
+                  let encoded = encodedStream(after: dictionaryEnd, length: length),
+                  let samples = try PDFJPEGImageSamples.decode(encoded, width: width, height: height,
+                                                                components: components, pdfICC: colorSpace.profile) else {
                 warnings.insert("Desteklenmeyen, bozuk veya ICC profili uyuşmayan JPEG görseller özgün renkleriyle kullanıldı.")
                 return nil
             }
             data = samples
-        } else {
-            guard !hasFilter || filter == "FlateDecode",
-                  let bytes = CGPDFStreamCopyData(stream, &format), format == .raw,
-                  CFDataGetLength(bytes) == width * height * components else {
-                warnings.insert("JPEG 2000, çoklu filtreli veya desteklenmeyen sıkıştırmalı görseller özgün renkleriyle kullanıldı.")
+        } else if filter == "FlateDecode" {
+            guard let encoded = encodedStream(after: dictionaryEnd, length: length) else {
+                warnings.insert("Flate görselinin akış sınırları /Length ile eşleşmiyor.")
                 return nil
             }
-            data = Data(bytes as Data)
+            guard let predictor = Self.flatePredictor(dictionary, width: width, components: components) else {
+                warnings.insert("Flate görselinin /DecodeParms değerleri görsel boyutlarıyla uyumlu değil.")
+                return nil
+            }
+            let count = sampleCount + (predictor >= 10 ? height : 0)
+            guard let decoded = Self.inflate(encoded, count: count) else {
+                warnings.insert("Flate görselinin açılmış akışı örnek boyutunu aşıyor veya sıkıştırma verisi bozuk.")
+                return nil
+            }
+            if predictor == 1 {
+                data = decoded
+            } else {
+                var format = CGPDFDataFormat.raw
+                guard let bytes = CGPDFStreamCopyData(stream, &format), format == .raw,
+                      CFDataGetLength(bytes) == sampleCount else {
+                    warnings.insert("Flate görselinin predictor verisi çözümlenemedi.")
+                    return nil
+                }
+                data = bytes as Data
+            }
+        } else {
+            guard length == sampleCount, let bytes = encodedStream(after: dictionaryEnd, length: length) else {
+                warnings.insert("Ham görselin /Length değeri beklenen örnek boyutuyla eşleşmiyor.")
+                return nil
+            }
+            data = bytes
         }
         if components == 4, let profile = colorSpace.profile {
             guard let edited = try PDFCMYKImageColor.adjust(data, width: width, height: height, profile: profile, editRGB: { rgb in
@@ -442,6 +491,61 @@ struct PDFImageColorEditor {
         guard status == Z_OK else { return nil }
         compressed.count = Int(capacity)
         return compressed
+    }
+
+    private func encodedStream(after dictionaryEnd: Int, length: Int) -> Data? {
+        let source = file.source
+        let prefix = source.read(dictionaryEnd..<min(dictionaryEnd + 1024, source.count))
+        let white: Set<UInt8> = [0, 9, 10, 12, 13, 32]
+        var start = 0
+        while start < prefix.count {
+            if white.contains(prefix[start]) { start += 1 }
+            else if prefix[start] == 37 {
+                while start < prefix.count, prefix[start] != 10, prefix[start] != 13 { start += 1 }
+            } else { break }
+        }
+        guard prefix.dropFirst(start).starts(with: "stream".utf8) else { return nil }
+        var begin = start + 6
+        while begin < prefix.count, prefix[begin] == 32 || prefix[begin] == 9 { begin += 1 }
+        if begin < prefix.count, prefix[begin] == 13 { begin += 1 }
+        guard begin < prefix.count, prefix[begin] == 10 else { return nil }
+        let payload = dictionaryEnd + begin + 1
+        let end = payload + length
+        guard end <= source.count else { return nil }
+        let terminator = source.read(end..<min(end + 32, source.count))
+        guard terminator.drop(while: { white.contains($0) }).starts(with: "endstream".utf8) else { return nil }
+        let bytes = source.read(payload..<end)
+        return bytes.count == length ? bytes : nil
+    }
+
+    private static func flatePredictor(_ image: CGPDFDictionaryRef, width: Int, components: Int) -> Int? {
+        var object: CGPDFObjectRef?
+        guard CGPDFDictionaryGetObject(image, "DecodeParms", &object), let object,
+              CGPDFObjectGetType(object) != .null else { return 1 }
+        guard let parameters = dictionary("DecodeParms", in: image) else { return nil }
+        func integer(_ name: String, default fallback: Int) -> Int {
+            var value: CGPDFInteger = 0
+            return CGPDFDictionaryGetInteger(parameters, name, &value) ? value : fallback
+        }
+        let predictor = integer("Predictor", default: 1)
+        if predictor == 1 { return 1 }
+        guard predictor == 2 || (10...15).contains(predictor),
+              integer("Columns", default: 1) == width,
+              integer("Colors", default: 1) == components,
+              integer("BitsPerComponent", default: 8) == 8 else { return nil }
+        return predictor
+    }
+
+    private static func inflate(_ encoded: Data, count: Int) -> Data? {
+        var decoded = Data(count: count)
+        var length = uLongf(count)
+        let status = decoded.withUnsafeMutableBytes { output in
+            encoded.withUnsafeBytes { input in
+                uncompress(output.bindMemory(to: Bytef.self).baseAddress, &length,
+                           input.bindMemory(to: Bytef.self).baseAddress, uLong(encoded.count))
+            }
+        }
+        return status == Z_OK && length == count ? decoded : nil
     }
 
     private static func applyAdjustment(_ adjustment: ImageColorAdjustment, to data: inout Data, components: Int) throws {
@@ -533,11 +637,12 @@ struct PDFImageColorEditor {
         guard CGPDFObjectGetValue(space, .array, &array), let array,
               CGPDFArrayGetName(array, 0, &kind), let kind, String(cString: kind) == "ICCBased",
               CGPDFArrayGetStream(array, 1, &stream), let stream, let dict = CGPDFStreamGetDictionary(stream) else { return nil }
-        var count: CGPDFInteger = 0
+        var count: CGPDFInteger = 0, length: CGPDFInteger = 0
         var format = CGPDFDataFormat.raw
         guard CGPDFDictionaryGetInteger(dict, "N", &count), [1, 3, 4].contains(count),
+              CGPDFDictionaryGetInteger(dict, "Length", &length), (1...(16 * 1024 * 1024)).contains(length),
               let profile = CGPDFStreamCopyData(stream, &format), format == .raw,
-              CFDataGetLength(profile) >= 128 else { return nil }
+              (128...(16 * 1024 * 1024)).contains(CFDataGetLength(profile)) else { return nil }
         let profileData = profile as Data
         guard String(decoding: profileData[36..<40], as: UTF8.self) == "acsp" else { return nil }
         let signature = String(decoding: profileData[16..<20], as: UTF8.self)

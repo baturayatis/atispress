@@ -561,6 +561,102 @@ final class ImageColorTests: XCTestCase {
         }
     }
 
+    func testLargeClassicPDFUsesSmallIncrementalUpdateAndExportsICCAndText() async throws {
+        let url = try formFixture()
+        let sourceBefore = try PDFByteSource(url: url)
+        let base = try PDFClassicFile(source: sourceBefore)
+        let writer = try FileHandle(forWritingTo: url)
+        defer { try? writer.close() }
+        let offset = Int(try writer.seekToEnd())
+        let padding = 270 * 1024 * 1024
+        try writer.write(contentsOf: Data("\n11 0 obj\n<< /Length \(padding) >>\nstream\n".utf8))
+        let payload = try writer.offset()
+        try writer.seek(toOffset: payload + UInt64(padding))
+        try writer.write(contentsOf: Data("\nendstream\nendobj\n12 0 obj\n".utf8))
+        let dictionaryOffset = Int(try writer.offset()) - "12 0 obj\n".utf8.count
+        // Move the editable ICC image beyond the large stream.
+        let image = stream("/Type /XObject /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 /ColorSpace [/ICCBased 8 0 R]",
+                           Data([80, 40, 20]))
+        try writer.write(contentsOf: image + Data("\nendobj\n".utf8))
+        let resourceOffset = Int(try writer.offset())
+        try writer.write(contentsOf: Data("10 0 obj\n<< /XObject << /Photo 12 0 R >> /Font << /F 9 0 R >> >>\nendobj\n".utf8))
+        let xref = Int(try writer.offset())
+        let trailer = base.incrementalXref(at: xref, entries: [11: (offset + 1, 0), 12: (dictionaryOffset, 0),
+                                                                10: (resourceOffset, 0)], size: 13)
+        try writer.write(contentsOf: trailer)
+        let originalLength = try writer.offset()
+
+        let source = try await PDFSource.open(url)
+        XCTAssertEqual(try PDFColorVariants.inspect(source: source, pages: [1]).editableCount, 1)
+        var slot = Slot(sourcePageNumber: 1, origin: Point(8, 8), size: source.pages[0].trimSize)
+        var adjustment = ImageColorAdjustment()
+        adjustment.brightness = 0.2
+        slot.imageColor = adjustment
+        let plan = ImpositionPlan(sheets: [Sheet(size: Size(110, 85), front: Side(slots: [slot]), back: Side())])
+        let bytes = try PDFByteSource(url: url)
+        let document = try XCTUnwrap(bytes.document())
+        let editor = PDFImageColorEditor(file: try PDFClassicFile(source: bytes), document: document)
+        let (increment, _) = try editor.variant(pages: [1], adjustment: adjustment)
+        XCTAssertLessThan(try XCTUnwrap(increment).count, 4096)
+        let variants = try PDFColorVariants.prepare(source: source, plan: plan)
+        let page = try XCTUnwrap(variants.page(for: slot), "\(variants.warnings)")
+        let inner = try displayedChild(displayedImage(page, at: 0))
+        XCTAssertEqual(try samples(displayedChild(inner)), Data([131, 91, 71]))
+        let output = url.deletingLastPathComponent().appendingPathComponent("large-out.pdf")
+        _ = try PDFExporter.export(plan: plan, source: source, destination: .singlePDF(output), marks: .none)
+        let imposed = try XCTUnwrap(PDFDocument(url: output))
+        XCTAssertTrue(imposed.string?.contains("Form proof") == true)
+        let printed = try XCTUnwrap(imposed.page(at: 0)?.pageRef)
+        let profile = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB)?.copyICCData()) as Data
+        XCTAssertTrue(try exportedProfiles(printed).contains(profile))
+        let point = CGPoint(x: 20, y: 25), scale = PDFPreviewDrawing.pointsPerMM
+        let shifted = CGPoint(x: point.x + slot.x * scale, y: point.y + slot.y * scale)
+        XCTAssertEqual(try pixel(printed, shifted), try pixel(page, point), accuracy: 3)
+        let after = try PDFByteSource(url: url)
+        XCTAssertEqual(UInt64(after.count), originalLength)
+        XCTAssertEqual(after.read(xref..<after.count), trailer)
+    }
+
+    func testOversizedSamplesAndFlateExpansionAreSkippedWithoutBlockingSmallImage() async throws {
+        let image = "/Type /XObject /Subtype /Image /Height 1 /BitsPerComponent 8 /ColorSpace /DeviceRGB"
+        // A valid zlib payload with 4 KiB of samples, declared as a 3-byte image.
+        let raw = Data(repeating: 80, count: 4096)
+        var length = compressBound(uLong(raw.count))
+        var flate = Data(count: Int(length))
+        let status = flate.withUnsafeMutableBytes { target in
+            raw.withUnsafeBytes { input in
+                compress2(target.bindMemory(to: Bytef.self).baseAddress, &length,
+                          input.bindMemory(to: Bytef.self).baseAddress, uLong(raw.count), Z_DEFAULT_COMPRESSION)
+            }
+        }
+        XCTAssertEqual(status, Z_OK)
+        flate.count = Int(length)
+        let url = try writePDF([
+            Data("<< /Type /Catalog /Pages 2 0 R >>".utf8),
+            Data("<< /Type /Pages /Count 1 /Kids [3 0 R] >>".utf8),
+            Data("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 140] /Resources << /XObject << /Big 5 0 R /Inflated 6 0 R /Small 7 0 R >> >> /Contents 4 0 R >>".utf8),
+            stream("", Data("/Big Do /Inflated Do /Small Do".utf8)),
+            stream("\(image) /Width 4000001", Data([80, 40, 20])),
+            stream("\(image) /Width 1 /Filter /FlateDecode", flate),
+            stream("\(image) /Width 1", Data([80, 40, 20]))
+        ])
+        let source = try await PDFSource.open(url)
+        let result = try PDFColorVariants.inspect(source: source, pages: [1])
+        XCTAssertEqual(result.editableCount, 1)
+        XCTAssertTrue(result.warnings.contains { $0.contains("/Big:") && $0.contains("12.000.000") })
+        XCTAssertTrue(result.warnings.contains { $0.contains("/Inflated:") && $0.contains("açılmış akışı") })
+        var adjustment = ImageColorAdjustment()
+        adjustment.brightness = 0.2
+        var slot = Slot(sourcePageNumber: 1, origin: Point(8, 8), size: source.pages[0].trimSize)
+        slot.imageColor = adjustment
+        let plan = ImpositionPlan(sheets: [Sheet(size: Size(110, 85), front: Side(slots: [slot]), back: Side())])
+        let variants = try PDFColorVariants.prepare(source: source, plan: plan)
+        XCTAssertEqual(result.warnings, variants.warnings)
+        let page = try XCTUnwrap(variants.page(for: slot))
+        XCTAssertEqual(Array(try names(page).prefix(2)), ["Big", "Inflated"])
+        XCTAssertEqual(try samples(displayedImage(page, at: 2)), Data([131, 91, 71]))
+    }
+
     func testSamePageCanUseDifferentJobAdjustmentsAndResetIsOriginal() async throws {
         let url = try fixture(), source = try await PDFSource.open(url)
         var one = ImageColorAdjustment(), two = ImageColorAdjustment()
