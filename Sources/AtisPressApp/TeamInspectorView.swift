@@ -8,7 +8,7 @@ struct TeamInspectorView: View {
         GroupBox("Takım Düzeni") {
             VStack(alignment: .leading, spacing: 8) {
                 if model.project.sourcePreparation?.separation != nil {
-                    Button("Bölgeleri ve yüzleri düzenle…") { model.showingArtworkSeparation = true }
+                    Text("Bölge ve yüz eşlemesi İş Ayır sekmesinde düzenlenir.").font(.caption).foregroundStyle(DesignSystem.muted)
                 } else {
                     Picker("Baskı", selection: Binding(get: { model.project.team?.duplex ?? false }, set: model.setTeamDuplex)) {
                         Text("Tek yüz").tag(false)

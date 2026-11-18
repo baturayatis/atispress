@@ -61,29 +61,17 @@ struct InspectorView: View {
         case .job:
             switch group {
             case 1:methodControls
-            case 2:
-                if model.project.team != nil { TeamInspectorView(model: model) }
-                else if model.project.binding == .gang { GangInspectorView(model:model) }
-                else {
-                    ForEach(Array(model.project.repeatJobs.enumerated()),id:\.offset) {index,job in
-                        Picker("İş \(index+1) yüzleri",selection:Binding(get:{model.jobPageLayout(frontPage:job.front.number)},set:{model.setJobPageLayout(frontPage:job.front.number,mode:$0)})) {
-                            Text("Genel ayar").tag(PageLayout.automatic);Text("Tek yüz").tag(PageLayout.simplex);Text("Çift yüz").tag(PageLayout.duplex)
-                        }
-                    }
-                }
-            case 3:FireControlsView(model:model)
-            case 4:PresetInspectorView(model:model)
+            case 2:FireControlsView(model:model)
+            case 3:PresetInspectorView(model:model)
             default:
                 workflowProduct
-                if model.project.team != nil { TeamInspectorView(model: model) }
-                else if model.canStartTeam { Button("Takım olarak diz", action: model.startTeam) }
-                RescaleInspectorView(model:model)
                 if model.project.binding == .stepAndRepeat {Toggle("Adet hesapla (her iş için)",isOn:model.optionalCountBinding($model.project.stepAndRepeat.quantity,name:"quantity",defaultValue:1000))}
             }
         case .sheet:
-            if group==0 {workflowPaper;sheetControls}
-            else if model.project.binding == .stepAndRepeat {repeatControls}
-            else {Text("Yerleşim bu işin cilt yöntemine göre hesaplanır.")}
+            workflowPaper
+            sheetControls
+        case .montage:
+            montageControls
         case .edges:
             edgeControls
             Picker("Hizalama",selection:model.autoBinding($model.project.blockAlignment,.alignment)) {
@@ -94,17 +82,26 @@ struct InspectorView: View {
         case .marks:
             switch group {
             case 1:markControls
-            case 2:ColorControlSizeView(model:model)
-            case 3:ExportMarksView(model:model,inline:true,scope:.info)
-            case 4:overlayControls
-            case 5:InternalCutMarksView(model: model)
-            case 6:ImageColorInspector(model: model)
+            case 2:ExportMarksView(model:model,inline:true,scope:.info)
+            case 3:overlayControls
+            case 4:InternalCutMarksView(model: model)
             default:ExportMarksView(model:model,inline:true,scope:.printed)
             }
+        case .color:
+            if group == 0 { ImageColorInspector(model: model) }
+            else {
+                ExportMarksView(model:model,inline:true,scope:.colorControls)
+                ColorControlSizeView(model:model)
+                previewColorControls
+            }
         case .serial:SerialInspectorView(model:model,compact:true,section:group)
-        case .scaling:
+        case .separation:
             SourcePageTools(model:model)
-            Button("Ebadı değiştir…") {model.openScaleWindow()}.disabled(model.project.pages.isEmpty || model.scalingRows.isEmpty)
+            if !model.canSeparateArtwork {
+                Text("İş ayırmak için tek sayfalı, tek kaynaklı bir düz PDF işi seçin.").foregroundStyle(DesignSystem.muted)
+            }
+        case .scaling:
+            RescaleInspectorView(model:model)
             if let prompt=model.rescalePrompt {ScalingSuggestionBanner(model:model,prompt:prompt)}
         case .binding:
             if model.project.isLeafBinding {
@@ -126,21 +123,50 @@ struct InspectorView: View {
             } else {PreflightView(model:model)}
         }
     }
+    @ViewBuilder private var montageControls: some View {
+        if group == 0 && model.project.binding == .gang {
+            if model.project.team != nil { TeamInspectorView(model: model) }
+            else { GangInspectorView(model:model) }
+        } else if model.project.binding == .stepAndRepeat && group == 0 {
+            if model.canStartTeam { Button("Takım olarak diz", action: model.startTeam) }
+            if (model.source?.pages.count ?? model.project.pages.count) > 1 {
+                Picker("Sayfa düzeni",selection: Binding(get: { model.pageLayoutMode },set: model.setPageLayout)) {
+                    Text("Otomatik").tag(PageLayout.automatic)
+                    Text("Çift yüz").tag(PageLayout.duplex)
+                    Text("Tek yüz").tag(PageLayout.simplex)
+                }.pickerStyle(.segmented).inspectorSetting(model,"Sayfa düzeni",SettingGuidance.detail("Sayfa düzeni"))
+            }
+            Text(model.pageLayoutSummary).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+            ForEach(Array(model.project.repeatJobs.enumerated()),id:\.offset) {index,job in
+                Picker("İş \(index+1) yüzleri",selection:Binding(get:{model.jobPageLayout(frontPage:job.front.number)},set:{model.setJobPageLayout(frontPage:job.front.number,mode:$0)})) {
+                    Text("Genel ayar").tag(PageLayout.automatic);Text("Tek yüz").tag(PageLayout.simplex);Text("Çift yüz").tag(PageLayout.duplex)
+                }
+            }
+        } else {
+            if model.project.binding == .stepAndRepeat { repeatControls }
+            if model.showsTurnControl { turnControls }
+            else if model.project.binding != .stepAndRepeat {
+                Text("Çevirme ayarı çift yüzlü işlerde kullanılabilir.").foregroundStyle(DesignSystem.muted)
+            }
+        }
+    }
+
+    private var turnControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Picker("Ön/arka çevirme",selection:$model.project.settings.turnMethod) {
+                Text("Ayrı kalıp").tag(TurnMethod.sheetwise).help("Ön ve arka için ayrı kalıp")
+                Text("Yandan").tag(TurnMethod.workAndTurn).help("Tabakayı yan kenarından çevir")
+                Text("Baştan").tag(TurnMethod.workAndTumble).help("Tabakayı baş kenarından çevir")
+            }.pickerStyle(.segmented)
+            Text(model.turnHelper).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1).help(model.turnHelper)
+        }
+    }
+
     private var workflowProduct:some View {
         VStack(alignment:.leading,spacing:DesignSystem.Space.md) {
             Text(model.workflowProductSummary).font(.callout.weight(.medium)).fixedSize(horizontal:false,vertical:true)
             Picker("Ürün tipi",selection:Binding(get:{ model.productKind },set:model.setProductKind)) {
                 ForEach(ProductKind.allCases,id:\.self) { Text($0.rawValue).tag($0) }
-            }
-            if model.project.binding == .stepAndRepeat {
-                if (model.source?.pages.count ?? model.project.pages.count) > 1 {
-                    Picker("Sayfa düzeni",selection: Binding(get: { model.pageLayoutMode },set: model.setPageLayout)) {
-                        Text("Otomatik").tag(PageLayout.automatic)
-                        Text("Çift yüz").tag(PageLayout.duplex)
-                        Text("Tek yüz").tag(PageLayout.simplex)
-                    }.pickerStyle(.segmented).inspectorSetting(model,"Sayfa düzeni",SettingGuidance.detail("Sayfa düzeni"))
-                }
-                Text(model.pageLayoutSummary).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
             }
             HStack(spacing:DesignSystem.Space.sm) {
                 Text("Adet").frame(maxWidth:.infinity,alignment:.leading)
@@ -176,15 +202,6 @@ struct InspectorView: View {
 
             let selectedSize = model.project.sheet.size
             Text(model.workflowOrientationSummary).help(TRFormat.size(selectedSize.width,selectedSize.height)).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
-            if model.showsTurnControl {
-                Picker("Ön/arka çevirme",selection:$model.project.settings.turnMethod) {
-                    Text("Ayrı kalıp").tag(TurnMethod.sheetwise).help("Ayrı kalıp (sheetwise)")
-                    Text("Yandan").tag(TurnMethod.workAndTurn).help("Yandan çevir (work-and-turn)")
-                    Text("Baştan").tag(TurnMethod.workAndTumble).help("Baştan çevir (work-and-tumble)")
-                }.pickerStyle(.segmented)
-                Text(model.turnLabel).font(.system(size:12))
-                Text(model.turnHelper).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1).help(model.turnHelper)
-            }
             if model.sheetPreset == "Özel" {
                 measurement("Genişlik",$model.project.sheet.size.width,autoField:.sheetSize,range:20...3000)
                 measurement("Yükseklik",$model.project.sheet.size.height,autoField:.sheetSize,range:20...3000)
@@ -286,7 +303,7 @@ struct InspectorView: View {
                             measurement("Kesim uzaklığı",guide(\.cropMarkOffset,field: .cropOffset,overlay: \.crop),autoField: .cropOffset,range: 0...30)
                         }
                         Text("Çıktı kesim işareti: "+(model.project.exportMarks.crop ? "Açık" : "Kapalı"))
-                            .font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1).automaticReset(model,.exportCrop)
+                            .font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
                         measurement("Güvenli alan",guide(\.safeAreaInset,field: .safeArea,overlay: \.safeArea),autoField: .safeArea,range: 0...30)
                     }.padding(5)
                 }
@@ -302,10 +319,14 @@ struct InspectorView: View {
                         Toggle("Sayfa numaraları (çıktıya basılmaz)",isOn: $model.overlays.pageNumbers).inspectorSetting(model,"Sayfa numaraları",SettingGuidance.detail("Sayfa numaraları"))
                         Toggle("Tabaka sınırı (çıktıya basılmaz)",isOn: $model.overlays.sheetBoundary).inspectorSetting(model,"Tabaka sınırı",SettingGuidance.detail("Tabaka sınırı"))
                         Toggle("Kenar payı / maşa (çıktıya basılmaz)",isOn: $model.overlays.pressGuides).inspectorSetting(model,"Kenar payı / maşa",SettingGuidance.detail("Kenar payı / maşa"))
-                        Toggle("Renk skalası kılavuzu (çıktıya basılmaz)",isOn: Binding(get: { model.overlays.colorBar },set: model.setPreviewColorBar)).inspectorSetting(model,"Renk skalası",SettingGuidance.detail("Renk skalası"))
-                        Toggle("Diz kılavuzları (çıktıya basılmaz)",isOn: Binding(get: { model.overlays.registrationTargets },set: model.setPreviewTargets)).inspectorSetting(model,"Diz işaretleri",SettingGuidance.detail("Diz işaretleri"))
                     }.toggleStyle(.switch).frame(maxWidth: .infinity,alignment: .leading).padding(5)
                 }
+    }
+    private var previewColorControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("Renk skalası kılavuzu (çıktıya basılmaz)",isOn: Binding(get: { model.overlays.colorBar },set: model.setPreviewColorBar)).inspectorSetting(model,"Renk skalası",SettingGuidance.detail("Renk skalası"))
+            Toggle("Diz kılavuzları (çıktıya basılmaz)",isOn: Binding(get: { model.overlays.registrationTargets },set: model.setPreviewTargets)).inspectorSetting(model,"Diz işaretleri",SettingGuidance.detail("Diz işaretleri"))
+        }.toggleStyle(.switch)
     }
     private func guide(_ key: WritableKeyPath<ImpositionSettings,Double>,field: AutoLayoutField,overlay: WritableKeyPath<PreviewOverlays,Bool>) -> Binding<Double> {
         model.guideDimensionBinding(key,field:field)

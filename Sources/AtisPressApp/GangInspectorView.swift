@@ -21,7 +21,7 @@ struct GangInspectorView: View {
                     LabeledContent("İş adı") { TextField("Ad",text:binding(job,\.name)) }
                     Text("\(TRFormat.dimension(job.front.trimSize.width)) × \(TRFormat.dimension(job.front.trimSize.height)) mm · PDF kesim ölçüsü").font(.system(size:12))
                     if model.project.sourcePreparation?.separation != nil {
-                        Button("Bölgeleri ve yüzleri düzenle…") { model.showingArtworkSeparation = true }
+                        Text("Bölge ve yüz eşlemesi İş Ayır sekmesinde düzenlenir.").font(.caption).foregroundStyle(DesignSystem.muted)
                     } else {
                         let pages = model.gangSourcePages(job.sourceID)
                         Picker("Ön sayfa",selection:Binding(get: { job.front.number },set: { n in if let p = pages.first(where: { $0.number==n }) { model.editGangJob(job.id) { $0.front = p } } })) {

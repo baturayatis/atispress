@@ -60,13 +60,41 @@ import PDFEngine
         }
         var leaf=Workspace.newProject();leaf.binding = .spiral
         XCTAssertEqual(InspectorPanel.binding.groups(for:leaf),["Cilt","Kapak"])
-        XCTAssertEqual(InspectorPanel.allCases.map(\.number),Array(1...10))
+        let shortcuts: [InspectorPanel] = [.job, .sheet, .edges, .bleed, .marks, .serial, .scaling, .binding, .price]
+        XCTAssertEqual(shortcuts.map(\.number), Array(1...9))
         let flat=InspectorPanel.visible(for:Workspace.newProject())
         XCTAssertEqual(InspectorPanel.neighbor(of:.job,step:-1,visible:flat),.job)
         XCTAssertEqual(InspectorPanel.neighbor(of:.scaling,step:1,visible:flat),.price)
         XCTAssertEqual(InspectorPanel.neighbor(of:.output,step:1,visible:flat),.output)
-        XCTAssertEqual(InspectorPanel.neighbor(of:.serial,step:-1,visible:flat),.marks)
+        XCTAssertEqual(InspectorPanel.neighbor(of:.serial,step:-1,visible:flat),.color)
     }
+    func testProductionTabsRouteExistingControlsAndMontageIssues() {
+        let model = Workspace(uiDefaults: defaults())
+        let tabs = InspectorPanel.visible(for: model.project)
+        XCTAssertEqual(Set(tabs), Set(InspectorPanel.allCases).subtracting([.binding]))
+        XCTAssertEqual(InspectorPanel.neighbor(of: .sheet, step: 1, visible: tabs), .montage)
+        XCTAssertEqual(InspectorPanel.neighbor(of: .marks, step: 1, visible: tabs), .color)
+        XCTAssertEqual(InspectorPanel.neighbor(of: .separation, step: 1, visible: tabs), .scaling)
+        for (tab, title) in [(InspectorPanel.color, "Renk"), (.separation, "İş Ayır"), (.montage, "Montaj")] {
+            XCTAssertEqual(tab.title, title)
+            XCTAssertNotEqual(tab.help, tab.title)
+        }
+        XCTAssertEqual(InspectorRegistry.owner(editor: "ImageColorInspector", path: "imageColorJobs"), .color)
+        XCTAssertEqual(InspectorRegistry.owner(editor: "SourcePageTools", path: "hiddenGuideGroups"), .separation)
+        XCTAssertEqual(InspectorRegistry.owner(editor: "TeamInspectorView", path: "manualLayouts"), .montage)
+        XCTAssertEqual(InspectorRegistry.owner(editor: "InternalCutMarksView", path: "internalCutJobs"), .marks)
+        XCTAssertEqual(InspectorRegistry.owner(.exportCrop), .marks)
+        XCTAssertEqual(InspectorRegistry.owner(.exportColorBar), .color)
+        XCTAssertEqual(InspectorRegistry.owner(.columns), .montage)
+        XCTAssertEqual(InspectorPanel.montage.groups(for: model.project), ["Ürünler", "Yerleşim"])
+        model.setMode(.gang)
+        XCTAssertEqual(InspectorPanel.montage.groups(for: model.project), ["Ürünler", "Çevirme"])
+        model.ui.inspectorCollapsed = true
+        model.reveal(ValidationIssue(.error, .gangLayout, "Ürün yerleşimi tabakaya sığmıyor."))
+        XCTAssertEqual(model.ui.activePanel, .montage)
+        XCTAssertEqual(model.ui.flyoutPanel, .montage)
+    }
+
     func testPanelSelectionFlyoutAndPersistenceDoNotEditProject() throws {
         let store=defaults(),model=Workspace(uiDefaults:store)
         let before=try ProjectDocument(state:model.state).encoded()

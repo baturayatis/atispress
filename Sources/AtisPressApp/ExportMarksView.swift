@@ -4,7 +4,7 @@ import PDFEngine
 
 struct ExportMarksView: View {
     @ObservedObject var model: Workspace
-    enum Scope {case all,printed,output,info,options}
+    enum Scope {case all,printed,output,info,options,colorControls}
     var inline = false
     var scope:Scope = .all
     @ViewBuilder var body: some View {
@@ -21,11 +21,13 @@ struct ExportMarksView: View {
                 }
                 Divider()
             }
-            if scope == .all || scope == .printed {
-                Text("Çıktı İşaretleri").font(.headline)
+            if scope == .all || scope == .printed { Text("Çıktı İşaretleri").font(.headline) }
+            if scope == .all || scope == .colorControls {
                 Toggle("Renk skalası (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.colorBar,.exportColorBar)).automaticReset(model,.exportColorBar)
                 Toggle("Diz işaretleri (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.registrationTargets,.exportTargets)).automaticReset(model,.exportTargets)
                 if scope == .all {ColorControlSizeView(model:model)}
+            }
+            if scope == .all || scope == .printed {
                 Toggle("Kesim işaretleri (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.crop,.exportCrop)).automaticReset(model,.exportCrop)
                 if model.project.isBooklet { Toggle("Katlama işaretleri (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.fold,.exportFold)).automaticReset(model,.exportFold) }
                 Toggle("Taşma çizgisi (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.bleed,.exportBleed)).automaticReset(model,.exportBleed)
@@ -68,11 +70,20 @@ struct ExportMarksView: View {
                         DimensionInput("Çizgi kalınlığı",value:model.autoBinding($model.project.exportMarks.lineWidth,.exportLineWidth),unit:"pt",range:0.01...20)
                     }.automaticReset(model,.exportLineWidth)
                 }
-                let warnings = Set(model.plan.sheets.flatMap { sheet in
-                    [sheet.front,sheet.back].flatMap { PDFExportMarkRenderer.geometry(side: $0,sheet: sheet,settings: model.project.exportMarks).warnings } + PDFColorControlRenderer.geometry(sheet: sheet,settings: model.project.exportMarks).warnings
-                }).sorted()
-                ForEach(warnings,id: \.self) { Text(TRFormat.presentation($0)).font(.system(size:12)).foregroundStyle(DesignSystem.warning) }
             }
+            let warnings = Set(model.plan.sheets.flatMap { sheet -> [String] in
+                var messages: [String] = []
+                if scope == .all || scope == .printed {
+                    messages += [sheet.front, sheet.back].flatMap {
+                        PDFExportMarkRenderer.geometry(side: $0, sheet: sheet, settings: model.project.exportMarks).warnings
+                    }
+                }
+                if scope == .all || scope == .colorControls {
+                    messages += PDFColorControlRenderer.geometry(sheet: sheet, settings: model.project.exportMarks).warnings
+                }
+                return messages
+            }).sorted()
+            ForEach(warnings,id:\.self) { Text(TRFormat.presentation($0)).font(.system(size:12)).foregroundStyle(DesignSystem.warning) }
         }.toggleStyle(.switch).padding(12).frame(maxWidth: .infinity,alignment: .leading)
     }
 }

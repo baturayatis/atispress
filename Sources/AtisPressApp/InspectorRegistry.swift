@@ -2,7 +2,7 @@ import Foundation
 import ImpositionCore
 
 enum InspectorPanel:String,CaseIterable,Identifiable,Codable {
-    case job, sheet, edges, bleed, marks, serial, scaling, binding, price, output
+    case job, sheet, edges, bleed, marks, serial, scaling, binding, price, output, color, separation, montage
     var id:String {rawValue}
     var number:Int {Self.allCases.firstIndex(of:self)!+1}
     var title:String {
@@ -13,14 +13,25 @@ enum InspectorPanel:String,CaseIterable,Identifiable,Codable {
         case .bleed: return "Taşma"
         case .marks: return "İşaretler"
         case .serial: return "Seri No"
-        case .scaling: return "Ölçek ve Böl"
+        case .scaling: return "Ölçek"
         case .binding: return "Cilt"
         case .price: return "Fiyat"
         case .output: return "Çıktı"
+        case .color: return "Renk"
+        case .separation: return "İş Ayır"
+        case .montage: return "Montaj"
         }
     }
     var shortTitle:String {
-        switch self {case .scaling:return "Ölçek/Böl";case .binding:return "Cilt/Kitap";default:return title}
+        switch self {case .binding:return "Cilt/Kitap";default:return title}
+    }
+    var help: String {
+        switch self {
+        case .color: return "Görsel renklerini, renk skalasını ve diz işaretlerini ayarlayın."
+        case .separation: return "PDF bölgelerini, sayfa bölmeyi ve kaynak kılavuzlarını düzenleyin."
+        case .montage: return "Yüz eşlemesini, ürün bloklarını ve tabakadaki yerleşimi ayarlayın."
+        default: return title
+        }
     }
     var symbol:String {
         switch self {
@@ -30,14 +41,18 @@ enum InspectorPanel:String,CaseIterable,Identifiable,Codable {
         case .bleed:return "drop"
         case .marks:return "crop"
         case .serial:return "number.square"
-        case .scaling:return "rectangle.split.2x2"
+        case .scaling:return "arrow.up.left.and.arrow.down.right.square"
         case .binding:return "book.closed"
         case .price:return "turkishlirasign.circle"
         case .output:return "square.and.arrow.up"
+        case .color:return "paintpalette"
+        case .separation:return "rectangle.split.2x2"
+        case .montage:return "square.grid.2x2"
         }
     }
     static func visible(for project:Project) -> [Self] {
-        allCases.filter {$0 != .binding || project.isBooklet || project.isLeafBinding}
+        let rail: [Self] = [.job, .sheet, .montage, .edges, .bleed, .marks, .color, .serial, .separation, .scaling, .binding, .price, .output]
+        return rail.filter { $0 != .binding || project.isBooklet || project.isLeafBinding }
     }
     static func neighbor(of panel:Self,step:Int,visible:[Self]) -> Self? {
         guard let index=visible.firstIndex(of:panel),!visible.isEmpty else {return nil}
@@ -78,6 +93,9 @@ enum InspectorRegistry {
         "PresetInspectorView": ["autoLayout"],
     ]
     static let settingsByEditor=legacySettingsByEditor.merging([
+        "ImageColorInspector": ["imageColorJobs"],
+        "InternalCutMarksView": ["internalCutJobs"],
+        "TeamInspectorView": ["team", "manualLayouts", "allowRotation", "duplex"],
         "SourcePageTools":Set(["columns","rows","verticalCuts","horizontalCuts","cells.product","cells.side","cellBleed","explicitTrim.width","explicitTrim.height","learnedTrimCenters","hiddenGuideGroups","ignoreSplitSuggestion"])
     ],uniquingKeysWith:{$0.union($1)})
     struct Setting:Identifiable {
@@ -90,18 +108,26 @@ enum InspectorRegistry {
         settingsByEditor[editor]!.sorted().map {Setting(editor:editor,path:$0,panel:owner(editor:editor,path:$0))}
     }
     static func owner(editor:String,path:String) -> InspectorPanel {
+        if ["model.overlays.colorBar", "model.overlays.registrationTargets"].contains(path), editor == "InspectorView" { return .color }
         if path.hasPrefix("model.overlays.") {return .marks}
         switch editor {
         case "BookInspectorView","LeafInspectorView","BlankPlacementView":return .binding
         case "SerialInspectorView","SerialCodeControlsView":return .serial
-        case "RescaleInspectorView","ScaleWindowView","SourcePageTools":return .scaling
+        case "RescaleInspectorView","ScaleWindowView":return .scaling
+        case "SourcePageTools":return .separation
+        case "TeamInspectorView","GangInspectorView":return .montage
+        case "ImageColorInspector","ColorControlSizeView":return .color
+        case "InternalCutMarksView":return .marks
         case "PricingView":return .price
-        case "ExportMarksView":return path=="includeBlankBacks" ? .output : .marks
-        case "ColorControlSizeView","PreviewLayersView":return .marks
-        case "FireControlsView","GangInspectorView","PresetInspectorView":return .job
+        case "ExportMarksView":
+            if path == "includeBlankBacks" { return .output }
+            if ["exportMarks.colorBar", "exportMarks.registrationTargets"].contains(path) { return .color }
+            return .marks
+        case "PreviewLayersView":return .marks
+        case "FireControlsView","PresetInspectorView":return .job
         default:
             if path=="settings.signatureSize" || path=="book" {return .binding}
-            if path=="settings.turnMethod" {return .sheet}
+            if ["settings.turnMethod", "model.pageLayoutMode", "model.repeatArrangement", "stepAndRepeat.allowRotation", "stepAndRepeat.columns", "stepAndRepeat.rows"].contains(path) { return .montage }
             if path=="blockAlignment" || path.contains("margins") || path.contains("gripper") || path=="sheet.gutter" {return .edges}
             if path.contains("GeneratedBleed") || path.contains("bleed") {return .bleed}
             if path.contains("overlays") || path.contains("exportMarks") || path.contains("crop") || path.contains("safeArea") {return .marks}
@@ -113,7 +139,9 @@ enum InspectorRegistry {
         switch field {
         case .generatedEnabled,.generatedMethod,.generatedColor,.generatedTolerance,.bleed:return .bleed
         case .cropLength,.cropOffset,.safeArea:return .marks
-        case .exportCrop,.exportFold,.exportFullCut,.exportLineWidth,.exportColor,.exportColorBar,.exportTargets,.exportTargetSize,.exportPatchSize,.exportBarSide:return .marks
+        case .exportCrop,.exportFold,.exportFullCut,.exportLineWidth,.exportColor:return .marks
+        case .exportColorBar,.exportTargets,.exportTargetSize,.exportPatchSize,.exportBarSide:return .color
+        case .columns,.rows,.allowRotation:return .montage
         case .exportBleed,.exportSafeArea,.exportPageNumbers:return .marks
         case .exportSheetInfo:return .marks
         case .marginLeft,.marginRight,.marginTop,.marginBottom,.gripperEdge,.gripperWidth,.gutter,.alignment:return .edges
@@ -127,17 +155,24 @@ enum InspectorRegistry {
 extension InspectorPanel {
     func groups(for project:Project) -> [String] {
         if self == .binding && project.isLeafBinding {return ["Cilt", "Kapak"]}
+        if self == .montage {
+            if project.binding == .gang { return ["Ürünler", "Çevirme"] }
+            if project.binding != .stepAndRepeat { return ["Çevirme"] }
+        }
         return groups
     }
     var groups:[String] {
         switch self {
-        case .job:return ["İş", "Yöntem", "Ürünler", "Fire", "Hazır ayar"]
-        case .sheet:return ["Tabaka", "Yerleşim"]
+        case .job:return ["İş", "Yöntem", "Fire", "Hazır ayar"]
+        case .sheet:return ["Tabaka"]
         case .edges:return ["Kenarlar"]
         case .bleed:return ["Taşma", "Yöntem"]
-        case .marks:return ["Baskı", "Ölçüler", "Renk", "Bilgi", "Katmanlar", "İç Kesim", "Renk Düzenleme"]
+        case .marks:return ["Baskı", "Ölçüler", "Bilgi", "Katmanlar", "İç Kesim"]
+        case .color:return ["Görsel düzenleme", "Skala ve diz"]
+        case .separation:return ["İş Ayır"]
+        case .montage:return ["Ürünler", "Yerleşim"]
         case .serial:return ["Alanlar", "İçerik", "Aralık", "Görünüm", "Konum"]
-        case .scaling:return ["Ölçek/Böl"]
+        case .scaling:return ["Ölçek"]
         case .binding:return ["Cilt", "Kapak", "Kâğıt", "Sırt ve creep", "Boş sayfalar"]
         case .price:return ["Maliyet", "İşçilik", "Sonuç", "Teklif", "Fiyat kitaplığı"]
         case .output:return ["Çıktı", "Ön kontrol"]

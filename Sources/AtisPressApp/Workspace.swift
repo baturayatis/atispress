@@ -754,7 +754,8 @@ final class Workspace: ObservableObject {
         if let ref = issue.slot ?? issue.affectedSlots.first {
             sheetIndex = max(0,min(ref.sheet,max(0,displaySheets.count-1))); side = ref.side; repetition = 0
         } else {
-            ui.reveal(inspectorSection(for:issue))
+            if issue.code == .gangLayout { ui.jump(.montage) }
+            else { ui.reveal(inspectorSection(for:issue)) }
         }
     }
     func acceptDrop(_ providers: [NSItemProvider]) -> Bool {
@@ -1975,7 +1976,8 @@ extension Workspace {
 extension Workspace {
     func revealWorkflowIssue(_ issue:ValidationIssue) {
         reveal(issue)
-        ui.reveal(inspectorSection(for:issue))
+        if issue.code == .gangLayout { ui.jump(.montage) }
+        else { ui.reveal(inspectorSection(for:issue)) }
         switch issue.code {
         case .missingBleed,.sharedCutBleed: ui.focusedArea = .bleed
         case .insufficientGutter: ui.focusedArea = .gutter

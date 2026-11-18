@@ -21,11 +21,11 @@ agent environment), use `swift build --disable-sandbox` and
 
 Çok sayfalı bir PDF açınca **Takım olarak diz** seçeneği, sayfaları aynı
 işte bir araya getirir. **Olduğu gibi kullan** mevcut PDF açma düzenini
-kullanır. **İş** panelinde tek veya çift yüzü seçin. Çift yüzde ilk
+kullanır. **Montaj** panelinde tek veya çift yüzü seçin. Çift yüzde ilk
 eşleme 1–2, 3–4 şeklindedir. Ön ve arka sayfa menüleri sayfaların yerini
 değiştirir. Bir çiftin kesim ölçüleri eşleşmelidir.
 
-**Tabaka** panelinde özel ölçü, yön ve çevirme yöntemini seçin. Kenar,
+**Tabaka** panelinde özel ölçü ve yönü, **Montaj** panelinde çevirme yöntemini seçin. Kenar,
 maşa ve taşma ayarları yerleşime dahildir. Gerekirse takım birden fazla
 düzene bölünür. Tekrarlar tam takım halinde eklenir. Fire her düzende
 gerekli fiziksel tabaka sayısına uygulanır. Otomatik arama sınırlıdır ve
@@ -38,7 +38,7 @@ bloklar dışa aktarmayı durdurur. Önizleme ve PDF çıktı aynı planı kulla
 
 ## Baskı Öncesi Renk Düzenleme
 
-**İşaretler → Renk Düzenleme** altında işi seçip parlaklık, kontrast ve
+**Renk → Görsel düzenleme** altında işi seçip parlaklık, kontrast ve
 doygunluğu ayarlayın. **Özgün / Düzenlenmiş** önizlemeyi değiştirir.
 Çıktı ayarlanmış değerleri kullanır. **Sıfırla** seçili işin değerlerini kaldırır.
 
@@ -51,7 +51,7 @@ tamamı rasterleştirilmez. Özgün dosya ile metin ve vektör çizimleri korunu
 
 ## Akıllı İş Ayırma
 
-Tek sayfalı PDF'de **Ölçek/Böl → Akıllı İş Ayırma** çalışma alanındaki
+Tek sayfalı PDF'de **İş Ayır → Akıllı İş Ayırma** çalışma alanındaki
 vektör sınırlarından, görüntü kutularından ve tanınan kesim/taşma
 çerçevelerinden aday bölgeler önerir. Kutuları seçebilir, elle çizebilir,
 ölçülerini düzeltebilir ve dört kenarın taşmasını ayrı girebilirsiniz.
@@ -128,11 +128,11 @@ sayfa kutuları ve taşma bilgisi PDFKit kopyalama sırasında korunur.
 ## Ayarlara erişim
 
 Sağdaki 72 pt simge çubuğundan bir simge seçmek, 350 pt sütunda yalnız o
-paneli açar. Paneller İş, Tabaka, Kenarlar, Taşma, İşaretler, Seri No,
-Ölçek/Böl, Cilt, Fiyat ve Çıktı sırasındadır. Cilt kitap/yaprak işlerinde
+paneli açar. Paneller İş, Tabaka, Montaj, Kenarlar, Taşma, İşaretler, Renk, Seri No,
+İş Ayır, Ölçek, Cilt, Fiyat ve Çıktı sırasındadır. Cilt kitap/yaprak işlerinde
 görünür. Seçili panel hatırlanır; ilk kullanımda İş açılır.
 
-⌘1–⌘9 ilk dokuz paneli seçer. Çıktı simgeden veya Görüntü → Ayarlar bölümüne
+⌘1–⌘9 mevcut İş, Tabaka, Kenarlar, Taşma, İşaretler, Seri No, Ölçek, Cilt ve Fiyat kısayollarıdır. Çıktı simgeden veya Görüntü → Ayarlar bölümüne
 git menüsünden açılır. ⌘0 mevcut Sığdır kısayoludur. Başlığa çift tıklama
 sütunu daraltır; simgeye basmak aynı paneli açılır pencerede gösterir.
 Görüntü menüsünden simge çubuğu gizlenebilir. Yoğun panellerin Alt grup
