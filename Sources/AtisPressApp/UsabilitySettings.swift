@@ -79,14 +79,34 @@ final class UsabilitySettings: ObservableObject {
     @Published var inspectorCollapsed=false {didSet {defaults.set(inspectorCollapsed,forKey:"atispress.ui.inspectorCollapsed");if inspectorCollapsed {railVisible=true} else {flyoutPanel=nil}}}
     @Published var activePanel:InspectorPanel = .job {didSet {defaults.set(activePanel.rawValue,forKey:"atispress.ui.activePanel")}}
     @Published var flyoutPanel:InspectorPanel?
-    func jump(_ panel:InspectorPanel) {
-        activePanel=panel
-        if inspectorCollapsed {flyoutPanel=panel}
+    struct GroupRequest: Equatable {
+        let group: InspectorGroup
+        private let id = UUID()
+
+        init(_ group: InspectorGroup) { self.group = group }
+    }
+
+    @Published private var groupExpansion: [InspectorGroup: Bool] = [:]
+    @Published private(set) var groupRequest: GroupRequest?
+
+    func isGroupExpanded(_ group: InspectorGroup, in panel: InspectorPanel, for project: Project) -> Bool {
+        groupExpansion[group] ?? panel.initiallyExpanded(group, for: project)
+    }
+
+    func setGroupExpanded(_ group: InspectorGroup, _ expanded: Bool) {
+        groupExpansion[group] = expanded
+    }
+
+    func jump(_ panel: InspectorPanel, opening group: InspectorGroup? = nil) {
+        activePanel = panel
+        if let group { setGroupExpanded(group, true) }
+        groupRequest = group.map(GroupRequest.init)
+        if inspectorCollapsed { flyoutPanel = panel }
     }
     init(defaults:UserDefaults = .standard) {
         self.defaults = defaults
         teamPDFImport = defaults.string(forKey: TeamPDFImport.defaultsKey).flatMap(TeamPDFImport.init(rawValue:)) ?? .ask
-        activePanel=defaults.string(forKey:"atispress.ui.activePanel").flatMap(InspectorPanel.init(rawValue:)) ?? .job
+        activePanel=defaults.string(forKey:"atispress.ui.activePanel").flatMap(InspectorPanel.restoring) ?? .job
         railVisible=defaults.object(forKey:"atispress.ui.rail") as? Bool ?? true
         inspectorCollapsed=(defaults.object(forKey:"atispress.ui.rail") as? Bool ?? true) && defaults.bool(forKey:"atispress.ui.inspectorCollapsed")
         collapsedCards = Set(defaults.stringArray(forKey:"atispress.workflow.collapsedCards") ?? [])

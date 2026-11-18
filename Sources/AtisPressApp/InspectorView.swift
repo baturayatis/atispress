@@ -6,13 +6,9 @@ struct InspectorView: View {
     @ObservedObject var model: Workspace
     @ObservedObject var prices:PricingStore
     @FocusState private var focusedField:AutoLayoutField?
-    var only:InspectorPanel? = nil
-    @State private var group=0
-    init(model:Workspace,prices:PricingStore,only:InspectorPanel? = nil,group:Int = 0) {
-        self.model=model;self.prices=prices;self.only=only;_group=State(initialValue:group)
-    }
+    var only: InspectorPanel? = nil
     private var panel:InspectorPanel {only ?? model.ui.activePanel}
-    private var groups:[String] {panel.groups(for:model.project)}
+    private var groups: [InspectorGroup] {panel.groups(for:model.project)}
     private var manualFields:[AutoLayoutField] {
         InspectorRegistry.fields(panel).filter {model.isManual($0) || model.project.autoLayout?.presetFields?.contains($0)==true}
     }
@@ -20,111 +16,124 @@ struct InspectorView: View {
         VStack(alignment:.leading,spacing:16) {
             Label(panel.title,systemImage:panel.symbol).font(.system(size:17,weight:.semibold))
                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("panel.header."+panel.rawValue)
-            Button("\(manualFields.count) ayar manuel · Otomatiğe döndür") {model.returnToAutomatic(manualFields)}
-                .buttonStyle(.link).disabled(manualFields.isEmpty).font(.system(size:12))
-            if groups.count>1 {
-                Picker("Alt grup",selection:$group) {
-                    ForEach(Array(groups.enumerated()),id:\.offset) {index,title in Text(title).tag(index)}
-                }.frame(minHeight:30).accessibilityLabel(panel.title+" alt grubu")
+            if !manualFields.isEmpty {
+                Button("\(manualFields.count) ayar manuel · Otomatiğe döndür") { model.returnToAutomatic(manualFields) }
+                    .buttonStyle(.link).font(.system(size:12))
             }
-            ViewThatFits(in:.vertical) {
-                content.fixedSize(horizontal:false,vertical:true)
-                ScrollView {content}.accessibilityIdentifier("panel.localScroll")
-            }
-            Spacer(minLength:0)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    sections
+                }
+                .accessibilityIdentifier("panel.localScroll")
+                .onChange(of: model.ui.groupRequest, initial: true) { _, request in
+                    guard let group = request?.group, groups.contains(group) else { return }
+                    proxy.scrollTo(group, anchor: .top)
+                }
+            }.id(panel)
         }.padding(16).frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.topLeading)
             .font(.system(size:13)).controlSize(.large)
             .background(DesignSystem.card).environmentObject(model).tint(DesignSystem.teal)
             .accessibilityElement(children:.contain).accessibilityLabel(panel.title+" paneli")
             .accessibilityIdentifier("panel."+panel.rawValue)
             .disabled(model.loading || model.preparingSource || model.autoArranging)
-            .onChange(of:panel) {_,_ in group=0}
-            .onChange(of:model.project.binding) {_,_ in group=0}
-            .onChange(of:model.ui.revealedSection) {_,section in
-                guard let section else {return}
-                if section == .edges {model.ui.detailsExpanded=true}
-                if section == .serial {model.ui.expandedAddons.insert(.serial)}
-                if section == .price {model.ui.expandedAddons.insert(.pricing)}
-                model.ui.collapsedCards=[]
-                model.ui.jump(InspectorPanel.legacy(section));model.ui.revealedSection=nil
-            }
             .onChange(of:focusedField) {_,field in model.ui.focusedArea=field.flatMap(WorkflowPresentation.focus)}
             .task {model.refreshWorkflowRecommendation()}
             .onChange(of:model.project) {_,_ in model.refreshWorkflowRecommendation()}
     }
-    private var content:some View {
-        VStack(alignment:.leading,spacing:12) {sectionContent(panel)}
-            .frame(maxWidth:.infinity,alignment:.leading)
-    }
-    @ViewBuilder private func sectionContent(_ panel:InspectorPanel) -> some View {
-        switch panel {
-        case .job:
-            switch group {
-            case 1:methodControls
-            case 2:FireControlsView(model:model)
-            case 3:PresetInspectorView(model:model)
-            default:
-                workflowProduct
-                if model.project.binding == .stepAndRepeat {Toggle("Adet hesapla (her iş için)",isOn:model.optionalCountBinding($model.project.stepAndRepeat.quantity,name:"quantity",defaultValue:1000))}
+    private var sections: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(groups) { group in
+                DisclosureGroup(isExpanded: Binding(
+                    get: { model.ui.isGroupExpanded(group, in: panel, for: model.project) },
+                    set: { model.ui.setGroupExpanded(group, $0) }
+                )) {
+                    VStack(alignment: .leading, spacing: 10) { sectionContent(group) }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 8)
+                } label: {
+                    Text(group.title).fontWeight(.semibold)
+                        .accessibilityIdentifier("panel.section." + group.rawValue)
+                }
+                .id(group)
             }
-        case .sheet:
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.trailing, 8)
+        .padding(.bottom, 8)
+    }
+
+    @ViewBuilder private func sectionContent(_ group: InspectorGroup) -> some View {
+        switch group {
+        case .jobBasics:
+            workflowProduct
+            if model.project.binding == .stepAndRepeat {Toggle("Adet hesapla (her iş için)",isOn:model.optionalCountBinding($model.project.stepAndRepeat.quantity,name:"quantity",defaultValue:1000))}
+        case .method: methodControls
+        case .waste: FireControlsView(model:model)
+        case .presets: PresetInspectorView(model:model)
+        case .paper:
             workflowPaper
             sheetControls
-        case .montage:
-            montageControls
+        case .products: montageProducts
+        case .placement: placementControls
+        case .jobFaces: jobFaceControls
+        case .binding:
+            if model.project.isLeafBinding { LeafInspectorView(model:model,section:0) }
+            else { signatureControls }
+        case .cover:
+            if model.project.isLeafBinding { LeafInspectorView(model:model,section:1) }
+            else { BookInspectorView(model:model,section:0) }
+        case .bookPaper: BookInspectorView(model:model,section:1)
+        case .spine: BookInspectorView(model:model,section:2)
+        case .blanks: BlankPlacementInspector(model:model)
         case .edges:
             edgeControls
             Picker("Hizalama",selection:model.autoBinding($model.project.blockAlignment,.alignment)) {
                 Text("Ortala").tag(BlockAlignment.center);Text("Maşaya yasla").tag(BlockAlignment.gripper)
             }.pickerStyle(.segmented).automaticReset(model,.alignment)
-        case .bleed:
-            if group==0 {workflowBleed} else {generatedBleedControls}
-        case .marks:
-            switch group {
-            case 1:markControls
-            case 2:ExportMarksView(model:model,inline:true,scope:.info)
-            case 3:overlayControls
-            case 4:InternalCutMarksView(model: model)
-            default:ExportMarksView(model:model,inline:true,scope:.printed)
-            }
-        case .color:
-            ExportMarksView(model:model,inline:true,scope:.colorControls)
-            ColorControlSizeView(model:model)
-            previewColorControls
-        case .serial:SerialInspectorView(model:model,compact:true,section:group)
+        case .bleed: workflowBleed
+        case .generatedBleed: generatedBleedControls
+        case .scale:
+            RescaleInspectorView(model:model)
+            if let prompt=model.rescalePrompt {ScalingSuggestionBanner(model:model,prompt:prompt)}
+        case .printedMarks: ExportMarksView(model:model,inline:true,scope:.printed)
+        case .internalCuts: InternalCutMarksView(model: model)
+        case .cutMeasures: markControls
         case .separation:
             SourcePageTools(model:model)
             if !model.canSeparateArtwork {
                 Text("İş ayırmak için tek sayfalı, tek kaynaklı bir düz PDF işi seçin.").foregroundStyle(DesignSystem.muted)
             }
-        case .scaling:
-            RescaleInspectorView(model:model)
-            if let prompt=model.rescalePrompt {ScalingSuggestionBanner(model:model,prompt:prompt)}
-        case .binding:
-            if model.project.isLeafBinding {
-                if group==0 {methodControls}
-                LeafInspectorView(model:model,section:group)
-            }
-            else if group==0 {methodControls}
-            else if group==4 {BlankPlacementInspector(model:model)}
-            else if model.project.isBooklet {BookInspectorView(model:model,section:group-1)}
-        case .price:
-            if group<4 {CostingView(model:model,store:prices,inline:true,section:group)} else {PricingView(store:prices,inline:true)}
+        case .serialFields: SerialInspectorView(model:model,compact:true,section:0)
+        case .serialContent: SerialInspectorView(model:model,compact:true,section:1)
+        case .serialRange: SerialInspectorView(model:model,compact:true,section:2)
+        case .serialAppearance: SerialInspectorView(model:model,compact:true,section:3)
+        case .serialPosition: SerialInspectorView(model:model,compact:true,section:4)
+        case .colorControls: ExportMarksView(model:model,inline:true,scope:.colorControls)
+        case .colorSizes: ColorControlSizeView(model:model)
+        case .sheetInfo: ExportMarksView(model:model,inline:true,scope:.info)
+        case .preview:
+            overlayControls
+            previewColorControls
+        case .cost: CostingView(model:model,store:prices,inline:true,section:0)
+        case .labor: CostingView(model:model,store:prices,inline:true,section:1)
+        case .result: CostingView(model:model,store:prices,inline:true,section:2)
+        case .quote: CostingView(model:model,store:prices,inline:true,section:3)
+        case .priceLibrary: PricingView(store:prices,inline:true)
         case .output:
-            if group==0 {
-                ForEach(ExportPreset.allCases,id:\.self) {preset in
-                    Button(preset.rawValue) {model.project.exportMarks=preset.applying(to:model.project.exportMarks)}.frame(minHeight:30)
-                }
-                ExportMarksView(model:model,inline:true,scope:.options)
-                Button("PDF’i Hazırla") {model.preparingExport=true}.disabled(!model.canExportNow)
-            } else {PreflightView(model:model)}
+            Button("PDF’i Hazırla") {model.preparingExport=true}.disabled(!model.canExportNow)
+            ForEach(ExportPreset.allCases,id:\.self) {preset in
+                Button(preset.rawValue) {model.project.exportMarks=preset.applying(to:model.project.exportMarks)}.frame(minHeight:30)
+            }
+            ExportMarksView(model:model,inline:true,scope:.options)
+        case .preflight: PreflightView(model:model)
         }
     }
-    @ViewBuilder private var montageControls: some View {
-        if group == 0 && model.project.binding == .gang {
+
+    @ViewBuilder private var montageProducts: some View {
+        if model.project.binding == .gang {
             if model.project.team != nil { TeamInspectorView(model: model) }
             else { GangInspectorView(model:model) }
-        } else if model.project.binding == .stepAndRepeat && group == 0 {
+        } else if model.project.binding == .stepAndRepeat {
             if model.canStartTeam { Button("Takım olarak diz", action: model.startTeam) }
             if (model.source?.pages.count ?? model.project.pages.count) > 1 {
                 Picker("Sayfa düzeni",selection: Binding(get: { model.pageLayoutMode },set: model.setPageLayout)) {
@@ -134,17 +143,24 @@ struct InspectorView: View {
                 }.pickerStyle(.segmented).inspectorSetting(model,"Sayfa düzeni",SettingGuidance.detail("Sayfa düzeni"))
             }
             Text(model.pageLayoutSummary).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+        }
+    }
+
+    private var jobFaceControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(model.project.repeatJobs.enumerated()),id:\.offset) {index,job in
                 Picker("İş \(index+1) yüzleri",selection:Binding(get:{model.jobPageLayout(frontPage:job.front.number)},set:{model.setJobPageLayout(frontPage:job.front.number,mode:$0)})) {
                     Text("Genel ayar").tag(PageLayout.automatic);Text("Tek yüz").tag(PageLayout.simplex);Text("Çift yüz").tag(PageLayout.duplex)
                 }
             }
-        } else {
-            if model.project.binding == .stepAndRepeat { repeatControls }
-            if model.showsTurnControl { turnControls }
-            else if model.project.binding != .stepAndRepeat {
-                Text("Çevirme ayarı çift yüzlü işlerde kullanılabilir.").foregroundStyle(DesignSystem.muted)
-            }
+        }
+    }
+
+    @ViewBuilder private var placementControls: some View {
+        if model.project.binding == .stepAndRepeat { repeatControls }
+        if model.showsTurnControl { turnControls }
+        else if model.project.binding != .stepAndRepeat {
+            Text("Çevirme ayarı çift yüzlü işlerde kullanılabilir.").foregroundStyle(DesignSystem.muted)
         }
     }
 
@@ -236,88 +252,78 @@ struct InspectorView: View {
         }
     }
     private var methodControls: some View {
-        GroupBox("Yerleşim Yöntemi") {
-                    VStack(alignment: .leading,spacing: 10) {
-                        Picker("Yöntem",selection: Binding(get: { model.project.binding },set: model.setMode)) {
-                            Text("Tekrarlı (kartvizit/düz iş)").tag(BindingMethod.stepAndRepeat)
-                            Text("Karışık iş (gang)").tag(BindingMethod.gang)
-                            Text("Tel dikiş").tag(BindingMethod.saddleStitch)
-                            Text("Tutkallı cilt").tag(BindingMethod.perfectBound)
-                            Text("Dikişli cilt").tag(BindingMethod.sewn)
-                            Text("Spiral").tag(BindingMethod.spiral)
-                            Text("Wire-O").tag(BindingMethod.wireO)
-                        }.inspectorSetting(model,"Yöntem",SettingGuidance.detail("Yöntem"))
-                        if model.project.binding == .perfectBound || model.project.binding == .sewn {
-                            Picker("Forma",selection: $model.project.settings.signatureSize) {
-                                Text("Otomatik").tag(SignatureSize.automatic)
-                                Text("4 sayfa (tek kat)").tag(SignatureSize.four)
-                                Text("8 sayfa").tag(SignatureSize.eight)
-                                Text("16 sayfa").tag(SignatureSize.sixteen)
-                                Text("32 sayfa").tag(SignatureSize.thirtyTwo)
-                            }.inspectorSetting(model,"Forma",SettingGuidance.detail("Forma"))
-                        }
-                    }.padding(5)
-                }
+        Picker("Yöntem",selection: Binding(get: { model.project.binding },set: model.setMode)) {
+            Text("Tekrarlı (kartvizit/düz iş)").tag(BindingMethod.stepAndRepeat)
+            Text("Karışık iş (gang)").tag(BindingMethod.gang)
+            Text("Tel dikiş").tag(BindingMethod.saddleStitch)
+            Text("Tutkallı cilt").tag(BindingMethod.perfectBound)
+            Text("Dikişli cilt").tag(BindingMethod.sewn)
+            Text("Spiral").tag(BindingMethod.spiral)
+            Text("Wire-O").tag(BindingMethod.wireO)
+        }.inspectorSetting(model,"Yöntem",SettingGuidance.detail("Yöntem"))
     }
+
+    private var signatureControls: some View {
+        Picker("Forma",selection: $model.project.settings.signatureSize) {
+            Text("Otomatik").tag(SignatureSize.automatic)
+            Text("4 sayfa (tek kat)").tag(SignatureSize.four)
+            Text("8 sayfa").tag(SignatureSize.eight)
+            Text("16 sayfa").tag(SignatureSize.sixteen)
+            Text("32 sayfa").tag(SignatureSize.thirtyTwo)
+        }.inspectorSetting(model,"Forma",SettingGuidance.detail("Forma"))
+    }
+
     private var sheetControls: some View {
-        GroupBox("Baskı Tabakası") {
-                    VStack(spacing: 10) {
-                        Picker("Tabaka seçimi",selection: Binding(get: { model.project.autoLayout?.sheetSelection ?? .fixed },set: model.setSheetSelection)) {
-                            Text("Sabit").tag(SheetSelection.fixed)
-                            Text("En verimli").tag(SheetSelection.efficient)
-                            Text("Otomatik").tag(SheetSelection.automatic)
-                        }.pickerStyle(.segmented).inspectorSetting(model,"Tabaka seçimi",SettingGuidance.detail("Tabaka seçimi"))
-                    }.padding(5)
-                }
+        VStack(spacing: 10) {
+            Picker("Tabaka seçimi",selection: Binding(get: { model.project.autoLayout?.sheetSelection ?? .fixed },set: model.setSheetSelection)) {
+                Text("Sabit").tag(SheetSelection.fixed)
+                Text("En verimli").tag(SheetSelection.efficient)
+                Text("Otomatik").tag(SheetSelection.automatic)
+            }.pickerStyle(.segmented).inspectorSetting(model,"Tabaka seçimi",SettingGuidance.detail("Tabaka seçimi"))
+        }
     }
     private var edgeControls: some View {
-        GroupBox("Kenar Payları ve Maşa") {
-                    VStack(spacing: 10) {
-                        measurement("Sol",$model.project.sheet.margins.left,autoField: .marginLeft)
-                        measurement("Sağ",$model.project.sheet.margins.right,autoField: .marginRight)
-                        measurement("Üst",$model.project.sheet.margins.top,autoField: .marginTop)
-                        measurement("Alt",$model.project.sheet.margins.bottom,autoField: .marginBottom)
-                        Text("Maşa").font(.headline).frame(maxWidth:.infinity,alignment:.leading)
-                        Picker("Maşa kenarı",selection: model.autoBinding($model.project.sheet.gripperEdge,.gripperEdge)) {
-                            Text("Alt").tag(ImpositionCore.Edge.bottom); Text("Üst").tag(ImpositionCore.Edge.top)
-                            Text("Sol").tag(ImpositionCore.Edge.left); Text("Sağ").tag(ImpositionCore.Edge.right)
-                        }.automaticReset(model,.gripperEdge)
-                        measurement("Maşa payı",$model.project.sheet.gripperWidth,autoField: .gripperWidth)
-                        Text("Aralıklar").font(.headline).frame(maxWidth:.infinity,alignment:.leading)
-                        if model.project.isBooklet {
-                            Text("Kat komşuları: 0 mm (sabit)").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
-                        } else {
-                            measurement("Ara boşluk",$model.project.sheet.gutter,autoField: .gutter)
-                        }
-                    }.padding(5)
-                }
+        VStack(spacing: 10) {
+            measurement("Sol",$model.project.sheet.margins.left,autoField: .marginLeft)
+            measurement("Sağ",$model.project.sheet.margins.right,autoField: .marginRight)
+            measurement("Üst",$model.project.sheet.margins.top,autoField: .marginTop)
+            measurement("Alt",$model.project.sheet.margins.bottom,autoField: .marginBottom)
+            Text("Maşa").font(.headline).frame(maxWidth:.infinity,alignment:.leading)
+            Picker("Maşa kenarı",selection: model.autoBinding($model.project.sheet.gripperEdge,.gripperEdge)) {
+                Text("Alt").tag(ImpositionCore.Edge.bottom); Text("Üst").tag(ImpositionCore.Edge.top)
+                Text("Sol").tag(ImpositionCore.Edge.left); Text("Sağ").tag(ImpositionCore.Edge.right)
+            }.automaticReset(model,.gripperEdge)
+            measurement("Maşa payı",$model.project.sheet.gripperWidth,autoField: .gripperWidth)
+            Text("Aralıklar").font(.headline).frame(maxWidth:.infinity,alignment:.leading)
+            if model.project.isBooklet {
+                Text("Kat komşuları: 0 mm (sabit)").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+            } else {
+                measurement("Ara boşluk",$model.project.sheet.gutter,autoField: .gutter)
+            }
+        }
     }
     private var markControls: some View {
-        GroupBox("Taşma ve İşaretler") {
-                    VStack(spacing: 10) {
-                        measurement("Kesim uzunluğu",guide(\.cropMarkLength,field: .cropLength,overlay: \.crop),autoField: .cropLength,range: 0...30)
-                        if model.project.settings.cropMarkLength > 0 {
-                            measurement("Kesim uzaklığı",guide(\.cropMarkOffset,field: .cropOffset,overlay: \.crop),autoField: .cropOffset,range: 0...30)
-                        }
-                        Text("Çıktı kesim işareti: "+(model.project.exportMarks.crop ? "Açık" : "Kapalı"))
-                            .font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
-                        measurement("Güvenli alan",guide(\.safeAreaInset,field: .safeArea,overlay: \.safeArea),autoField: .safeArea,range: 0...30)
-                    }.padding(5)
-                }
+        VStack(spacing: 10) {
+            measurement("Kesim uzunluğu",guide(\.cropMarkLength,field: .cropLength,overlay: \.crop),autoField: .cropLength,range: 0...30)
+            if model.project.settings.cropMarkLength > 0 {
+                measurement("Kesim uzaklığı",guide(\.cropMarkOffset,field: .cropOffset,overlay: \.crop),autoField: .cropOffset,range: 0...30)
+            }
+            Text("Çıktı kesim işareti: "+(model.project.exportMarks.crop ? "Açık" : "Kapalı"))
+                .font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+            measurement("Güvenli alan",guide(\.safeAreaInset,field: .safeArea,overlay: \.safeArea),autoField: .safeArea,range: 0...30)
+        }
     }
     private var overlayControls: some View {
-        GroupBox("Önizleme Katmanları") {
-                    VStack(alignment: .leading,spacing: 8) {
-                        Toggle("Kesim çizgisi (çıktıya basılmaz)",isOn: $model.overlays.crop).inspectorSetting(model,"Kesim işaretleri",SettingGuidance.detail("Kesim işaretleri"))
-                        if model.project.isLeafBinding { Toggle("Delik kılavuzları (çıktıya basılmaz)",isOn:$model.overlays.punch).inspectorSetting(model,"Delik kılavuzları",SettingGuidance.detail("Delik kılavuzları")) }
-                        if model.project.binding != .stepAndRepeat && model.project.binding != .gang { Toggle("Katlama kılavuzu (çıktıya basılmaz)",isOn: $model.overlays.fold).inspectorSetting(model,"Katlama çizgileri",SettingGuidance.detail("Katlama çizgileri")) }
-                        Toggle("Taşma kılavuzu (çıktıya basılmaz)",isOn: $model.overlays.bleed).inspectorSetting(model,"Taşma çizgileri",SettingGuidance.detail("Taşma çizgileri"))
-                        Toggle("Güvenli alan (çıktıya basılmaz)",isOn: $model.overlays.safeArea).inspectorSetting(model,"Güvenli alan",SettingGuidance.detail("Güvenli alan"))
-                        Toggle("Sayfa numaraları (çıktıya basılmaz)",isOn: $model.overlays.pageNumbers).inspectorSetting(model,"Sayfa numaraları",SettingGuidance.detail("Sayfa numaraları"))
-                        Toggle("Tabaka sınırı (çıktıya basılmaz)",isOn: $model.overlays.sheetBoundary).inspectorSetting(model,"Tabaka sınırı",SettingGuidance.detail("Tabaka sınırı"))
-                        Toggle("Kenar payı / maşa (çıktıya basılmaz)",isOn: $model.overlays.pressGuides).inspectorSetting(model,"Kenar payı / maşa",SettingGuidance.detail("Kenar payı / maşa"))
-                    }.toggleStyle(.switch).frame(maxWidth: .infinity,alignment: .leading).padding(5)
-                }
+        VStack(alignment: .leading,spacing: 8) {
+            Toggle("Kesim çizgisi (çıktıya basılmaz)",isOn: $model.overlays.crop).inspectorSetting(model,"Kesim işaretleri",SettingGuidance.detail("Kesim işaretleri"))
+            if model.project.isLeafBinding { Toggle("Delik kılavuzları (çıktıya basılmaz)",isOn:$model.overlays.punch).inspectorSetting(model,"Delik kılavuzları",SettingGuidance.detail("Delik kılavuzları")) }
+            if model.project.binding != .stepAndRepeat && model.project.binding != .gang { Toggle("Katlama kılavuzu (çıktıya basılmaz)",isOn: $model.overlays.fold).inspectorSetting(model,"Katlama çizgileri",SettingGuidance.detail("Katlama çizgileri")) }
+            Toggle("Taşma kılavuzu (çıktıya basılmaz)",isOn: $model.overlays.bleed).inspectorSetting(model,"Taşma çizgileri",SettingGuidance.detail("Taşma çizgileri"))
+            Toggle("Güvenli alan (çıktıya basılmaz)",isOn: $model.overlays.safeArea).inspectorSetting(model,"Güvenli alan",SettingGuidance.detail("Güvenli alan"))
+            Toggle("Sayfa numaraları (çıktıya basılmaz)",isOn: $model.overlays.pageNumbers).inspectorSetting(model,"Sayfa numaraları",SettingGuidance.detail("Sayfa numaraları"))
+            Toggle("Tabaka sınırı (çıktıya basılmaz)",isOn: $model.overlays.sheetBoundary).inspectorSetting(model,"Tabaka sınırı",SettingGuidance.detail("Tabaka sınırı"))
+            Toggle("Kenar payı / maşa (çıktıya basılmaz)",isOn: $model.overlays.pressGuides).inspectorSetting(model,"Kenar payı / maşa",SettingGuidance.detail("Kenar payı / maşa"))
+        }.toggleStyle(.switch).frame(maxWidth: .infinity,alignment: .leading)
     }
     private var previewColorControls: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -329,35 +335,33 @@ struct InspectorView: View {
         model.guideDimensionBinding(key,field:field)
     }
     private var generatedBleedControls: some View {
-        GroupBox("Üretilmiş Taşma") {
-            VStack(alignment: .leading,spacing: 9) {
-                if (model.selectedGangJob?.bleed ?? model.project.settings.bleed) > 0 {
-                    if model.editableGeneratedBleed.enabled {
-                        Picker("Yöntem",selection: model.autoBinding($model.editableGeneratedBleed.method,.generatedMethod)) {
-                            Text("Otomatik").tag(GeneratedBleedMethod.automatic)
-                            Text("Yansıt").tag(GeneratedBleedMethod.mirror)
-                            Text("Renk").tag(GeneratedBleedMethod.solidColor)
-                        }.pickerStyle(.segmented).automaticReset(model,.generatedMethod)
-                        if model.editableGeneratedBleed.method == .automatic {
-                            measurement("Tolerans (%)",Binding(get: { model.editableGeneratedBleed.tolerance*100 },
-                                set: { model.editableGeneratedBleed.tolerance = $0/100 }),autoField: .generatedTolerance,range: 0...100)
-                            Text("Tek renk kenar: vektör dolgu. Değişken kenar: kenar piksellerini uzat.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
-                        }
-                        if model.editableGeneratedBleed.method == .solidColor {
-                            Picker("Renk uzayı",selection: Binding(get: { model.editableGeneratedBleed.color.components.count == 4 },
-                                set: { model.markManual(.generatedColor); model.editableGeneratedBleed.color = $0 ? .cmyk(0,0,0,0) : .rgb(1,1,1) })) {
-                                Text("CMYK").tag(true); Text("RGB").tag(false)
-                            }.pickerStyle(.segmented).automaticReset(model,.generatedColor)
-                            let names = model.editableGeneratedBleed.color.components.count == 4 ? ["C","M","Y","K"] : ["R","G","B"]
-                            ForEach(Array(names.enumerated()),id: \.offset) { index,name in
-                                measurement(name+" (%)",colorComponent(index),autoField: .generatedColor,range: 0...100)
-                            }
-                        }
-                        if let summary = model.bleedSampleSummary { Text(summary).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1) }
-                        Text("Yalnız kesim dışını değiştirir. Sıfır ara boşlukta blok çevresi üretilir.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+        VStack(alignment: .leading,spacing: 9) {
+            if (model.selectedGangJob?.bleed ?? model.project.settings.bleed) > 0 {
+                if model.editableGeneratedBleed.enabled {
+                    Picker("Yöntem",selection: model.autoBinding($model.editableGeneratedBleed.method,.generatedMethod)) {
+                        Text("Otomatik").tag(GeneratedBleedMethod.automatic)
+                        Text("Yansıt").tag(GeneratedBleedMethod.mirror)
+                        Text("Renk").tag(GeneratedBleedMethod.solidColor)
+                    }.pickerStyle(.segmented).automaticReset(model,.generatedMethod)
+                    if model.editableGeneratedBleed.method == .automatic {
+                        measurement("Tolerans (%)",Binding(get: { model.editableGeneratedBleed.tolerance*100 },
+                            set: { model.editableGeneratedBleed.tolerance = $0/100 }),autoField: .generatedTolerance,range: 0...100)
+                        Text("Tek renk kenar: vektör dolgu. Değişken kenar: kenar piksellerini uzat.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
                     }
-                } else { Text("Üretim için taşma payını artırın.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1) }
-            }.padding(5)
+                    if model.editableGeneratedBleed.method == .solidColor {
+                        Picker("Renk uzayı",selection: Binding(get: { model.editableGeneratedBleed.color.components.count == 4 },
+                            set: { model.markManual(.generatedColor); model.editableGeneratedBleed.color = $0 ? .cmyk(0,0,0,0) : .rgb(1,1,1) })) {
+                            Text("CMYK").tag(true); Text("RGB").tag(false)
+                        }.pickerStyle(.segmented).automaticReset(model,.generatedColor)
+                        let names = model.editableGeneratedBleed.color.components.count == 4 ? ["C","M","Y","K"] : ["R","G","B"]
+                        ForEach(Array(names.enumerated()),id: \.offset) { index,name in
+                            measurement(name+" (%)",colorComponent(index),autoField: .generatedColor,range: 0...100)
+                        }
+                    }
+                    if let summary = model.bleedSampleSummary { Text(summary).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1) }
+                    Text("Yalnız kesim dışını değiştirir. Sıfır ara boşlukta blok çevresi üretilir.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                }
+            } else { Text("Üretim için taşma payını artırın.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1) }
         }
     }
     private func colorComponent(_ index: Int) -> Binding<Double> {

@@ -1,72 +1,161 @@
 import Foundation
 import ImpositionCore
 
-enum InspectorPanel:String,CaseIterable,Identifiable,Codable {
-    case job, sheet, edges, bleed, marks, serial, scaling, binding, price, output, color, separation, montage
-    var id:String {rawValue}
-    var number:Int {Self.allCases.firstIndex(of:self)!+1}
-    var title:String {
+enum InspectorPanel: String, CaseIterable, Identifiable, Codable {
+    case job, sheet, montage, dimensions, cut, separation, serial, press, price, output
+
+    var id: String { rawValue }
+
+    var title: String {
         switch self {
         case .job: return "İş"
         case .sheet: return "Tabaka"
-        case .edges: return "Kenarlar"
-        case .bleed: return "Taşma"
-        case .marks: return "İşaretler"
+        case .montage: return "Montaj"
+        case .dimensions: return "Ölçüler"
+        case .cut: return "Kesim"
+        case .separation: return "İş Ayır"
         case .serial: return "Seri No"
-        case .scaling: return "Ölçek"
-        case .binding: return "Cilt"
+        case .press: return "Baskı"
         case .price: return "Fiyat"
         case .output: return "Çıktı"
-        case .color: return "Renk"
-        case .separation: return "İş Ayır"
-        case .montage: return "Montaj"
         }
     }
-    var shortTitle:String {
-        switch self {case .binding:return "Cilt/Kitap";default:return title}
-    }
+
     var help: String {
         switch self {
-        case .color: return "Renk skalasını ve diz işaretlerini ayarlayın."
+        case .dimensions: return "Kenar, maşa, taşma ve hedef ebat ayarları."
+        case .cut: return "Kesim işaretleri, iç kesimler ve işaret ölçüleri."
+        case .press: return "Renk skalası, diz işaretleri, tabaka bilgisi ve önizleme katmanları."
         case .separation: return "PDF bölgelerini, sayfa bölmeyi ve kaynak kılavuzlarını düzenleyin."
-        case .montage: return "Yüz eşlemesini, ürün bloklarını ve tabakadaki yerleşimi ayarlayın."
+        case .montage: return "Yüz eşlemesini, yerleşimi ve cilt ayrıntılarını ayarlayın."
         default: return title
         }
     }
-    var symbol:String {
+
+    var symbol: String {
         switch self {
-        case .job:return "doc.text"
-        case .sheet:return "rectangle.portrait"
-        case .edges:return "arrow.up.left.and.arrow.down.right"
-        case .bleed:return "drop"
-        case .marks:return "crop"
-        case .serial:return "number.square"
-        case .scaling:return "arrow.up.left.and.arrow.down.right.square"
-        case .binding:return "book.closed"
-        case .price:return "turkishlirasign.circle"
-        case .output:return "square.and.arrow.up"
-        case .color:return "paintpalette"
-        case .separation:return "rectangle.split.2x2"
-        case .montage:return "square.grid.2x2"
+        case .job: return "doc.text"
+        case .sheet: return "rectangle.portrait"
+        case .montage: return "square.grid.2x2"
+        case .dimensions: return "ruler"
+        case .cut: return "crop"
+        case .separation: return "rectangle.split.2x2"
+        case .serial: return "number.square"
+        case .press: return "printer"
+        case .price: return "turkishlirasign.circle"
+        case .output: return "square.and.arrow.up"
         }
     }
-    static func visible(for project:Project) -> [Self] {
-        let rail: [Self] = [.job, .sheet, .montage, .edges, .bleed, .marks, .color, .serial, .separation, .scaling, .binding, .price, .output]
-        return rail.filter { $0 != .binding || project.isBooklet || project.isLeafBinding }
+
+    static func restoring(_ key: String) -> Self? {
+        switch key {
+        case "edges", "bleed", "scaling": return .dimensions
+        case "marks": return .cut
+        case "binding": return .montage
+        case "color": return .press
+        default: return Self(rawValue: key)
+        }
     }
-    static func neighbor(of panel:Self,step:Int,visible:[Self]) -> Self? {
-        guard let index=visible.firstIndex(of:panel),!visible.isEmpty else {return nil}
-        return visible[min(visible.count-1,max(0,index+step))]
+
+    static func neighbor(of panel: Self, step: Int, visible: [Self]) -> Self? {
+        guard let index = visible.firstIndex(of: panel) else { return nil }
+        return visible[min(visible.count - 1, max(0, index + step))]
     }
-    static func legacy(_ section:InspectorSection) -> Self {
+
+    static func legacy(_ section: InspectorSection) -> Self {
         switch section {
-        case .product:return .job
-        case .sheet:return .sheet
-        case .edges:return .edges
-        case .marks:return .bleed
-        case .serial:return .serial
-        case .binding:return .binding
-        case .price:return .price
+        case .product: return .job
+        case .sheet: return .sheet
+        case .edges, .marks: return .dimensions
+        case .serial: return .serial
+        case .binding: return .montage
+        case .price: return .price
+        }
+    }
+
+    // Keep the existing number shortcuts when groups move to another panel.
+    static let shortcuts: [InspectorShortcut] = [
+        .init(1, .job, .jobBasics), .init(2, .sheet, .paper),
+        .init(3, .dimensions, .edges), .init(4, .dimensions, .bleed),
+        .init(5, .cut, .printedMarks), .init(6, .serial, .serialFields),
+        .init(7, .dimensions, .scale), .init(8, .montage, .binding),
+        .init(9, .price, .cost)
+    ]
+}
+
+struct InspectorShortcut: Identifiable {
+    let id: Int
+    let panel: InspectorPanel
+    let group: InspectorGroup
+
+    init(_ id: Int, _ panel: InspectorPanel, _ group: InspectorGroup) {
+        self.id = id
+        self.panel = panel
+        self.group = group
+    }
+
+    func isAvailable(for project: Project) -> Bool {
+        panel.groups(for: project).contains(destination(for: project))
+    }
+
+    func destination(for project: Project) -> InspectorGroup {
+        group == .binding ? .bindingEntry(for: project) : group
+    }
+}
+
+enum InspectorGroup: String, Identifiable, Hashable {
+    case jobBasics, method, waste, presets, paper, products, placement, jobFaces
+    case binding, cover, bookPaper, spine, blanks
+    case edges, bleed, generatedBleed, scale, printedMarks, internalCuts, cutMeasures, separation
+    case serialFields, serialContent, serialRange, serialAppearance, serialPosition
+    case colorControls, colorSizes, sheetInfo, preview
+    case cost, labor, result, quote, priceLibrary, output, preflight
+
+    var id: Self { self }
+
+    static func bindingEntry(for project: Project) -> Self {
+        project.binding == .saddleStitch ? .cover : .binding
+    }
+
+    var title: String {
+        switch self {
+        case .jobBasics: return "Ürün ve adet"
+        case .method: return "Yerleşim yöntemi"
+        case .waste: return "Fire ayrıntıları"
+        case .presets: return "Hazır ayarlar"
+        case .paper: return "Baskı tabakası"
+        case .products: return "Ürünler ve yüzler"
+        case .placement: return "Yerleşim ve çevirme"
+        case .jobFaces: return "İşe özel yüz eşlemesi"
+        case .binding: return "Cilt"
+        case .cover: return "Kapak"
+        case .bookPaper: return "Cilt kâğıdı"
+        case .spine: return "Sırt ve creep"
+        case .blanks: return "Boş sayfalar"
+        case .edges: return "Kenar payları ve maşa"
+        case .bleed: return "Taşma payı"
+        case .generatedBleed: return "Üretilmiş taşma"
+        case .scale: return "Hedef ebat ve ölçek"
+        case .printedMarks: return "Baskı işaretleri"
+        case .internalCuts: return "İç kesim"
+        case .cutMeasures: return "İşaret ölçüleri"
+        case .separation: return "Bölme ve kaynak kılavuzları"
+        case .serialFields: return "Alanlar"
+        case .serialContent: return "İçerik"
+        case .serialRange: return "Aralık"
+        case .serialAppearance: return "Görünüm"
+        case .serialPosition: return "Konum"
+        case .colorControls: return "Renk skalası ve diz işaretleri"
+        case .colorSizes: return "Skala ve diz ölçüleri"
+        case .sheetInfo: return "Tabaka bilgisi"
+        case .preview: return "Önizleme katmanları"
+        case .cost: return "Maliyet"
+        case .labor: return "İşçilik"
+        case .result: return "Sonuç"
+        case .quote: return "Teklif"
+        case .priceLibrary: return "Fiyat kitaplığı"
+        case .output: return "PDF çıktısı"
+        case .preflight: return "Ön kontrol"
         }
     }
 }
@@ -107,74 +196,75 @@ enum InspectorRegistry {
         settingsByEditor[editor]!.sorted().map {Setting(editor:editor,path:$0,panel:owner(editor:editor,path:$0))}
     }
     static func owner(editor:String,path:String) -> InspectorPanel {
-        if ["model.overlays.colorBar", "model.overlays.registrationTargets"].contains(path), editor == "InspectorView" { return .color }
-        if path.hasPrefix("model.overlays.") {return .marks}
+        if path.hasPrefix("model.overlays.") {
+            return editor == "LeafInspectorView" ? .montage : .press
+        }
         switch editor {
-        case "BookInspectorView","LeafInspectorView","BlankPlacementView":return .binding
+        case "BookInspectorView","LeafInspectorView","BlankPlacementView":return .montage
         case "SerialInspectorView","SerialCodeControlsView":return .serial
-        case "RescaleInspectorView","ScaleWindowView":return .scaling
+        case "RescaleInspectorView","ScaleWindowView":return .dimensions
         case "SourcePageTools":return .separation
         case "TeamInspectorView","GangInspectorView":return .montage
-        case "ColorControlSizeView":return .color
-        case "InternalCutMarksView":return .marks
+        case "ColorControlSizeView","PreviewLayersView":return .press
+        case "InternalCutMarksView":return .cut
         case "PricingView":return .price
         case "ExportMarksView":
             if path == "includeBlankBacks" { return .output }
-            if ["exportMarks.colorBar", "exportMarks.registrationTargets"].contains(path) { return .color }
-            return .marks
-        case "PreviewLayersView":return .marks
+            if ["exportMarks.colorBar", "exportMarks.registrationTargets", "exportMarks.sheetInfo",
+                "keyPath.date", "keyPath.production", "keyPath.sheetNumber", "keyPath.sheetSize",
+                "keyPath.showJobName", "keyPath.side", "model.infoJobName"].contains(path) { return .press }
+            return .cut
         case "FireControlsView","PresetInspectorView":return .job
         default:
-            if path=="settings.signatureSize" || path=="book" {return .binding}
+            if path=="settings.signatureSize" || path=="book" {return .montage}
             if ["settings.turnMethod", "model.pageLayoutMode", "model.repeatArrangement", "stepAndRepeat.allowRotation", "stepAndRepeat.columns", "stepAndRepeat.rows"].contains(path) { return .montage }
-            if path=="blockAlignment" || path.contains("margins") || path.contains("gripper") || path=="sheet.gutter" {return .edges}
-            if path.contains("GeneratedBleed") || path.contains("bleed") {return .bleed}
-            if path.contains("overlays") || path.contains("exportMarks") || path.contains("crop") || path.contains("safeArea") {return .marks}
+            if path=="blockAlignment" || path.contains("margins") || path.contains("gripper") || path=="sheet.gutter" {return .dimensions}
+            if path.contains("GeneratedBleed") || path.contains("bleed") {return .dimensions}
+            if path.contains("overlays") || path.contains("exportMarks") || path.contains("crop") || path.contains("safeArea") {return .cut}
             if path.contains("sheet") || path.contains("gutter") || path.contains("columns") || path.contains("rows") || path.contains("allowRotation") || path.contains("repeatArrangement") {return .sheet}
             return .job
         }
     }
     static func owner(_ field:AutoLayoutField) -> InspectorPanel {
         switch field {
-        case .generatedEnabled,.generatedMethod,.generatedColor,.generatedTolerance,.bleed:return .bleed
-        case .cropLength,.cropOffset,.safeArea:return .marks
-        case .exportCrop,.exportFold,.exportFullCut,.exportLineWidth,.exportColor:return .marks
-        case .exportColorBar,.exportTargets,.exportTargetSize,.exportPatchSize,.exportBarSide:return .color
+        case .generatedEnabled,.generatedMethod,.generatedColor,.generatedTolerance,.bleed:return .dimensions
+        case .cropLength,.cropOffset,.safeArea:return .cut
+        case .exportCrop,.exportFold,.exportFullCut,.exportLineWidth,.exportColor:return .cut
+        case .exportColorBar,.exportTargets,.exportTargetSize,.exportPatchSize,.exportBarSide:return .press
         case .columns,.rows,.allowRotation:return .montage
-        case .exportBleed,.exportSafeArea,.exportPageNumbers:return .marks
-        case .exportSheetInfo:return .marks
-        case .marginLeft,.marginRight,.marginTop,.marginBottom,.gripperEdge,.gripperWidth,.gutter,.alignment:return .edges
+        case .exportBleed,.exportSafeArea,.exportPageNumbers:return .cut
+        case .exportSheetInfo:return .press
+        case .marginLeft,.marginRight,.marginTop,.marginBottom,.gripperEdge,.gripperWidth,.gutter,.alignment:return .dimensions
         default:return .sheet
         }
     }
     static func fields(_ panel:InspectorPanel) -> [AutoLayoutField] {AutoLayoutField.allCases.filter{owner($0)==panel}}
 }
 
-// Sub-groups replace long stacks within the selected panel.
 extension InspectorPanel {
-    func groups(for project:Project) -> [String] {
-        if self == .binding && project.isLeafBinding {return ["Cilt", "Kapak"]}
-        if self == .montage {
-            if project.binding == .gang { return ["Ürünler", "Çevirme"] }
-            if project.binding != .stepAndRepeat { return ["Çevirme"] }
-        }
-        return groups
-    }
-    var groups:[String] {
+    func groups(for project: Project) -> [InspectorGroup] {
         switch self {
-        case .job:return ["İş", "Yöntem", "Fire", "Hazır ayar"]
-        case .sheet:return ["Tabaka"]
-        case .edges:return ["Kenarlar"]
-        case .bleed:return ["Taşma", "Yöntem"]
-        case .marks:return ["Baskı", "Ölçüler", "Bilgi", "Katmanlar", "İç Kesim"]
-        case .color:return ["Skala ve diz"]
-        case .separation:return ["İş Ayır"]
-        case .montage:return ["Ürünler", "Yerleşim"]
-        case .serial:return ["Alanlar", "İçerik", "Aralık", "Görünüm", "Konum"]
-        case .scaling:return ["Ölçek"]
-        case .binding:return ["Cilt", "Kapak", "Kâğıt", "Sırt ve creep", "Boş sayfalar"]
-        case .price:return ["Maliyet", "İşçilik", "Sonuç", "Teklif", "Fiyat kitaplığı"]
-        case .output:return ["Çıktı", "Ön kontrol"]
+        case .job: return [.jobBasics, .method, .waste, .presets]
+        case .sheet: return [.paper]
+        case .montage:
+            if project.isLeafBinding { return [.placement, .binding, .cover] }
+            if project.isBooklet {
+                let signature: [InspectorGroup] = project.binding == .saddleStitch ? [] : [.binding]
+                return [.placement] + signature + [.cover, .bookPaper, .spine, .blanks]
+            }
+            if project.binding == .stepAndRepeat { return [.products, .placement, .jobFaces] }
+            return [.products, .placement]
+        case .dimensions: return [.edges, .bleed, .scale, .generatedBleed]
+        case .cut: return [.printedMarks, .internalCuts, .cutMeasures]
+        case .separation: return [.separation]
+        case .serial: return [.serialFields, .serialContent, .serialRange, .serialAppearance, .serialPosition]
+        case .press: return [.colorControls, .preview, .colorSizes, .sheetInfo]
+        case .price: return [.cost, .labor, .result, .quote, .priceLibrary]
+        case .output: return [.output, .preflight]
         }
+    }
+
+    func initiallyExpanded(_ group: InspectorGroup, for project: Project) -> Bool {
+        groups(for: project).first == group || group == .bleed
     }
 }

@@ -6,11 +6,11 @@ extension Workspace {
         if InspectorRegistry.fields(panel).contains(where:{isManual($0) || project.autoLayout?.presetFields?.contains($0)==true}) {return true}
         if panel == .job && basicQuantity != nil {return true}
         if panel == .serial && !editableSerialFields.isEmpty {return true}
-        if panel == .scaling && project.hasRescaling {return true}
+        if panel == .dimensions && project.hasRescaling {return true}
         if panel == .separation && (project.sourcePreparation?.hasPreparedProducts == true || !(project.sourcePreparation?.hiddenGuideGroups.isEmpty ?? true)) {return true}
         if panel == .montage && (project.team != nil || workflowIssues.contains { $0.code == .gangLayout }) {return true}
         if panel == .price,let cost=project.costing,cost.margin != nil || cost.vat != nil {return true}
-        if panel == .bleed && showsMissingBleedWarning {return true}
+        if panel == .dimensions && showsMissingBleedWarning {return true}
         return workflowIssues.contains {InspectorPanel.legacy(inspectorSection(for:$0))==panel}
     }
 }
@@ -25,10 +25,30 @@ struct InspectorDock:View {
                 Divider()
                 InspectorRail(model:model,prices:prices)
             }
-        }.onAppear {
-            if !InspectorPanel.visible(for:model.project).contains(model.ui.activePanel) {model.ui.jump(.job)}
-        }.onChange(of:model.project.binding) {_,_ in
-            if !InspectorPanel.visible(for:model.project).contains(model.ui.activePanel) {model.ui.jump(.job)}
+        }.onChange(of: model.ui.revealedSection, initial: true) { _, section in
+            guard let section else { return }
+            let group: InspectorGroup?
+            switch section {
+            case .edges:
+                model.ui.detailsExpanded = true
+                group = .edges
+            case .marks:
+                group = model.ui.focusedArea == .gutter ? .edges : .bleed
+            case .serial:
+                model.ui.expandedAddons.insert(.serial)
+                group = .serialFields
+            case .price:
+                model.ui.expandedAddons.insert(.pricing)
+                group = .cost
+            case .binding:
+                let destination = InspectorGroup.bindingEntry(for: model.project)
+                group = InspectorPanel.montage.groups(for: model.project).contains(destination) ? destination : nil
+            default:
+                group = nil
+            }
+            model.ui.collapsedCards = []
+            model.ui.jump(InspectorPanel.legacy(section), opening: group)
+            model.ui.revealedSection = nil
         }
     }
 }
@@ -37,7 +57,7 @@ struct InspectorRail:View {
     @ObservedObject var model:Workspace
     @ObservedObject var prices:PricingStore
     @FocusState private var focused:InspectorPanel?
-    private var panels:[InspectorPanel] {InspectorPanel.visible(for:model.project)}
+    private var panels:[InspectorPanel] {InspectorPanel.allCases}
     var body:some View {
         VStack(spacing:2) {
             header
@@ -58,10 +78,8 @@ struct InspectorRail:View {
             }
     }
     private var header:some View {
-        VStack(spacing:2) {
-            Image(systemName:model.ui.inspectorCollapsed ? "sidebar.right" : "sidebar.trailing")
-            Text("Ayarlar").font(.system(size:12))
-        }.frame(width:68,height:34).contentShape(Rectangle())
+        Image(systemName:model.ui.inspectorCollapsed ? "sidebar.right" : "sidebar.trailing")
+            .frame(width:68,height:32).contentShape(Rectangle())
             .onTapGesture(count:2) {model.ui.inspectorCollapsed.toggle()}
             .focusable().onKeyPress(.return) {model.ui.inspectorCollapsed.toggle();return .handled}
             .help("Denetçiyi daralt veya aç · çift tıklayın")
@@ -70,19 +88,21 @@ struct InspectorRail:View {
     }
     private func item(_ panel:InspectorPanel) -> some View {
         let selected=model.ui.activePanel==panel
+        let shortcuts = InspectorPanel.shortcuts.filter { $0.panel == panel && $0.isAvailable(for: model.project) }
+        let shortcutHelp = shortcuts.map { "⌘"+String($0.id) }.joined(separator: ", ")
         return Button {model.ui.jump(panel)} label: {
             VStack(spacing:3) {
                 ZStack(alignment:.topTrailing) {
                     Image(systemName:panel.symbol).font(.system(size:17)).frame(width:24,height:20)
                     if model.panelHasIndicator(panel) {Circle().fill(DesignSystem.warning).frame(width:5,height:5).offset(x:5,y:-1)}
                 }
-                Text(panel.shortTitle).font(.system(size:12)).lineLimit(1)
+                Text(panel.title).font(.system(size:12)).lineLimit(1)
             }.frame(width:68,height:48)
                 .foregroundStyle(selected ? DesignSystem.selectedText : DesignSystem.text)
                 .background(selected ? DesignSystem.selected : Color.clear,in:RoundedRectangle(cornerRadius:6))
         }.buttonStyle(.plain).focusable()
-            .help(panel.help+(panel.number<=9 ? " · ⌘"+String(panel.number) : ""))
-            .accessibilityLabel(panel.title+" bölümü"+(panel.number<=9 ? ", Komut "+String(panel.number) : ""))
+            .help(panel.help + (shortcutHelp.isEmpty ? "" : " · " + shortcutHelp))
+            .accessibilityLabel(panel.title+" bölümü")
             .accessibilityValue(model.panelHasIndicator(panel) ? "Manuel ayar veya uyarı var" : "")
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityIdentifier("rail.section."+panel.rawValue)
