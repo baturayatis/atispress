@@ -180,6 +180,10 @@ final class SheetCanvasView: NSView {
         let visible = visibleRect.insetBy(dx: -40,dy: -40)
         let serials: [any PDFSlotOverlay] = [GangSerialOverlay(sheet: sheet)]
         let extensions: [any PDFSlotOverlay] = (generatedOverlay.map { [$0 as any PDFSlotOverlay] } ?? [])+slotOverlays+serials
+        if let document = vectorDocument, let generatedOverlay {
+            try? PDFPlanRenderer.drawMirrorBleed(side,document: document,in: context,sheetIndex: sheetIndex,kind: sideKind,
+                                                repetition: repetition,overlays: [generatedOverlay])
+        }
         for (index,slot) in side.slots.enumerated() {
             let rect = CGRect(x: slot.x,y: slot.y,width: slot.size.width,height: slot.size.height)
             let extent = slot.artworkClip.map { CGRect(x: $0.origin.x,y: $0.origin.y,width: $0.size.width,height: $0.size.height) } ?? rect
@@ -189,14 +193,17 @@ final class SheetCanvasView: NSView {
             let projectedPixels = max(viewRect.width,viewRect.height)*scale*(window?.backingScaleFactor ?? 2)
             let rasterPixels = projectedPixels <= 128 ? 128 : projectedPixels <= 256 ? 256 : 512
             context.saveGState()
-            context.setFillColor(DesignSystem.paperNS.cgColor); context.fill(rect)
+            let mirrorsArtwork = generatedOverlay?.mirrorsArtwork(in: slot) == true && vectorDocument != nil
+            if !mirrorsArtwork {
+                context.setFillColor(DesignSystem.paperNS.cgColor); context.fill(rect)
+            }
             if let number = slot.sourcePageNumber {
                 let page = vectorDocument?.page(at: number)
                 let raster = scale < 0.85 && slot.rescale == nil ? source?.cachedRaster(page: number,pixels: rasterPixels) : nil
                 if scale < 0.85 && slot.rescale == nil && raster == nil && !failedRasters.contains(number) { loadRaster(number,pixels: rasterPixels) }
                 // A vector fallback avoids flashing empty trim rectangles while the bleed raster loads.
                 try? PDFPlanRenderer.drawSlot(slot,page: page,in: context,
-                    reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),repetition: repetition,raster: raster,overlays: extensions)
+                    reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),repetition: repetition,raster: raster,overlays: extensions,pass: .artwork)
             } else {
                 context.setFillColor((slot.bookRegion == nil ? DesignSystem.blankNS : DesignSystem.paperNS).cgColor); context.fill(rect)
                 if slot.bookRegion == nil {

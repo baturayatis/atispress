@@ -45,8 +45,9 @@ final class GeneratedBleedTests: XCTestCase {
     }
     private final class Bitmap {
         let context: CGContext
-        let scale = 12.0
-        init(_ size: Size) throws {
+        let scale: Double
+        init(_ size: Size, scale: Double = 12) throws {
+            self.scale = scale
             context = try XCTUnwrap(CGContext(data: nil,width: Int(ceil(size.width*scale)),height: Int(ceil(size.height*scale)),bitsPerComponent: 8,
                 bytesPerRow: 0,space: CGColorSpace(name: CGColorSpace.sRGB)!,bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
             context.setFillColor(CGColor(gray: 1,alpha: 1)); context.fill(CGRect(x: 0,y: 0,width: context.width,height: context.height))
@@ -267,22 +268,33 @@ final class GeneratedBleedTests: XCTestCase {
                 }
                 return slot
             }
-            let sheet = Sheet(size: Size(140,100),front: Side(slots: [slots[0]]),back: Side(slots: [slots[1]]))
+            // Deliberately intersect the neighboring blank trim with the proposed bleed.
+            let neighbor = Slot(sourcePageNumber: nil, origin: Point(20.03+size.width+amount-0.6,35), size: Size(10,20))
+            let sheet = Sheet(size: Size(140,100),front: Side(slots: [slots[0],neighbor]),back: Side(slots: [slots[1],neighbor]))
             let settings = GeneratedBleedSettings(enabled: true, method: .mirror)
             let plan = ImpositionPlan(sheets: [sheet], generatedBleed: settings)
             let (export, _) = try output(plan,source: source,in: folder,name: "mirror-joins-\(amount)")
             for (index, slot) in slots.enumerated() {
                 let page = try XCTUnwrap(original.page(at: index+1))
-                let preview = try Bitmap(sheet.size), pdf = try Bitmap(sheet.size)
+                let kind: SideKind = index == 0 ? .front : .back
+                let side = index == 0 ? sheet.front : sheet.back
+                let overlays = [GeneratedBleedOverlay(settings: settings,cache: source.edgeSamples)]
                 // Supplying a cached preview must not mix raster and vector at the join.
                 let tinyRaster = try Bitmap(Size(1,1))
                 let raster = PDFPageRaster(cgImage: try XCTUnwrap(tinyRaster.context.makeImage()),
                                            bounds: CGRect(x: 0,y: 0,width: 1,height: 1))
-                try PDFPlanRenderer.drawSlot(slot,page: page,in: preview.context,
-                    reference: SlotReference(sheet: 0,side: index == 0 ? .front : .back,slot: 0),raster: raster,
-                    overlays: [GeneratedBleedOverlay(settings: settings,cache: source.edgeSamples)])
-                pdf.context.scaleBy(x: 1/ppmm,y: 1/ppmm)
-                pdf.context.drawPDFPage(try XCTUnwrap(export.page(at: index+1)))
+                var bitmaps: [Bitmap] = []
+                for zoom in [1.0,4.0] {
+                    let preview = try Bitmap(sheet.size,scale: ppmm*zoom)
+                    let pdf = try Bitmap(sheet.size,scale: ppmm*zoom)
+                    try PDFPlanRenderer.drawMirrorBleed(side,document: original,in: preview.context,
+                        sheetIndex: 0,kind: kind,repetition: 0,overlays: overlays)
+                    try PDFPlanRenderer.drawSlot(slot,page: page,in: preview.context,
+                        reference: SlotReference(sheet: 0,side: kind,slot: 0),raster: raster,overlays: overlays,pass: .artwork)
+                    pdf.context.scaleBy(x: 1/ppmm,y: 1/ppmm)
+                    pdf.context.drawPDFPage(try XCTUnwrap(export.page(at: index+1)))
+                    bitmaps += [preview,pdf]
+                }
                 let artworkX = slot.x + slot.artworkOffset.x + slot.bindingTranslation.x
                 let artworkY = slot.y + slot.artworkOffset.y + slot.bindingTranslation.y
                 for (x,y,mirrorX,mirrorY,color) in [
@@ -297,18 +309,26 @@ final class GeneratedBleedTests: XCTestCase {
                 ] {
                     let rx = mirrorX ? 2*(x < 0 ? -1 : size.width)-x : x
                     let ry = mirrorY ? 2*(y < size.height/2 ? 0 : size.height)-y : y
-                    for bitmap in [preview,pdf] {
+                    for bitmap in bitmaps.suffix(2) {
                         assertColor(bitmap.color(artworkX+x,artworkY+y),color)
                         assertColor(bitmap.color(artworkX+rx,artworkY+ry),color)
                     }
                 }
                 // Probe the fractional joins, including the four points where tiles meet.
-                for x in [-1.0,20,size.width] {
-                    for y in [0.0,12,size.height] {
-                        for bitmap in [preview,pdf] {
-                            XCTAssertLessThan(bitmap.color(artworkX+x,artworkY+y).min() ?? 1,0.8)
+                for bitmap in bitmaps {
+                    let base = index == 0 ? [0.12,0.35,0.8] : [0.83,0.24,0.16]
+                    for x in [-1.0,20,size.width] {
+                        for y in [0.0,12,size.height] {
+                            let actual = bitmap.color(artworkX+x,artworkY+y)
+                            let expected = x == -1 ? [0,0.7,0.25] : base
+                            let tolerance = bitmap.scale > ppmm ? 0.09 : 0.18
+                            for (channel, reference) in zip(actual,expected) {
+                                XCTAssertEqual(channel,reference,accuracy: tolerance,
+                                               "Join at (\(x), \(y)), zoom \(bitmap.scale/ppmm)")
+                            }
                         }
                     }
+                    assertColor(bitmap.color(neighbor.x+0.32,45),[1,1,1])
                 }
             }
         }
