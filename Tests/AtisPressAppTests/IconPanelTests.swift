@@ -195,6 +195,26 @@ import PDFEngine
         }
         XCTAssertEqual(ContextPresentation.layout(ContextPresentation.controls(.serial),width:2000).overflow,[.center])
     }
+    func testContextAppIconUsesOnlySpaceLeftBySettingsAndOverflowMenu() {
+        let controls = ContextPresentation.controls(.flat)
+        let fullWidth = controls.reduce(CGFloat(24)) { $0 + $1.width + 8 }
+        let iconWidth = ContextPresentation.appIconSize + 8
+        let tight = ContextPresentation.layout(controls, width: fullWidth + iconWidth - 1)
+        let wide = ContextPresentation.layout(controls, width: fullWidth + iconWidth)
+        XCTAssertEqual(tight.visible, controls)
+        XCTAssertEqual(wide.visible, controls)
+        XCTAssertFalse(tight.showsAppIcon)
+        XCTAssertTrue(wide.showsAppIcon)
+
+        let overflowWidth = controls.dropLast().reduce(CGFloat(24 + 32 + 8)) { $0 + $1.width + 8 }
+        let narrow = ContextPresentation.layout(controls, width: overflowWidth + iconWidth - 1)
+        let roomy = ContextPresentation.layout(controls, width: overflowWidth + iconWidth)
+        XCTAssertEqual(narrow.overflow, [.crop])
+        XCTAssertEqual(roomy.overflow, narrow.overflow)
+        XCTAssertFalse(narrow.showsAppIcon)
+        XCTAssertTrue(roomy.showsAppIcon)
+    }
+
     func testSharedBindingsAreTwoWayAndEachChangeIsOneUndoStep() {
         let operations:[(ContextBindings)->Void] = [
             {$0.quantity.wrappedValue=123},

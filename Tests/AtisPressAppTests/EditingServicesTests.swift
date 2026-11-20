@@ -199,40 +199,6 @@ final class EditingServicesTests: XCTestCase {
         XCTAssertEqual(old.state.project,m.project)
     }
 
-    func testProjectTitleBarUsesApplicationIconBesideWindowControls() throws {
-        let directory = try folder()
-        let workspace = model(directory)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 400),
-                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
-                              backing: .buffered, defer: false)
-        let toolbar = NSToolbar(identifier: "ProjectTitleBarTest")
-        window.toolbar = toolbar
-        let coordinator = ProjectWindowControl.Coordinator(model: workspace)
-        coordinator.attach(window)
-        XCTAssertEqual(window.title, "Yeni Proje — AtışPress")
-        try workspace.saveProject(as: directory.appendingPathComponent("Deneme.atispress"))
-        coordinator.update()
-
-        XCTAssertEqual(window.title, "Deneme.atispress — AtışPress")
-        XCTAssertEqual(window.titleVisibility, .visible)
-        XCTAssertTrue(window.toolbar === toolbar)
-        XCTAssertEqual(window.titlebarAccessoryViewControllers.count, 1)
-        let accessory = try XCTUnwrap(window.titlebarAccessoryViewControllers.first)
-        XCTAssertEqual(accessory.layoutAttribute, .left)
-        let iconView = try XCTUnwrap(accessory.view.subviews.first as? NSImageView)
-        XCTAssertEqual(iconView.image, NSApplication.shared.applicationIconImage)
-        let zoomButton = try XCTUnwrap(window.standardWindowButton(.zoomButton))
-        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
-            window.appearance = NSAppearance(named: appearance)
-            window.layoutIfNeeded()
-            let icon = iconView.convert(iconView.bounds, to: nil)
-            let trafficLights = zoomButton.convert(zoomButton.bounds, to: nil)
-            XCTAssertEqual(icon.size, NSSize(width: 20, height: 20))
-            XCTAssertGreaterThanOrEqual(icon.minX, trafficLights.maxX)
-            XCTAssertEqual(icon.midY, trafficLights.midY, accuracy: 1)
-        }
-    }
-
     func testNativeTextEditingFocusGroupsLongTypingAndDerivedDigitChanges() async throws {
         let dir = try folder(),m = model(dir)
         m.open(try pdf(dir,count:2)); try await settle(m)
@@ -241,6 +207,8 @@ final class EditingServicesTests: XCTestCase {
         let window = NSWindow(contentRect:NSRect(x:0,y:0,width:200,height:100),styleMask:[.titled],backing:.buffered,defer:false)
         let field = NSTextField(frame:NSRect(x:10,y:10,width:100,height:24)); window.contentView?.addSubview(field)
         let coordinator = ProjectWindowControl.Coordinator(model:m); coordinator.attach(window)
+        XCTAssertEqual(window.title, "Yeni Proje — AtışPress")
+        XCTAssertTrue(window.titlebarAccessoryViewControllers.isEmpty)
         NotificationCenter.default.post(name:NSControl.textDidBeginEditingNotification,object:field)
         m.project.stepAndRepeat.quantity = 99999
         try await Task.sleep(for:.milliseconds(750))

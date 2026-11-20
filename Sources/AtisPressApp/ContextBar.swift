@@ -130,9 +130,12 @@ enum ContextPresentation {
         case .guides:return [.guides]
         }
     }
+    static let appIconSize: CGFloat = 28
+
     struct Layout:Equatable {
         var visible:[ContextControl]
         var overflow:[ContextControl]
+        var showsAppIcon: Bool
     }
     static func layout(_ controls:[ContextControl],width:CGFloat) -> Layout {
         let limit=min(8,controls.count)
@@ -144,7 +147,10 @@ enum ContextPresentation {
             guard used+control.width+8<=budget else {break}
             used+=control.width+8;count+=1
         }
-        return Layout(visible:Array(controls.prefix(count)),overflow:Array(controls.dropFirst(count)))
+        let overflow = Array(controls.dropFirst(count))
+        let overflowWidth: CGFloat = overflow.isEmpty ? 0 : 32 + 8
+        let showsAppIcon = used + overflowWidth + appIconSize + 8 <= width - 24
+        return Layout(visible: Array(controls.prefix(count)), overflow: overflow, showsAppIcon: showsAppIcon)
     }
 }
 
@@ -161,21 +167,31 @@ struct ContextBar:View {
     }
     var body:some View {
         GeometryReader { geometry in
-            let layout=ContextPresentation.layout(controls,width:geometry.size.width)
+            let hasControls = model.project.hasPanelItems
+            let layout = ContextPresentation.layout(hasControls ? controls : [], width: geometry.size.width)
             HStack(spacing:8) {
-                if !model.project.hasPanelItems {Text(model.source==nil ? "PDF seçin":"Baskıya dahil sayfa yok");Spacer()}
-                else {
+                if hasControls {
                     ForEach(layout.visible) {control in field(control).frame(width:control.width)}
-                    Spacer(minLength:0)
-                    if !layout.overflow.isEmpty {
-                        Button("…") {overflow.toggle()}.frame(width:32).help("Diğer bağlam ayarları")
-                            .accessibilityLabel("Diğer bağlam ayarları")
-                            .popover(isPresented:$overflow) {
-                                VStack(alignment:.leading,spacing:12) {
-                                    ForEach(layout.overflow) {control in field(control).frame(width:480)}
-                                }.padding(16)
-                            }
-                    }
+                } else {
+                    Text(model.source == nil ? "PDF seçin" : "Baskıya dahil sayfa yok")
+                }
+                Spacer(minLength:0)
+                if !layout.overflow.isEmpty {
+                    Button("…") {overflow.toggle()}.frame(width:32).help("Diğer bağlam ayarları")
+                        .accessibilityLabel("Diğer bağlam ayarları")
+                        .popover(isPresented:$overflow) {
+                            VStack(alignment:.leading,spacing:12) {
+                                ForEach(layout.overflow) {control in field(control).frame(width:480)}
+                            }.padding(16)
+                        }
+                }
+                if layout.showsAppIcon, let icon = NSApplication.shared.applicationIconImage {
+                    Image(nsImage: icon)
+                        .renderingMode(.original)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: ContextPresentation.appIconSize, height: ContextPresentation.appIconSize)
+                        .accessibilityHidden(true)
                 }
             }.padding(.horizontal,12).frame(height:56)
         }.frame(height:56).background(DesignSystem.card)
