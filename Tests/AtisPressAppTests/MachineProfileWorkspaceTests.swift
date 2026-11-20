@@ -14,6 +14,7 @@ final class MachineProfileWorkspaceTests: XCTestCase {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let model = Workspace(uiDefaults: defaults)
+        XCTAssertFalse(model.isModified)
         XCTAssertEqual(model.machineProfiles, [.heidelberg])
         var profile = MachineProfile(name: "Özel", size: Size(430, 310))
         profile.gripperEdge = .right
@@ -25,6 +26,7 @@ final class MachineProfileWorkspaceTests: XCTestCase {
 
         let restarted = Workspace(uiDefaults: defaults)
         XCTAssertEqual(restarted.project.machineProfile, profile)
+        XCTAssertFalse(restarted.isModified)
         var edited = profile
         edited.gap = 8
         restarted.saveMachineProfile(edited)

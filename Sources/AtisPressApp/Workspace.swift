@@ -207,7 +207,9 @@ final class Workspace: ObservableObject {
         self.recentStore = recentStore ?? RecentFilesStore()
         self.filePicker = filePicker
         machineProfiles = loadMachineProfiles()
-        project.machineProfile = preferredMachineProfile
+        var initialProject = Self.newProject()
+        initialProject.machineProfile = preferredMachineProfile
+        _project = Published(initialValue: initialProject)
         recentFiles = self.recentStore.files()
         savedState = state
         journal.reset(editSnapshot)
