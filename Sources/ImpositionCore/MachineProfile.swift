@@ -4,11 +4,11 @@ public struct MachineProfile: Identifiable, Equatable, Codable, Sendable {
     public enum Rotation: String, CaseIterable, Codable, Sendable {
         case automatic, zero, ninety
 
-        var angles: [Int] {
+        var angle: Int? {
             switch self {
-            case .automatic: [0, 90]
-            case .zero: [0]
-            case .ninety: [90]
+            case .automatic: nil
+            case .zero: 0
+            case .ninety: 90
             }
         }
     }
@@ -23,7 +23,9 @@ public struct MachineProfile: Identifiable, Equatable, Codable, Sendable {
     public var gripperEdge: Edge = .bottom
     public var gripperWidth: Double = 30
     public var gap: Double = 0
-    public var rotation: Rotation = .automatic
+    public var rotation: Rotation?
+    public var columns: Int?
+    public var rows: Int?
     public var faces: Faces = .single
 
     public init(name: String, size: Size) {
@@ -36,6 +38,23 @@ public struct MachineProfile: Identifiable, Equatable, Codable, Sendable {
         profile.id = UUID(uuidString: "2BE6FD4D-2387-4CAA-AC19-12FE5F048C88")!
         return profile
     }()
+
+    public var hasManualLayout: Bool {
+        rotation?.angle != nil && columns.map { (1...200).contains($0) } == true &&
+            rows.map { (1...200).contains($0) } == true
+    }
+
+    func anchoredOrigin(in area: Rect, for block: Size) -> Point {
+        var origin = Point(area.origin.x+(area.size.width-block.width)/2,
+                           area.origin.y+(area.size.height-block.height)/2)
+        switch gripperEdge {
+        case .bottom: origin.y = area.origin.y
+        case .top: origin.y = area.origin.y+area.size.height-block.height
+        case .left: origin.x = area.origin.x
+        case .right: origin.x = area.origin.x+area.size.width-block.width
+        }
+        return origin
+    }
 
     public var isValid: Bool {
         let gripperAxis = gripperEdge == .left || gripperEdge == .right ? size.width : size.height
@@ -60,6 +79,8 @@ extension Project {
         input.sheet = SheetSpec(size: profile.size, gripperEdge: profile.gripperEdge,
                                 gripperWidth: profile.gripperWidth, gutter: profile.gap)
         input.alignment = .center
+        input.stepAndRepeat.columns = profile.columns
+        input.stepAndRepeat.rows = profile.rows
         input.settings.turnMethod = profile.faces == .single ? .sheetwise : .workAndTurn
         input.autoLayout?.trimTolerance = 0
         return input

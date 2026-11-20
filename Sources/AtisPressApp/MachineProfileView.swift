@@ -29,6 +29,18 @@ struct MachineProfileView: View {
             if let profile = model.project.machineProfile {
                 Text(TRFormat.size(profile.size.width, profile.size.height))
                     .foregroundStyle(DesignSystem.muted)
+                Picker("Yön", selection: layoutBinding(\.rotation, unselected: .automatic)) {
+                    Text("Seçin").tag(nil as MachineProfile.Rotation?)
+                    Text("0°").tag(Optional(MachineProfile.Rotation.zero))
+                    Text("90°").tag(Optional(MachineProfile.Rotation.ninety))
+                }
+                LabeledContent("Dizilim") {
+                    HStack {
+                        layoutCount("Sütun", \.columns)
+                        Text("×")
+                        layoutCount("Satır", \.rows)
+                    }
+                }
             }
             HStack {
                 Button("Ekle") {
@@ -52,6 +64,30 @@ struct MachineProfileView: View {
             }
         }
     }
+    private func layoutBinding<Value: Equatable>(_ key: WritableKeyPath<MachineProfile, Value?>,
+                                                 unselected: Value? = nil) -> Binding<Value?> {
+        Binding(get: {
+            let value = model.project.machineProfile?[keyPath: key]
+            return value == unselected ? nil : value
+        }, set: { value in
+            guard var profile = model.project.machineProfile else { return }
+            profile[keyPath: key] = value
+            model.saveMachineProfile(profile)
+        })
+    }
+
+    private func layoutCount(_ title: String, _ key: WritableKeyPath<MachineProfile, Int?>) -> some View {
+        let value = layoutBinding(key)
+        return TextField(title, text: Binding(
+            get: { value.wrappedValue.map(String.init) ?? "" },
+            set: { value.wrappedValue = Int($0) }
+        ))
+        .accessibilityLabel(title)
+        .multilineTextAlignment(.trailing)
+        .textFieldStyle(.roundedBorder)
+        .frame(width: 60)
+    }
+
 }
 
 private struct MachineProfileEditor: View {
@@ -79,11 +115,6 @@ private struct MachineProfileEditor: View {
             }
             LabeledContent("İşler arası boşluk") {
                 DimensionInput("İşler arası boşluk", value: $profile.gap, range: 0...10_000)
-            }
-            Picker("Yön", selection: $profile.rotation) {
-                Text("Otomatik").tag(MachineProfile.Rotation.automatic)
-                Text("0°").tag(MachineProfile.Rotation.zero)
-                Text("90°").tag(MachineProfile.Rotation.ninety)
             }
             Picker("Yüz", selection: $profile.faces) {
                 Text("Tek").tag(MachineProfile.Faces.single)

@@ -46,6 +46,9 @@ public enum ImpositionPlanner {
             guard profile.isValid else {
                 return ImpositionPlan(issues: [ValidationIssue(.error, .invalidInput, "Makine profili ölçüleri geçersiz.")])
             }
+            guard profile.hasManualLayout else {
+                return ImpositionPlan(issues: [ValidationIssue(.error, .invalidInput, "Makine için yönü, sütun ve satır sayısını seçin.")])
+            }
             project = source.applyingMachineProfile(profile)
         }
         // A folding signature is contiguous paper. Flat-job trim gutters must

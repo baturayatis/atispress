@@ -19,6 +19,8 @@ final class MachineProfileWorkspaceTests: XCTestCase {
         var profile = MachineProfile(name: "Özel", size: Size(430, 310))
         profile.gripperEdge = .right
         profile.rotation = .ninety
+        profile.columns = 2
+        profile.rows = 1
         profile.gap = 4
         model.saveMachineProfile(profile)
         let url = folder.appendingPathComponent("job.atispress")
@@ -72,12 +74,16 @@ final class MachineProfileWorkspaceTests: XCTestCase {
         var profile = MachineProfile.heidelberg
         profile.faces = .workAndTurn
         profile.rotation = .ninety
+        profile.columns = 2
+        profile.rows = 1
         model.project.machineProfile = profile
         for _ in 0..<1_000 where model.planning { try await Task.sleep(for: .milliseconds(10)) }
 
         let sheet = try XCTUnwrap(model.currentSheet)
         XCTAssertTrue(model.plan.canExport, "\(model.plan.issues)")
         XCTAssertEqual(sheet.size, profile.size)
+        XCTAssertEqual(sheet.front.slots.count, 2)
+        let tick = try XCTUnwrap(sheet.front.marks.first { $0.kind == .crop && $0.end.y == 30 })
         XCTAssertEqual(Set(sheet.front.slots.compactMap(\.sourcePageNumber)), [1, 2])
         let result = try PDFExporter.export(plan: model.plan, source: source,
                                             destination: .singlePDF(folder.appendingPathComponent("output.pdf")),
@@ -89,6 +95,20 @@ final class MachineProfileWorkspaceTests: XCTestCase {
             let box = page.bounds(for: .mediaBox)
             XCTAssertEqual(box.width, sheet.size.width*72/25.4, accuracy: 0.01)
             XCTAssertEqual(box.height, sheet.size.height*72/25.4, accuracy: 0.01)
+            let cgPage = try XCTUnwrap(page.pageRef)
+            let scale = 20.0
+            let mmToPoints = 72.0/25.4
+            var pixels = [UInt8](repeating: 255, count: 64)
+            pixels.withUnsafeMutableBytes { bytes in
+                let context = CGContext(data: bytes.baseAddress, width: 8, height: 8, bitsPerComponent: 8,
+                                        bytesPerRow: 8, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: 0)!
+                context.scaleBy(x: scale/mmToPoints, y: scale/mmToPoints)
+                let x = tick.end.x*mmToPoints
+                let y = ((tick.start.y+tick.end.y)/2)*mmToPoints
+                context.translateBy(x: -x+4*mmToPoints/scale, y: -y+4*mmToPoints/scale)
+                context.drawPDFPage(cgPage)
+            }
+            XCTAssertLessThan(pixels.min() ?? 255, 128, "PDF must contain the same gripper-side crop tick as the live plan")
         }
     }
 }

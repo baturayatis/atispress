@@ -87,15 +87,8 @@ public enum SmartAutoLayout {
     }
     public static func arrange(_ original: Project,resetOverrides: Bool = false) -> AutoLayoutResult {
         if let profile = original.activeMachineProfile {
-            var project = original
-            if resetOverrides {
-                project.stepAndRepeat.rows = nil
-                project.stepAndRepeat.columns = nil
-                project.gang?.mode = .automatic
-                project.gang?.blocks = []
-            }
-            return AutoLayoutResult(project: project, presetName: presetName(for: profile.size),
-                                    summary: profile.name, plan: ImpositionPlanner.plan(project))
+            return AutoLayoutResult(project: original, presetName: presetName(for: profile.size),
+                                    summary: profile.name, plan: ImpositionPlanner.plan(original))
         }
 
         if original.hasRescaling {

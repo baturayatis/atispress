@@ -37,7 +37,7 @@ extension ImpositionPlanner {
             else if project.binding == .saddleStitch { columns = 2; rows = 1 }
             else { let n = project.settings.signatureSize.pageCount ?? 4; (columns,rows) = signatureGrid(n) }
             let spacing = profile == nil && project.binding == .stepAndRepeat && spec.gutter > 0 ? 2*s.bleed+spec.gutter : spec.gutter
-            let rotation = profile?.rotation == .ninety ? 90 : 0
+            let rotation = profile?.rotation?.angle ?? 0
             let trim = rotation == 90 ? Size(page.trimSize.height,page.trimSize.width) : page.trimSize
             var grid = Size(Double(columns)*trim.width+Double(columns-1)*spacing,
                             Double(rows)*trim.height+Double(rows-1)*spacing)

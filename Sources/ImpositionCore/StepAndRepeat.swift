@@ -81,7 +81,7 @@ extension ImpositionPlanner {
                 }
             }
             // The array stays in copy order. GridPosition expresses each face's row/column order.
-            let frontSide = repeatSide(frontSlots,grid: grid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet, machine: project.activeMachineProfile != nil)
+            let frontSide = repeatSide(frontSlots,grid: grid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet, machine: project.activeMachineProfile)
             var backGrid = grid
             if project.blockAlignment == .center {
                 let width = Double(grid.columns)*grid.item.width+Double(grid.columns-1)*grid.spacing
@@ -89,7 +89,7 @@ extension ImpositionPlanner {
                 backGrid.origin = Point(grid.mirrorX ? grid.sheet.width-grid.origin.x-width : grid.origin.x,
                                         grid.mirrorX ? grid.origin.y : grid.sheet.height-grid.origin.y-height)
             }
-            let backSide = repeatSide(backSlots,grid: backGrid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet, machine: project.activeMachineProfile != nil)
+            let backSide = repeatSide(backSlots,grid: backGrid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet, machine: project.activeMachineProfile)
             if settings.generatedBleed.enabled {
                 for slot in frontSide.slots+backSide.slots {
                     if let clip = slot.artworkClip,
@@ -161,18 +161,33 @@ extension ImpositionPlanner {
     private static func repeatGrid(_ project: Project, trim: Size) -> RepeatGrid? {
         let spec = project.sheet, settings = project.settings, options = project.stepAndRepeat
         let mirrorX = repeatMirrorsX(project)
+        if let profile = project.activeMachineProfile,
+           let columns = profile.columns, let rows = profile.rows, let rotation = profile.rotation?.angle {
+            let margins = settings.turnMethod == .sheetwise ? usableMargins(spec) : repeatMargins(spec, mirrorX: mirrorX)
+            let reserve = max(project.layoutExteriorReserve, settings.bleed)
+            let area = Rect(x: margins.left+reserve, y: margins.bottom+reserve,
+                            width: spec.size.width-margins.left-margins.right-2*reserve,
+                            height: spec.size.height-margins.bottom-margins.top-2*reserve)
+            let item = rotation == 0 ? trim : Size(trim.height, trim.width)
+            let block = Size(Double(columns)*item.width+Double(columns-1)*spec.gutter,
+                             Double(rows)*item.height+Double(rows-1)*spec.gutter)
+            guard block.width <= area.size.width, block.height <= area.size.height else { return nil }
+            return RepeatGrid(sheet: spec.size, origin: profile.anchoredOrigin(in: area, for: block),
+                              item: item, columns: columns, rows: rows, rotation: rotation,
+                              spacing: spec.gutter, mirrorX: mirrorX)
+        }
         let portrait = Size(min(spec.size.width,spec.size.height),max(spec.size.width,spec.size.height))
         let landscape = Size(portrait.height,portrait.width)
-        let sheets = project.activeMachineProfile != nil ? [spec.size] : spec.orientation == .portrait ? [portrait] : spec.orientation == .landscape ? [landscape] : [portrait,landscape]
-        let reserve = max(project.layoutExteriorReserve, project.activeMachineProfile != nil ? settings.bleed : 0)
+        let sheets = spec.orientation == .portrait ? [portrait] : spec.orientation == .landscape ? [landscape] : [portrait,landscape]
+        let reserve = project.layoutExteriorReserve
         // Zero gutter is an explicit shared-trim-cut mode. Otherwise bleed boxes do not overlap.
-        let spacing = project.activeMachineProfile != nil || spec.gutter == 0 ? spec.gutter : 2*settings.bleed+spec.gutter
+        let spacing = spec.gutter == 0 ? spec.gutter : 2*settings.bleed+spec.gutter
         var best: RepeatGrid?
         for sheet in sheets {
             let m = project.blockAlignment == .center && settings.turnMethod == .sheetwise ? usableMargins(spec) : repeatMargins(spec,mirrorX:mirrorX)
             let width = sheet.width-m.left-m.right-2*reserve
             let height = sheet.height-m.top-m.bottom-2*reserve
-            for rotation in project.activeMachineProfile?.rotation.angles ?? (options.allowRotation ? [0,90] : [0]) {
+            for rotation in (options.allowRotation ? [0,90] : [0]) {
                 let item = rotation == 0 ? trim : Size(trim.height,trim.width)
                 let tolerance = max(project.autoLayout?.trimTolerance ?? 0,(project.usesFullSheetBooklet || (project.bookCoverTemplate && reserve == 0)) ? 0.0001 : 0)
                 guard width+tolerance >= item.width, height+tolerance >= item.height else { continue }
@@ -202,7 +217,7 @@ extension ImpositionPlanner {
         return best
     }
 
-    private static func repeatSide(_ slots: [Slot], grid: RepeatGrid, spec: SheetSpec, settings: ImpositionSettings,clipToSheet: Bool, machine: Bool) -> Side {
+    private static func repeatSide(_ slots: [Slot], grid: RepeatGrid, spec: SheetSpec, settings: ImpositionSettings,clipToSheet: Bool, machine: MachineProfile?) -> Side {
         var slots = slots
         var lines = pressGuides(spec,grid.sheet)
         if settings.turnMethod == .workAndTumble {
@@ -221,7 +236,7 @@ extension ImpositionPlanner {
             lines += marks(slot,settings).filter { $0.kind != .crop && $0.kind != .bleed }
             // Bleed guides stop at shared cuts; they never imply overlapping neighboring artwork.
             let p = slot.gridPosition!
-            let insideBleed = spec.gutter == 0 ? 0 : machine ? min(settings.bleed, grid.spacing/2) : settings.bleed
+            let insideBleed = spec.gutter == 0 ? 0 : machine != nil ? min(settings.bleed, grid.spacing/2) : settings.bleed
             var l = slot.x-(p.column > 0 ? insideBleed : settings.bleed)
             var r = slot.x+slot.size.width+(p.column < grid.columns-1 ? insideBleed : settings.bleed)
             var b = slot.y-(p.row > 0 ? insideBleed : settings.bleed)
@@ -247,7 +262,7 @@ extension ImpositionPlanner {
             let xs = Set(slots.flatMap { [$0.x,$0.x+$0.size.width].map { ($0*1e7).rounded()/1e7 } }).sorted()
             let ys = Set(slots.flatMap { [$0.y,$0.y+$0.size.height].map { ($0*1e7).rounded()/1e7 } }).sorted()
             let offset = settings.cropMarkOffset, length = settings.cropMarkLength
-            if !machine && grid.spacing > 0 {
+            if machine == nil && grid.spacing > 0 {
                 for slot in slots {
                     let position = slot.gridPosition!
                     for dx in [-1.0,1.0] {
@@ -267,23 +282,42 @@ extension ImpositionPlanner {
                     }
                 }
             }
-            lines += perimeterCropMarks(xs: xs, ys: ys, bounds: Rect(x: x0, y: y0, width: x1-x0, height: y1-y0), settings: settings)
+            lines += perimeterCropMarks(xs: xs, ys: ys, bounds: Rect(x: x0, y: y0, width: x1-x0, height: y1-y0), settings: settings, machine: machine)
         }
         var cropKeys = Set<CropKey>()
         lines = lines.filter { $0.kind != .crop || cropKeys.insert(CropKey($0)).inserted }
         return Side(slots: slots,marks: lines)
     }
-    static func perimeterCropMarks(xs: [Double], ys: [Double], bounds: Rect, settings: ImpositionSettings) -> [Mark] {
+    static func perimeterCropMarks(xs: [Double], ys: [Double], bounds: Rect, settings: ImpositionSettings,
+                                   machine: MachineProfile? = nil) -> [Mark] {
         guard settings.cropMarkLength > 0 else { return [] }
         let x0 = bounds.origin.x, y0 = bounds.origin.y
         let x1 = x0+bounds.size.width, y1 = y0+bounds.size.height
-        let offset = settings.cropMarkOffset, end = offset+settings.cropMarkLength
+        let offset = settings.cropMarkOffset, length = settings.cropMarkLength
+        let end = offset+length
+        var left = (start: x0-offset, end: x0-end)
+        var right = (start: x1+offset, end: x1+end)
+        var bottom = (start: y0-offset, end: y0-end)
+        var top = (start: y1+offset, end: y1+end)
+        if let machine {
+            let grip = machine.gripperWidth
+            switch machine.gripperEdge {
+            case .bottom: bottom = (grip+length, grip)
+            case .top:
+                let line = machine.size.height-grip
+                top = (line-length, line)
+            case .left: left = (grip+length, grip)
+            case .right:
+                let line = machine.size.width-grip
+                right = (line-length, line)
+            }
+        }
         return xs.flatMap { x in
-            [Mark(kind: .crop, start: Point(x,y0-offset), end: Point(x,y0-end)),
-             Mark(kind: .crop, start: Point(x,y1+offset), end: Point(x,y1+end))]
+            [Mark(kind: .crop, start: Point(x,bottom.start), end: Point(x,bottom.end)),
+             Mark(kind: .crop, start: Point(x,top.start), end: Point(x,top.end))]
         } + ys.flatMap { y in
-            [Mark(kind: .crop, start: Point(x0-offset,y), end: Point(x0-end,y)),
-             Mark(kind: .crop, start: Point(x1+offset,y), end: Point(x1+end,y))]
+            [Mark(kind: .crop, start: Point(left.start,y), end: Point(left.end,y)),
+             Mark(kind: .crop, start: Point(right.start,y), end: Point(right.end,y))]
         }
     }
 

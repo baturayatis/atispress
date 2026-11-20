@@ -410,13 +410,15 @@ struct InspectorView: View {
                         .font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
                     Toggle("90° döndürmeye izin ver",isOn: model.autoBinding($model.project.stepAndRepeat.allowRotation,.allowRotation)).inspectorTarget("rotate").automaticReset(model,.allowRotation)
                 }
-                gridOverride("Sütun",value: $model.project.stepAndRepeat.columns,
-                             automatic: model.currentSheet?.repeatLayout?.columns ?? 1,field: .columns)
-                gridOverride("Satır",value: $model.project.stepAndRepeat.rows,
-                             automatic: model.currentSheet?.repeatLayout?.rows ?? 1,field: .rows)
+                if !usingMachineProfile {
+                    gridOverride("Sütun",value: $model.project.stepAndRepeat.columns,
+                                 automatic: model.currentSheet?.repeatLayout?.columns ?? 1,field: .columns)
+                    gridOverride("Satır",value: $model.project.stepAndRepeat.rows,
+                                 automatic: model.currentSheet?.repeatLayout?.rows ?? 1,field: .rows)
+                }
                 if let sheet = model.currentSheet, let layout = sheet.repeatLayout {
                     Text("\(layout.columns) × \(layout.rows) = \(layout.copiesPerSheet) adet/tabaka").fontWeight(.medium)
-                    if model.project.autoLayout?.automaticFields.contains(.allowRotation) == true {
+                    if !usingMachineProfile, model.project.autoLayout?.automaticFields.contains(.allowRotation) == true {
                         Text("Ürün dönüşü: \(sheet.front.slots.first?.rotation ?? 0)° · Otomatik").font(.system(size:12))
                     }
                     Text("Bu iş: \(sheet.repeatCount) tabaka · Üretim: \(sheet.producedQuantityDescription) adet")

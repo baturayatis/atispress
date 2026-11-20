@@ -3,6 +3,10 @@ import ImpositionCore
 
 struct GangInspectorView: View {
     @ObservedObject var model: Workspace
+    private var usingMachineProfile: Bool {
+        model.project.supportsMachineProfile && model.project.machineProfile != nil
+    }
+
     private func binding<T>(_ job: GangJob,_ key: WritableKeyPath<GangJob,T>) -> Binding<T> {
         Binding(get: { model.project.gang?.jobs.first { $0.id==job.id }?[keyPath:key] ?? job[keyPath:key] },set: { value in model.editGangJob(job.id) { $0[keyPath:key] = value } })
     }
@@ -10,13 +14,15 @@ struct GangInspectorView: View {
         GroupBox("Karışık iş") {
             VStack(alignment:.leading,spacing:9) {
                 if model.project.sourcePreparation?.hasPreparedProducts != true && model.project.sourcePreparation?.hiddenGuideGroups.isEmpty != false { Button("PDF ekle…",action:model.chooseGangPDFs) }
-                Picker("Düzen",selection:Binding(get: { model.project.gang?.mode ?? .automatic },set: { value in
-                    if value == .manual { model.manualGang() } else { model.project.gang?.mode = .automatic }
-                })) {
-                    Text("Otomatik giyotin").tag(GangSettings.Mode.automatic)
-                    Text("Elle yerleştir").tag(GangSettings.Mode.manual)
-                }.pickerStyle(.segmented).inspectorSetting(model,"Düzen",SettingGuidance.detail("Düzen")).inspectorTarget("gangMode")
-                Text("Her iş bir dikdörtgen ızgara bloğudur. Bitişik kesimde boşluk 0; aralıklı düzende boşluk en az 2 × taşma olmalı.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                if !usingMachineProfile {
+                    Picker("Düzen",selection:Binding(get: { model.project.gang?.mode ?? .automatic },set: { value in
+                        if value == .manual { model.manualGang() } else { model.project.gang?.mode = .automatic }
+                    })) {
+                        Text("Otomatik giyotin").tag(GangSettings.Mode.automatic)
+                        Text("Elle yerleştir").tag(GangSettings.Mode.manual)
+                    }.pickerStyle(.segmented).inspectorSetting(model,"Düzen",SettingGuidance.detail("Düzen")).inspectorTarget("gangMode")
+                    Text("Her iş bir dikdörtgen ızgara bloğudur. Bitişik kesimde boşluk 0; aralıklı düzende boşluk en az 2 × taşma olmalı.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                }
                 if let job = model.selectedGangJob {
                     LabeledContent("İş adı") { TextField("Ad",text:binding(job,\.name)) }
                     Text("\(TRFormat.dimension(job.front.trimSize.width)) × \(TRFormat.dimension(job.front.trimSize.height)) mm · PDF kesim ölçüsü").font(.system(size:12))
@@ -32,7 +38,9 @@ struct GangInspectorView: View {
                             ForEach(Array(pages.enumerated()),id:\.element.number) { i,p in Text("\(i+1)").tag(p.number) }
                         }.inspectorSetting(model,"Arka sayfa",SettingGuidance.detail("Arka sayfa"))
                     }
-                    Toggle("90° döndürmeye izin ver",isOn:binding(job,\.allowRotation)).inspectorSetting(model,"90° döndürmeye izin ver",SettingGuidance.detail("90° döndürmeye izin ver"))
+                    if !usingMachineProfile {
+                        Toggle("90° döndürmeye izin ver",isOn:binding(job,\.allowRotation)).inspectorSetting(model,"90° döndürmeye izin ver",SettingGuidance.detail("90° döndürmeye izin ver"))
+                    }
                     HStack { Text("Önizleme rengi"); Slider(value:binding(job,\.tint),in:0...1) }
                     HStack {
                         Button("İşi çoğalt") {
@@ -40,12 +48,27 @@ struct GangInspectorView: View {
                             var copy = job; copy.id = UUID(); copy.name += " kopya"; copy.tint = (Double(model.project.gang?.jobs.count ?? 0)*0.61803398875+0.12).truncatingRemainder(dividingBy:1)
                             copy.serialFields = copy.serialFields.map { var f = $0; f.id = UUID(); return f }
                             model.project.gang?.jobs.append(copy); model.selectedGangJobID = copy.id
-                            model.project.gang?.mode = .automatic
+                            if !usingMachineProfile { model.project.gang?.mode = .automatic }
                         }
                         Button("İşi sil") { model.removeGangJob(job.id) }
                     }
                 }
-                if model.project.gang?.mode == .manual { manualControls }
+                if usingMachineProfile, (model.project.gang?.jobs.count ?? 0) > 1 {
+                    if let job = model.selectedGangJob {
+                        Button("Seçili işe blok ekle") {
+                            guard var gang = model.project.gang else { return }
+                            if gang.mode != .manual { gang.blocks = [] }
+                            gang.mode = .manual
+                            let block = GangBlock(jobID: job.id, origin: Point(0, 0))
+                            gang.blocks.append(block)
+                            model.project.gang = gang
+                            model.selectedGangBlockID = block.id
+                        }
+                    }
+                    manualControls
+                } else if !usingMachineProfile, model.project.gang?.mode == .manual {
+                    manualControls
+                }
             }.textFieldStyle(.roundedBorder).padding(5)
         }
     }
@@ -60,15 +83,21 @@ struct GangInspectorView: View {
             })
             HStack { Text("X").frame(maxWidth:.infinity,alignment:.leading); DimensionInput("X",value:value.origin.x) }
             HStack { Text("Y").frame(maxWidth:.infinity,alignment:.leading); DimensionInput("Y",value:value.origin.y) }
-            HStack { Text("Sütun").frame(maxWidth:.infinity,alignment:.leading); IntegerInput(title:"Sütun",value:value.columns,unit:"") }
-            HStack { Text("Satır").frame(maxWidth:.infinity,alignment:.leading); IntegerInput(title:"Satır",value:value.rows,unit:"") }
-            Toggle("Blok 90°",isOn:value.rotated).inspectorSetting(model,"Blok 90°",SettingGuidance.detail("Blok 90°"))
+            if !usingMachineProfile {
+                HStack { Text("Sütun").frame(maxWidth:.infinity,alignment:.leading); IntegerInput(title:"Sütun",value:value.columns,unit:"") }
+                HStack { Text("Satır").frame(maxWidth:.infinity,alignment:.leading); IntegerInput(title:"Satır",value:value.rows,unit:"") }
+                Toggle("Blok 90°",isOn:value.rotated).inspectorSetting(model,"Blok 90°",SettingGuidance.detail("Blok 90°"))
+            }
             HStack {
                 Button("Blok çoğalt") { var b = block; b.id = UUID(); b.origin.x += 10; b.origin.y += 10; model.project.gang?.blocks.append(b); model.selectedGangBlockID = b.id }
                 Button("Blok sil") { model.project.gang?.blocks.removeAll { $0.id==block.id }; model.selectedGangBlockID = model.project.gang?.blocks.first?.id }
             }
         }
-        Text("Blokları önizlemede sürükleyin (1 mm). Çakışma ve kesilemeyen düzen kırmızı uyarıdır; konumlar kendiliğinden değiştirilmez.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+        if usingMachineProfile {
+            Text("Blok konumlarını X ve Y alanlarıyla belirleyin.").font(.caption).foregroundStyle(DesignSystem.muted)
+        } else {
+            Text("Blokları önizlemede sürükleyin (1 mm). Çakışma ve kesilemeyen düzen kırmızı uyarıdır; konumlar kendiliğinden değiştirilmez.").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+        }
     }
 }
 

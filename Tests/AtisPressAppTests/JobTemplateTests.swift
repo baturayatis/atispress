@@ -16,6 +16,8 @@ final class JobTemplateTests: XCTestCase {
         let author = Workspace(templateStore: store)
         var machine = MachineProfile.heidelberg
         machine.rotation = .ninety
+        machine.columns = 2
+        machine.rows = 1
         machine.gap = 4
         author.project.machineProfile = machine
         author.project.settings.bleed = 1

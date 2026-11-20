@@ -20,30 +20,32 @@ final class MachineProfileTests: XCTestCase {
         return project
     }
 
-    func testRotationCapacityAndCenteredPerimeterForFlatAndGang() throws {
+    func testExplicitGridAndGripperAnchoredPerimeterForFlatAndGang() throws {
         for binding in [BindingMethod.stepAndRepeat, .gang] {
             var profile = MachineProfile.heidelberg
             profile.gap = 4
-            for (rotation, count, angle) in [(MachineProfile.Rotation.zero, 16, 0), (.ninety, 18, 90), (.automatic, 18, 90)] {
+            for (rotation, columns, rows, angle) in [(MachineProfile.Rotation.zero, 2, 1, 0), (.zero, 4, 1, 0), (.ninety, 2, 2, 90)] {
                 profile.rotation = rotation
+                profile.columns = columns
+                profile.rows = rows
                 let plan = ImpositionPlanner.plan(project(profile: profile, binding: binding))
                 XCTAssertTrue(plan.canExport, "\(plan.issues)")
                 XCTAssertFalse(plan.hasBackContent)
                 let sheet = try XCTUnwrap(plan.sheets.first)
                 XCTAssertEqual(sheet.size, Size(510, 400))
                 let slots = sheet.front.slots
-                XCTAssertEqual(slots.count, count)
+                XCTAssertEqual(slots.count, columns*rows)
                 XCTAssertTrue(slots.allSatisfy { $0.rotation == angle && $0.sourcePageNumber == 1 })
                 let left = try XCTUnwrap(slots.map(\.x).min())
                 let right = try XCTUnwrap(slots.map { $0.x+$0.size.width }.max())
                 let bottom = try XCTUnwrap(slots.map(\.y).min())
                 let top = try XCTUnwrap(slots.map { $0.y+$0.size.height }.max())
                 XCTAssertEqual(left + right, 510, accuracy: 0.000001)
-                XCTAssertEqual(bottom + top, 430, accuracy: 0.000001)
+                XCTAssertEqual(bottom, 33, accuracy: 0.000001)
                 let xs = Set(slots.map(\.x)).sorted()
                 XCTAssertEqual(xs[1]-xs[0]-slots[0].size.width, 4, accuracy: 0.000001)
                 let crops = sheet.front.marks.filter { $0.kind == .crop }
-                XCTAssertFalse(crops.isEmpty)
+                XCTAssertEqual(crops.flatMap { [$0.start.y, $0.end.y] }.min(), 30)
                 for mark in crops {
                     for point in [mark.start, mark.end] {
                         XCTAssertTrue(point.x < left || point.x > right || point.y < bottom || point.y > top)
@@ -60,6 +62,8 @@ final class MachineProfileTests: XCTestCase {
                 var profile = MachineProfile.heidelberg
                 profile.faces = .workAndTurn
                 profile.rotation = .ninety
+                profile.columns = 2
+                profile.rows = 2
                 profile.gripperEdge = edge
                 let plan = ImpositionPlanner.plan(project(profile: profile, binding: binding))
                 XCTAssertTrue(plan.canExport, "\(plan.issues)")
@@ -82,6 +86,49 @@ final class MachineProfileTests: XCTestCase {
                 }
             }
         }
+    }
+
+    func testUnselectedLegacyAndOversizedGridsDoNotFallBackToAutomatic() {
+        for binding in [BindingMethod.stepAndRepeat, .gang] {
+            var profile = MachineProfile.heidelberg
+            XCTAssertFalse(ImpositionPlanner.plan(project(profile: profile, binding: binding)).canExport)
+            profile.rotation = .automatic
+            profile.columns = 2
+            profile.rows = 1
+            XCTAssertFalse(ImpositionPlanner.plan(project(profile: profile, binding: binding)).canExport)
+            profile.rotation = .zero
+            profile.columns = 5
+            let input = project(profile: profile, binding: binding)
+            XCTAssertFalse(ImpositionPlanner.plan(input).canExport)
+            XCTAssertEqual(SmartAutoLayout.arrange(input, resetOverrides: true).project.machineProfile, profile)
+        }
+    }
+
+    func testMixedJobsRequireUserPositionsAndKeepTheirRelativePlacement() throws {
+        var profile = MachineProfile.heidelberg
+        profile.rotation = .ninety
+        profile.columns = 2
+        profile.rows = 1
+        var input = project(profile: profile, binding: .gang)
+        var gang = try XCTUnwrap(input.gang)
+        var other = GangJob(sourceID: UUID(), name: "Etiket", front: back)
+        other.bleed = 0
+        gang.jobs.append(other)
+        input.gang = gang
+        XCTAssertFalse(ImpositionPlanner.plan(input).canExport)
+
+        gang.mode = .manual
+        gang.blocks = [GangBlock(jobID: gang.jobs[0].id, origin: Point(12, 15)),
+                       GangBlock(jobID: other.id, origin: Point(192, 15))]
+        input.gang = gang
+        let plan = ImpositionPlanner.plan(input)
+        XCTAssertTrue(plan.canExport, "\(plan.issues)")
+        let sheet = try XCTUnwrap(plan.sheets.first)
+        let blocks = try XCTUnwrap(sheet.gangLayout?.blocks)
+        XCTAssertEqual(blocks[1].origin.x-blocks[0].origin.x, 180)
+        XCTAssertEqual(blocks[0].origin.y, 33)
+        XCTAssertEqual(sheet.front.slots.count, 4)
+        XCTAssertTrue(sheet.front.slots.allSatisfy { $0.rotation == 90 })
     }
 
     func testInvalidProfileCannotExport() {
