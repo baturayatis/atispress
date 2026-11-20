@@ -5,28 +5,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var workspace: Workspace? { didSet { drainOpenRequests() } }
     private var pendingOpenURLs: [URL] = []
     private var openTask: Task<Void,Never>?
-    private var lastRequest: (URL,Date)?
+    private var recentRequests: [URL: Date] = [:]
     func application(_ application: NSApplication,open urls: [URL]) { receiveOpenURLs(urls) }
-    func receiveOpenURLs(_ urls: [URL]) {
+    func receiveOpenURLs(_ urls: [URL], activate: Bool = true) {
+        let now = Date()
+        recentRequests = recentRequests.filter { now.timeIntervalSince($0.value) < 0.5 }
         for url in urls where OpenFileKind.any.accepts(url) {
-            // AppKit and SwiftUI may both deliver the same native event.
-            if let lastRequest,lastRequest.0 == url,Date().timeIntervalSince(lastRequest.1)<0.5 { continue }
-            lastRequest = (url,Date()); pendingOpenURLs.append(url)
+            // AppKit and SwiftUI may both deliver each member of the native event.
+            let key = url.standardizedFileURL
+            guard recentRequests[key] == nil else { continue }
+            recentRequests[key] = now
+            pendingOpenURLs.append(url)
         }
-        if !pendingOpenURLs.isEmpty { NSApplication.shared.activate(ignoringOtherApps:true) }
+        if activate && !pendingOpenURLs.isEmpty { NSApplication.shared.activate(ignoringOtherApps: true) }
         drainOpenRequests()
     }
+
     private func drainOpenRequests() {
-        guard workspace != nil,openTask == nil,!pendingOpenURLs.isEmpty else { return }
+        guard workspace != nil, openTask == nil, !pendingOpenURLs.isEmpty else { return }
         openTask = Task { [weak self] in
             guard let self else { return }
-            defer { self.openTask = nil }
-            while !self.pendingOpenURLs.isEmpty,let workspace = self.workspace {
-                if workspace.loading || workspace.exporting || workspace.autoArranging {
-                    try? await Task.sleep(for:.milliseconds(30)); continue
+            defer { openTask = nil }
+            // SwiftUI can deliver a multi-file request as consecutive per-URL callbacks.
+            try? await Task.sleep(for: .milliseconds(50))
+            while !pendingOpenURLs.isEmpty, let workspace {
+                if workspace.loading || workspace.preparingSource || workspace.exporting || workspace.autoArranging {
+                    try? await Task.sleep(for: .milliseconds(30))
+                    continue
                 }
-                let url = self.pendingOpenURLs.removeFirst()
-                workspace.open(url)
+                if OpenFileKind.pdf.accepts(pendingOpenURLs[0]) {
+                    let batch = pendingOpenURLs.prefix(while: OpenFileKind.pdf.accepts)
+                    pendingOpenURLs.removeFirst(batch.count)
+                    workspace.openExternalPDFs(Array(batch))
+                } else {
+                    workspace.open(pendingOpenURLs.removeFirst())
+                }
                 await Task.yield()
             }
         }

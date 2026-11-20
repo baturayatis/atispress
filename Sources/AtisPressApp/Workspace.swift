@@ -550,19 +550,57 @@ final class Workspace: ObservableObject {
             }
             return
         }
+        openPDFProject([url], confirmTemplateSize: confirmTemplateSize)
+    }
+
+    func openExternalPDFs(_ urls: [URL], confirmChanges: (() -> Bool)? = nil) {
+        let pdfs = urls.filter(OpenFileKind.pdf.accepts)
+        guard !pdfs.isEmpty, !preparingSource, !loading, !exporting, !autoArranging,
+              (confirmChanges ?? confirmDiscard)() else { return }
+        openPDFProject(pdfs, confirmTemplateSize: nil)
+    }
+
+    private func openPDFProject(_ urls: [URL], confirmTemplateSize: ((JobTemplateSizeMismatch) -> Bool)?) {
+        guard let first = urls.first else { return }
+        showingTeamImportChoice = false
         importTask?.cancel()
         let token = UUID(); importRevision = token
         loading = true; error = nil; pdfLoadFailure=nil
         importTask = Task {
+            var activeURL = first
             do {
-                let source = try await openPagePDF(url)
-                guard !Task.isCancelled, importRevision == token else { return }
-                try checkJobTemplateSize(source, confirm: confirmTemplateSize)
+                var loaded: [PDFSource] = []
+                var assets: [GangAsset] = []
+                for url in urls {
+                    activeURL = url
+                    let pdf = try await openPagePDF(url)
+                    guard !Task.isCancelled, importRevision == token else { return }
+                    try checkJobTemplateSize(pdf, confirm: confirmTemplateSize)
+                    loaded.append(pdf)
+                    if urls.count > 1 {
+                        let reference = try ProjectSource.capture(url, createBookmark: bookmarkCreator)
+                        assets.append(GangAsset(saved: GangSourceReference(id: UUID(), reference: reference,
+                                                                          pageCount: pdf.pages.count), source: pdf))
+                    }
+                }
+                let source = loaded.count == 1 ? loaded[0] : try await PDFSource.combine(loaded, displayName: "Birden çok PDF")
+                var items: [PageListItem] = []
+                for asset in assets {
+                    let offset = items.count
+                    items += asset.source.pages.map { page in
+                        let number = offset+page.number
+                        var item = PageListItem(id: number, sourcePage: number, size: page.trimSize,
+                                                availableBleed: page.availableBleed)
+                        item.sourceID = asset.saved.id
+                        item.localPage = page.number
+                        return item
+                    }
+                }
                 var baseline = project
                 var prepared: AutoLayoutResult
                 while true {
                     var snapshot = baseline
-                    if baseline.team != nil || baseline.sourcePreparation?.hasPreparedProducts == true ||
+                    if baseline.binding == .gang || baseline.sourcePreparation?.hasPreparedProducts == true ||
                         baseline.sourcePreparation?.hiddenGuideGroups.isEmpty == false {
                         snapshot.binding = .stepAndRepeat
                     }
@@ -570,8 +608,8 @@ final class Workspace: ObservableObject {
                     snapshot.gang = nil
                     snapshot.internalCutJobs = nil
                     snapshot.pages = source.pages.map(\.sourcePage)
-                    snapshot.pageItems = nil
-                    snapshot.pageItemNextID = nil
+                    snapshot.pageItems = items.isEmpty ? nil : items
+                    snapshot.pageItemNextID = items.isEmpty ? nil : items.count+1
                     snapshot.previouslyHadBacks = nil
                     snapshot.sourcePreparation = nil
                     snapshot.book?.coverSourceID = nil
@@ -588,16 +626,19 @@ final class Workspace: ObservableObject {
                 planTask?.cancel(); revision = UUID()
                 clearRecovery(); projectIdentifier = UUID()
                 projectURL = nil; projectAccess = nil
-                sourceReference = try? ProjectSource.capture(source.preparationInput.originalURL,createBookmark: bookmarkCreator)
+                sourceReference = assets.isEmpty
+                    ? try? ProjectSource.capture(source.preparationInput.originalURL,createBookmark: bookmarkCreator) : nil
                 self.source = source
-                gangAssets = []
+                gangAssets = assets
+                selectedGangJobID = nil
+                selectedGangBlockID = nil
                 order = source.pages.map(\.number); included = Set(order); selectedPages = []
                 sheetIndex = 0; repetition = 0
                 applyAutomatic(prepared)
                 zoomFactor = 0; zoomAction += 1
                 loading = false
                 resetJournal(); queueAutosave()
-                recordRecentFile(source.originalURL)
+                for pdf in loaded.reversed() { recordRecentFile(pdf.originalURL) }
                 if canStartTeam && ui.teamPDFImport == .team {
                     startTeam()
                 } else {
@@ -609,7 +650,7 @@ final class Workspace: ObservableObject {
                 guard !Task.isCancelled, importRevision == token else { return }
                 loading = false
                 if !(error is CancellationError) {
-                    let failure=recordPDFLoadFailure(error,url:url,stage:"Ana PDF / ortak yükleyici")
+                    let failure=recordPDFLoadFailure(error,url:activeURL,stage:"Ana PDF / ortak yükleyici")
                     pdfLoadFailure=failure;self.error=failure.localizedDescription
                 }
             }

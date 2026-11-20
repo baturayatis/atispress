@@ -57,6 +57,87 @@ import ImpositionCore
             return Data(bytes:ctx.data!,count:ctx.bytesPerRow*ctx.height)
         }
     }
+    func testNativePDFEventsQueueBeforeLaunchAndCoalesceWhileRunning() async throws {
+        let model = workspace()
+        let delegate = AppDelegate()
+        let first = try fixture("native-first", count: 1)
+        let second = try fixture("native-second", count: 2)
+        delegate.receiveOpenURLs([first, second], activate: false)
+        delegate.receiveOpenURLs([first], activate: false)
+        delegate.receiveOpenURLs([second], activate: false)
+        XCTAssertNil(model.source)
+        delegate.workspace = model
+
+        for _ in 0..<300 where model.source == nil { try await Task.sleep(for: .milliseconds(10)) }
+        try await settle(model)
+        XCTAssertEqual(model.order, [1, 2, 3])
+        XCTAssertEqual(model.pageListItems.map(\.localPage), [1, 1, 2])
+        XCTAssertEqual(model.state.gangSources?.map(\.reference.fileName), [first.lastPathComponent, second.lastPathComponent])
+        let saved = try model.saveProject(as: folder().appendingPathComponent("native.atispress"))
+        let reopened = workspace()
+        try await reopened.loadProject(at: saved)
+        XCTAssertEqual(reopened.order, [1, 2, 3])
+        XCTAssertEqual(reopened.state.gangSources?.map(\.reference.fileName), model.state.gangSources?.map(\.reference.fileName))
+
+        let third = try fixture("native-third", count: 1)
+        let fourth = try fixture("native-fourth", count: 1)
+        delegate.receiveOpenURLs([third], activate: false)
+        delegate.receiveOpenURLs([fourth], activate: false)
+        for _ in 0..<300 where model.state.gangSources?.first?.reference.fileName != third.lastPathComponent {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try await settle(model)
+        XCTAssertEqual(model.order, [1, 2])
+        XCTAssertEqual(model.state.gangSources?.map(\.reference.fileName), [third.lastPathComponent, fourth.lastPathComponent])
+    }
+
+    func testNativePDFBatchRespectsUnsavedChangesAndOpensAtomically() async throws {
+        let model = try await loaded()
+        model.project.settings.cropMarkLength = 7
+        let original = try XCTUnwrap(model.source)
+        XCTAssertTrue(model.isModified)
+        let first = try fixture("native-good", count: 1)
+        let second = try fixture("native-bad", count: 2)
+        var prompts = 0
+        model.openExternalPDFs([first, second]) {
+            prompts += 1
+            return model.resolveUnsavedChanges(.cancel, save: { XCTFail("Cancel must not save"); return false })
+        }
+        XCTAssertEqual(prompts, 1)
+        XCTAssertTrue(model.source === original)
+        XCTAssertFalse(model.loading)
+        XCTAssertTrue(model.isModified)
+
+        model.openExternalPDFs([first, second]) {
+            prompts += 1
+            return model.resolveUnsavedChanges(.save, save: { false })
+        }
+        XCTAssertEqual(prompts, 2)
+        XCTAssertTrue(model.source === original)
+
+        try Data("invalid PDF".utf8).write(to: second)
+        model.openExternalPDFs([first, second]) {
+            prompts += 1
+            return model.resolveUnsavedChanges(.discard, save: { false })
+        }
+        try await settle(model)
+        XCTAssertEqual(prompts, 3)
+        XCTAssertTrue(model.source === original)
+        XCTAssertNotNil(model.error)
+        XCTAssertTrue(model.isModified)
+    }
+
+    func testBundleRegistersPDFAsAlternateViewer() throws {
+        let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let plist = try Data(contentsOf: repo.appendingPathComponent("packaging/Info.plist"))
+        let config = try XCTUnwrap(PropertyListSerialization.propertyList(from: plist, format: nil) as? [String: Any])
+        let types = try XCTUnwrap(config["CFBundleDocumentTypes"] as? [[String: Any]])
+        let pdf = try XCTUnwrap(types.first { ($0["LSItemContentTypes"] as? [String])?.contains("com.adobe.pdf") == true })
+        XCTAssertEqual(pdf["CFBundleTypeRole"] as? String, "Viewer")
+        XCTAssertEqual(pdf["LSHandlerRank"] as? String, "Alternate")
+    }
+
     func testInsertionPositionsAdjustPairBoundariesAndUndoIsSingleStep() async throws {
         for position in PageInsertionPosition.allCases {
             let model=try await loaded(),before=model.project,plan=model.plan,pixels=try outputPixels(model)
