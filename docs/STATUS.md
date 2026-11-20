@@ -1,6 +1,12 @@
 # AtışPress — sayfa-bol durumu
 
 
+## 0.6.1 · build 9
+
+- **Uygulama ikonu.** Yeni AtışPress ikonu macOS uygulama paketinde ve Hakkında penceresinde kullanılır.
+- **Araç çubuğu.** AtışPress logosu ayar satırının sağında görünür ve alan daraldığında gizlenir.
+- **PDF açma.** Finder’da PDF dosyalarına sağ tıklayıp **Birlikte Aç → AtışPress** seçebilirsiniz.
+
 ## 0.6.0 · build 8
 
 - Makine Profili, Heidelberg GTO 510×400 ve elle seçilen yön ile dizilim.
