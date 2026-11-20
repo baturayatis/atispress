@@ -50,6 +50,10 @@ extension Project {
     /// Consumes selected pages exactly once. Splitting a duplex job preserves both
     /// pages as separate fronts; a duplex override consumes the next selected page.
     public var repeatJobs: [RepeatJob] {
+        if activeMachineProfile?.faces == .single {
+            return pages.map { RepeatJob(front: $0, back: nil, frontOnly: true) }
+        }
+
         if let items=pageItems,items.contains(where:{$0.side != nil}) {
             let metadata=Dictionary(items.map{($0.id,$0)},uniquingKeysWith:{$1})
             let selected=Dictionary(pages.map{($0.number,$0)},uniquingKeysWith:{$1})

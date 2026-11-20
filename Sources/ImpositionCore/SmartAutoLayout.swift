@@ -86,6 +86,18 @@ public enum SmartAutoLayout {
         var rotations: Int
     }
     public static func arrange(_ original: Project,resetOverrides: Bool = false) -> AutoLayoutResult {
+        if let profile = original.activeMachineProfile {
+            var project = original
+            if resetOverrides {
+                project.stepAndRepeat.rows = nil
+                project.stepAndRepeat.columns = nil
+                project.gang?.mode = .automatic
+                project.gang?.blocks = []
+            }
+            return AutoLayoutResult(project: project, presetName: presetName(for: profile.size),
+                                    summary: profile.name, plan: ImpositionPlanner.plan(project))
+        }
+
         if original.hasRescaling {
             let arranged = arrange(original.rescaledPlanningInput,resetOverrides:resetOverrides)
             var restored = arranged.project

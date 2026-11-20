@@ -124,13 +124,16 @@ public enum GangPlanner {
         return Rect(x: b.origin.x,y: b.origin.y,width: Double(b.columns)*w+Double(b.columns-1)*gutter,height: Double(b.rows)*h+Double(b.rows-1)*gutter)
     }
     /// Pareto dynamic programming over slicing trees. Search bounds are explicit in the plan.
-    private static func pack(jobs: [GangJob],required: [Int],sheets: Int,factor: Int,area: Size,gutter: Double) -> Candidate? {
+    private static func pack(jobs: [GangJob],required: [Int],sheets: Int,factor: Int,area: Size,gutter: Double,rotation: MachineProfile.Rotation?) -> Candidate? {
         var memo: [Int:[Candidate]] = [:]
+        func capacity(_ candidate: Candidate) -> Int {
+            candidate.blocks.reduce(0) { $0+$1.columns*$1.rows }
+        }
         func frontier(_ input: [Candidate]) -> [Candidate] {
             var out: [Candidate] = []
             for c in input.sorted(by: { $0.size.width == $1.size.width ? $0.size.height < $1.size.height : $0.size.width < $1.size.width }) {
-                if out.contains(where: { $0.size.width <= c.size.width+0.000001 && $0.size.height <= c.size.height+0.000001 }) { continue }
-                out.removeAll { c.size.width <= $0.size.width && c.size.height <= $0.size.height }
+                if out.contains(where: { $0.size.width <= c.size.width+0.000001 && $0.size.height <= c.size.height+0.000001 && (rotation == nil || capacity($0) >= capacity(c)) }) { continue }
+                out.removeAll { c.size.width <= $0.size.width && c.size.height <= $0.size.height && (rotation == nil || capacity(c) >= capacity($0)) }
                 out.append(c)
             }
             // Sampling preserves both narrow/tall and wide/short extremes for larger jobs.
@@ -147,12 +150,16 @@ public enum GangPlanner {
             if mask.nonzeroBitCount == 1 {
                 let i = mask.trailingZeroBitCount,j = jobs[i]
                 let need = 1+((1+(required[i]-1)/sheets)-1)/factor
-                for rotated in (j.allowRotation ? [false,true] : [false]) {
+                for rotated in rotation?.angles.map({ $0 == 90 }) ?? (j.allowRotation ? [false,true] : [false]) {
                     let w = rotated ? j.front.trimSize.height : j.front.trimSize.width,h = rotated ? j.front.trimSize.width : j.front.trimSize.height
                     let maxCols = min(200,Int(min(200,max(0,(area.width+gutter)/(w+gutter)))))
                     guard maxCols > 0 else { continue }
                     for cols in 1...maxCols {
-                        let rows = 1+(need-1)/cols
+                        let minimumRows = 1+(need-1)/cols
+                        let fittingRows = Int(min(200, (area.height+gutter)/(h+gutter)))
+                        let rows = rotation != nil && jobs.count == 1
+                            ? min(fittingRows, 20_000/factor/cols) : minimumRows
+                        guard rows >= minimumRows else { continue }
                         guard rows <= 200,cols*rows <= 20_000 else { continue }
                         let size = Size(Double(cols)*w+Double(cols-1)*gutter,Double(rows)*h+Double(rows-1)*gutter)
                         if size.width <= area.width+0.000001 && size.height <= area.height+0.000001 {
@@ -180,7 +187,10 @@ public enum GangPlanner {
             }
             let result = frontier(choices); memo[mask] = result; return result
         }
-        return solve((1<<jobs.count)-1).min { $0.size.width*$0.size.height < $1.size.width*$1.size.height }
+        return solve((1<<jobs.count)-1).min {
+            if rotation != nil, capacity($0) != capacity($1) { return capacity($0) > capacity($1) }
+            return $0.size.width*$0.size.height < $1.size.width*$1.size.height
+        }
     }
     /// Bounded packing in horizontal guillotine strips. Each entry represents one copy.
     static func shelfBlocks(jobs: [GangJob], area: Rect, gutter: Double) -> [GangBlock]? {
@@ -225,15 +235,24 @@ public enum GangPlanner {
         }
         return blocks
     }
+    private static func blockEnvelope(_ rects: [Rect]) -> Rect {
+        let left = rects.map { $0.origin.x }.min()!
+        let bottom = rects.map { $0.origin.y }.min()!
+        let right = rects.map { $0.origin.x+$0.size.width }.max()!
+        let top = rects.map { $0.origin.y+$0.size.height }.max()!
+        return Rect(x: left, y: bottom, width: right-left, height: top-bottom)
+    }
+
     public static func plan(_ project: Project) -> ImpositionPlan {
-        plan(project, teamLayout: false)
+        if project.activeMachineProfile != nil { return ImpositionPlanner.plan(project) }
+        return plan(project, teamLayout: false)
     }
     static func plan(_ project: Project, teamLayout: Bool) -> ImpositionPlan {
         if project.team != nil {return TeamPlanner.plan(project)}
         var result = ImpositionPlan()
         guard let gang = project.gang,!gang.jobs.isEmpty else { return result }
         func issue(_ text: String,_ severity: ValidationIssue.Severity = .error) { result.issues.append(ValidationIssue(severity,.gangLayout,text)) }
-        let jobs = gang.jobs,spec = project.sheet
+        let profile = project.activeMachineProfile, jobs = gang.jobs,spec = project.sheet
         let limit = teamLayout ? maximumJobs : 8
         guard jobs.count <= limit, Set(jobs.map(\.id)).count == jobs.count else {
             issue("Karışık düzende en fazla \(limit) benzersiz iş desteklenir.")
@@ -253,7 +272,7 @@ public enum GangPlanner {
         // Positive gutters must protect both jobs' bleeds. Zero gutter means common trim, perimeter bleed only.
         let bleed = jobs.map(\.bleed).max() ?? 0
         let gap = spec.gutter
-        if gap > 0 && gap < 2*bleed { issue("Ara boşluk \(gap) mm; iki taşma için en az \(2*bleed) mm gerekir.") }
+        if profile == nil && gap > 0 && gap < 2*bleed { issue("Ara boşluk \(gap) mm; iki taşma için en az \(2*bleed) mm gerekir.") }
         let reserve = max(bleed,project.settings.cropMarkOffset+project.settings.cropMarkLength)
         var size = spec.size
         if spec.orientation == .portrait { size = Size(min(size.width,size.height),max(size.width,size.height)) }
@@ -266,17 +285,17 @@ public enum GangPlanner {
         var area = region(size),blocks = gang.blocks
         if gang.mode == .automatic {
             var best: (Int,Size,Candidate)?
-            for stock in spec.orientation == .auto ? [size,Size(size.height,size.width)] : [size] {
+            for stock in profile == nil && spec.orientation == .auto ? [size,Size(size.height,size.width)] : [size] {
                 let r = region(stock)
                 guard r.size.width>0,r.size.height>0 else { continue }
                 var low = 1,high = required.max()!
-                guard pack(jobs: jobs,required: required,sheets: high,factor: factor,area: r.size,gutter: gap) != nil else { continue }
+                guard pack(jobs: jobs,required: required,sheets: high,factor: factor,area: r.size,gutter: gap,rotation: profile?.rotation) != nil else { continue }
                 while low<high {
                     if Task.isCancelled { return result }
                     let mid = low+(high-low)/2
-                    if pack(jobs: jobs,required: required,sheets: mid,factor: factor,area: r.size,gutter: gap) != nil { high = mid } else { low = mid+1 }
+                    if pack(jobs: jobs,required: required,sheets: mid,factor: factor,area: r.size,gutter: gap,rotation: profile?.rotation) != nil { high = mid } else { low = mid+1 }
                 }
-                if let c = pack(jobs: jobs,required: required,sheets: low,factor: factor,area: r.size,gutter: gap),best == nil || low<best!.0 { best = (low,stock,c) }
+                if let c = pack(jobs: jobs,required: required,sheets: low,factor: factor,area: r.size,gutter: gap,rotation: profile?.rotation),best == nil || low<best!.0 { best = (low,stock,c) }
             }
             if let best { size = best.1; area = region(size); blocks = best.2.blocks.map {
                 var b = $0
@@ -290,6 +309,20 @@ public enum GangPlanner {
             }
         }
         guard blocks.count<=1000,blocks.allSatisfy({ b in jobs.contains { $0.id==b.jobID } && (1...200).contains(b.columns) && (1...200).contains(b.rows) && b.columns*b.rows<=20_000 && b.origin.x.isFinite && b.origin.y.isFinite }) else { issue("Elle düzen blokları geçersiz."); return result }
+        if let profile, gang.mode == .manual, !blocks.isEmpty {
+            let bounds = blockEnvelope(blocks.map { block in
+                blockBounds(block, job: jobs.first { $0.id == block.jobID }!, gutter: gap)
+            })
+            let dx = area.origin.x + (area.size.width-bounds.size.width)/2-bounds.origin.x
+            let dy = area.origin.y + (area.size.height-bounds.size.height)/2-bounds.origin.y
+            for index in blocks.indices {
+                if !profile.rotation.angles.contains(blocks[index].rotated ? 90 : 0) {
+                    issue("Blok yönü makine profiline uymuyor. Otomatik yerleşimi kullanın.")
+                }
+                blocks[index].origin.x += dx
+                blocks[index].origin.y += dy
+            }
+        }
         let slotCount = blocks.reduce(0) { $0+$1.columns*$1.rows }
         guard slotCount <= 20_000/factor else { issue("Tabaka başına 20.000 yuva sınırı aşıldı."); return result }
         let rects = blocks.map { b in blockBounds(b,job: jobs.first { $0.id == b.jobID }!,gutter: gap) }
@@ -297,7 +330,7 @@ public enum GangPlanner {
             if r.origin.x<area.origin.x-0.000001 || r.origin.y<area.origin.y-0.000001 || r.origin.x+r.size.width>area.origin.x+area.size.width+0.000001 || r.origin.y+r.size.height>area.origin.y+area.size.height+0.000001 { issue("Blok \(i+1): kenar/maşa/taşma sınırını aşıyor (\(String(format: "%.1f",r.origin.x)), \(String(format: "%.1f",r.origin.y)) mm.") }
             for (k,q) in rects.enumerated() where k>i {
                 if overlaps(r,q) { issue("Blok \(i+1) ve \(k+1) çakışıyor.") }
-                else if spec.gutter>0 {
+                else if spec.gutter>0 && profile == nil {
                     let a = Rect(x:r.origin.x-bleed,y:r.origin.y-bleed,width:r.size.width+2*bleed,height:r.size.height+2*bleed)
                     let b = Rect(x:q.origin.x-bleed,y:q.origin.y-bleed,width:q.size.width+2*bleed,height:q.size.height+2*bleed)
                     if overlaps(a,b) { issue("Blok \(i+1) ve \(k+1): taşmalar arasında yeterli boşluk yok.") }
@@ -318,8 +351,8 @@ public enum GangPlanner {
         for (blockIndexInLayout,b) in blocks.enumerated() {
             let blockIndex = blockIndices[b.jobID] ?? 0; blockIndices[b.jobID] = blockIndex+1
             let j = jobs.first { $0.id==b.jobID }!,w = b.rotated ? j.front.trimSize.height : j.front.trimSize.width,h = b.rotated ? j.front.trimSize.width : j.front.trimSize.height
-            if b.rotated && !j.allowRotation { issue("\(j.name): 90° döndürme kapalı; blok döndürülmüş.") }
-            if let reverse = j.back {
+            if profile == nil && b.rotated && !j.allowRotation { issue("\(j.name): 90° döndürme kapalı; blok döndürülmüş.") }
+            if profile?.faces != .single, let reverse = j.back {
                 let difference = max(abs(reverse.trimSize.width - j.front.trimSize.width), abs(reverse.trimSize.height - j.front.trimSize.height))
                 if teamLayout ? difference > 0.0001 : reverse.trimSize != j.front.trimSize {
                     issue("\(j.name): ön ve arka kesim ölçüleri eşit değil.")
@@ -352,7 +385,7 @@ public enum GangPlanner {
                     }
                 }
                 p.artworkClip = Rect(x:x-l,y:y-d,width:w+l+r,height:h+d+t)
-                var reverse = p; reverse.sourcePageNumber = j.back?.number; reverse.itemSide = .back
+                var reverse = p; reverse.sourcePageNumber = profile?.faces == .single ? nil : j.back?.number; reverse.itemSide = .back
                 front.slots.append(p); back.slots.append(reflected(reverse))
                 if samePlate {
                     var otherFront = reflected(reverse); otherFront.copyIndex = p.copyIndex!+c; otherFront.serialCopyIndex = (p.serialCopyIndex ?? 0)+c
@@ -395,7 +428,7 @@ public enum GangPlanner {
             for field in recipe.fields {
                 if let note = field.digitNote(quantity:recipe.quantity) { result.issues.append(ValidationIssue(.warning,.serialNumbering,j.name+": "+note)) }
             }
-            let missing = [j.front,j.back].compactMap { $0 }.filter { ($0.availableBleed ?? 0)<j.bleed }
+            let missing = [j.front,profile?.faces == .single ? nil : j.back].compactMap { $0 }.filter { ($0.availableBleed ?? 0)<j.bleed }
             if !missing.isEmpty && !j.generatedBleed.enabled {
                 var warning = ValidationIssue(.warning,.missingBleed,"\(j.name): \(missing.count) sayfada taşma payı eksik.")
                 warning.affectedPages = missing.map(\.number); result.issues.append(warning)
@@ -421,7 +454,16 @@ public enum GangPlanner {
         func guides(_ side: inout Side) {
             for slot in side.slots {
                 var s = project.settings; s.bleed = jobs.first { $0.id==slot.gangJobID }?.bleed ?? 0
-                side.marks += ImpositionPlanner.marks(slot,s)
+                let marks = ImpositionPlanner.marks(slot,s)
+                side.marks += profile == nil ? marks : marks.filter { $0.kind != .crop }
+            }
+            if profile != nil, !side.slots.isEmpty {
+                let bounds = blockEnvelope(side.slots.map {
+                    Rect(x: $0.x, y: $0.y, width: $0.size.width, height: $0.size.height)
+                })
+                let xs = Set(side.slots.flatMap { [$0.x, $0.x+$0.size.width] }).sorted()
+                let ys = Set(side.slots.flatMap { [$0.y, $0.y+$0.size.height] }).sorted()
+                side.marks += ImpositionPlanner.perimeterCropMarks(xs: xs, ys: ys, bounds: bounds, settings: project.settings)
             }
             side.marks += ImpositionPlanner.pressGuides(spec,size)
         }

@@ -225,6 +225,7 @@ public struct ExportMarks: Equatable, Sendable, Codable {
     public static var none: ExportMarks { var value = ExportMarks(); value.crop = false; return value }
 }
 public struct Project: Equatable, Sendable, Codable {
+    public var machineProfile: MachineProfile? = nil
     public var sourcePreparation:SourcePreparationSettings? = nil
     public var scaling: ScalingSettings? = nil
     public var rescaleJobs: [RescaleJob]? = nil
@@ -263,10 +264,11 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case internalCutJobs, team, previouslyHadBacks, pageItemNextID, pageItems, sourcePreparation, scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case machineProfile, internalCutJobs, team, previouslyHadBacks, pageItemNextID, pageItems, sourcePreparation, scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        machineProfile = try c.decodeIfPresent(MachineProfile.self, forKey: .machineProfile)
         previouslyHadBacks = try c.decodeIfPresent(Bool.self,forKey:.previouslyHadBacks)
         pageItemNextID = try c.decodeIfPresent(Int.self,forKey:.pageItemNextID)
         pageItems = try c.decodeIfPresent([PageListItem].self,forKey:.pageItems)

@@ -155,13 +155,59 @@ final class Workspace: ObservableObject {
     private let bookmarkCreator: (URL) throws -> Data
     private let recentStore: RecentFilesStore
     private let filePicker: FilePicker?
+    private let machineDefaults: UserDefaults
+    private static let machineProfilesKey = "machineProfiles"
+    private static let selectedMachineKey = "selectedMachineProfile"
+    @Published private(set) var machineProfiles: [MachineProfile] = []
+
+    private var preferredMachineProfile: MachineProfile? {
+        machineProfiles.first { $0.id.uuidString == machineDefaults.string(forKey: Self.selectedMachineKey) }
+    }
+
+    func selectMachineProfile(_ profile: MachineProfile?) {
+        project.machineProfile = profile
+        machineDefaults.set(profile?.id.uuidString, forKey: Self.selectedMachineKey)
+    }
+
+    func saveMachineProfile(_ profile: MachineProfile) {
+        guard profile.isValid else { return }
+        var profiles = loadMachineProfiles()
+        if let index = profiles.firstIndex(where: { $0.id == profile.id }) { profiles[index] = profile }
+        else { profiles.append(profile) }
+        storeMachineProfiles(profiles)
+        selectMachineProfile(profile)
+    }
+
+    func deleteMachineProfile(_ id: UUID) {
+        storeMachineProfiles(loadMachineProfiles().filter { $0.id != id })
+        if project.machineProfile?.id == id { selectMachineProfile(nil) }
+        else if machineDefaults.string(forKey: Self.selectedMachineKey) == id.uuidString {
+            machineDefaults.removeObject(forKey: Self.selectedMachineKey)
+        }
+    }
+
+    private func loadMachineProfiles() -> [MachineProfile] {
+        guard let data = machineDefaults.data(forKey: Self.machineProfilesKey),
+              let profiles = try? JSONDecoder().decode([MachineProfile].self, from: data) else { return [.heidelberg] }
+        return profiles.filter(\.isValid)
+    }
+
+    private func storeMachineProfiles(_ profiles: [MachineProfile]) {
+        guard let data = try? JSONEncoder().encode(profiles) else { return }
+        machineDefaults.set(data, forKey: Self.machineProfilesKey)
+        machineProfiles = profiles
+    }
+
     @Published private(set) var recentFiles: [RecentFile] = []
     init(bookmarkCreator: @escaping (URL) throws -> Data = ProjectSource.securityBookmark,
          recentStore: RecentFilesStore? = nil,filePicker: FilePicker? = nil,uiDefaults:UserDefaults = .standard) {
         self.ui = UsabilitySettings(defaults:uiDefaults)
+        machineDefaults = uiDefaults
         self.bookmarkCreator = bookmarkCreator
         self.recentStore = recentStore ?? RecentFilesStore()
         self.filePicker = filePicker
+        machineProfiles = loadMachineProfiles()
+        project.machineProfile = preferredMachineProfile
         recentFiles = self.recentStore.files()
         savedState = state
         journal.reset(editSnapshot)
@@ -740,7 +786,10 @@ extension Workspace {
         source = nil; sourceReference = nil; projectURL = nil; projectAccess = nil
         order = []; included = []; selectedPages = []; overlays = Self.defaultPreviewOverlays(); sheetPreset = Self.automaticSheetTitle
         bookletGutter = nil; repeatGutter = 0; gangGutter = nil
-        project = Self.newProject()
+        machineProfiles = loadMachineProfiles()
+        var next = Self.newProject()
+        next.machineProfile = preferredMachineProfile
+        project = next
         planTask?.cancel(); revision = UUID()
         plan = ImpositionPlan(); sheetIndex = 0; side = .front; repetition = 0; selectedSerialID = nil
         planning = false; exportSummary = nil; exportVerification = nil; exportNotes = []; exportedFiles = []; error = nil

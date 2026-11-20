@@ -42,6 +42,12 @@ public enum ImpositionPlanner {
             return result
         }
         var project = source
+        if let profile = source.activeMachineProfile {
+            guard profile.isValid else {
+                return ImpositionPlan(issues: [ValidationIssue(.error, .invalidInput, "Makine profili ölçüleri geçersiz.")])
+            }
+            project = source.applyingMachineProfile(profile)
+        }
         // A folding signature is contiguous paper. Flat-job trim gutters must
         // never open a gap at a fold, including legacy saved positive values.
         // Preserve invalid input for the existing validation path.
@@ -65,7 +71,7 @@ public enum ImpositionPlanner {
         return result
     }
     private static func layoutPlan(_ project: Project) -> ImpositionPlan {
-        if project.binding == .gang { return GangPlanner.plan(project) }
+        if project.binding == .gang { return GangPlanner.plan(project, teamLayout: false) }
         if project.binding == .stepAndRepeat { return repeatPlan(project) }
         var result = ImpositionPlan(generatedBleed: project.settings.generatedBleed)
         func error(_ code: ValidationIssue.Code, _ message: String) {

@@ -44,6 +44,10 @@ struct InspectorView: View {
             .task {model.refreshWorkflowRecommendation()}
             .onChange(of:model.project) {_,_ in model.refreshWorkflowRecommendation()}
     }
+    private var usingMachineProfile: Bool {
+        model.project.supportsMachineProfile && model.project.machineProfile != nil
+    }
+
     private var sections: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(groups) { group in
@@ -75,11 +79,14 @@ struct InspectorView: View {
         case .waste: FireControlsView(model:model)
         case .presets: PresetInspectorView(model:model)
         case .paper:
-            workflowPaper
-            sheetControls
+            if model.project.supportsMachineProfile { MachineProfileView(model: model) }
+            if !usingMachineProfile {
+                workflowPaper
+                sheetControls
+            }
         case .products: montageProducts
         case .placement: placementControls
-        case .jobFaces: jobFaceControls
+        case .jobFaces: jobFaceControls.disabled(usingMachineProfile && model.project.machineProfile?.faces == .single)
         case .binding:
             if model.project.isLeafBinding { LeafInspectorView(model:model,section:0) }
             else { signatureControls }
@@ -90,10 +97,10 @@ struct InspectorView: View {
         case .spine: BookInspectorView(model:model,section:2)
         case .blanks: BlankPlacementInspector(model:model)
         case .edges:
-            edgeControls
+            edgeControls.disabled(usingMachineProfile)
             Picker("Hizalama",selection:model.autoBinding($model.project.blockAlignment,.alignment)) {
                 Text("Ortala").tag(BlockAlignment.center);Text("Maşaya yasla").tag(BlockAlignment.gripper)
-            }.pickerStyle(.segmented).inspectorTarget("alignment").automaticReset(model,.alignment)
+            }.pickerStyle(.segmented).inspectorTarget("alignment").automaticReset(model,.alignment).disabled(usingMachineProfile)
         case .bleed: workflowBleed
         case .generatedBleed: generatedBleedControls
         case .scale:
@@ -170,9 +177,11 @@ struct InspectorView: View {
 
     @ViewBuilder private var placementControls: some View {
         if model.project.binding == .stepAndRepeat { repeatControls }
-        if model.showsTurnControl { turnControls }
-        else if model.project.binding != .stepAndRepeat {
-            Text("Çevirme ayarı çift yüzlü işlerde kullanılabilir.").foregroundStyle(DesignSystem.muted)
+        if !usingMachineProfile {
+            if model.showsTurnControl { turnControls }
+            else if model.project.binding != .stepAndRepeat {
+                Text("Çevirme ayarı çift yüzlü işlerde kullanılabilir.").foregroundStyle(DesignSystem.muted)
+            }
         }
     }
 
@@ -391,14 +400,16 @@ struct InspectorView: View {
     private var repeatControls: some View {
         GroupBox("Tekrarlı Yerleşim") {
             VStack(alignment: .leading,spacing: 10) {
-                Picker("Dizilim",selection: Binding(get: { model.repeatArrangement },set: model.setRepeatArrangement)) {
-                    Text("Bitişik").tag(RepeatArrangement.adjacent)
-                    Text("Aralıklı").tag(RepeatArrangement.spaced)
-                    Text("Özel").tag(RepeatArrangement.custom)
-                }.pickerStyle(.segmented).inspectorTarget("arrangement").automaticReset(model,.gutter)
-                Text(model.repeatArrangement == .adjacent ? "Ortak kesim; taşma sadece blok çevresinde." : model.repeatArrangement == .spaced ? "Otomatik ara boşluk taşmanın iki katıdır." : "Elle belirlenen ara boşluk korunur.")
-                    .font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
-                Toggle("90° döndürmeye izin ver",isOn: model.autoBinding($model.project.stepAndRepeat.allowRotation,.allowRotation)).inspectorTarget("rotate").automaticReset(model,.allowRotation)
+                if !usingMachineProfile {
+                    Picker("Dizilim",selection: Binding(get: { model.repeatArrangement },set: model.setRepeatArrangement)) {
+                        Text("Bitişik").tag(RepeatArrangement.adjacent)
+                        Text("Aralıklı").tag(RepeatArrangement.spaced)
+                        Text("Özel").tag(RepeatArrangement.custom)
+                    }.pickerStyle(.segmented).inspectorTarget("arrangement").automaticReset(model,.gutter)
+                    Text(model.repeatArrangement == .adjacent ? "Ortak kesim; taşma sadece blok çevresinde." : model.repeatArrangement == .spaced ? "Otomatik ara boşluk taşmanın iki katıdır." : "Elle belirlenen ara boşluk korunur.")
+                        .font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                    Toggle("90° döndürmeye izin ver",isOn: model.autoBinding($model.project.stepAndRepeat.allowRotation,.allowRotation)).inspectorTarget("rotate").automaticReset(model,.allowRotation)
+                }
                 gridOverride("Sütun",value: $model.project.stepAndRepeat.columns,
                              automatic: model.currentSheet?.repeatLayout?.columns ?? 1,field: .columns)
                 gridOverride("Satır",value: $model.project.stepAndRepeat.rows,
@@ -411,9 +422,11 @@ struct InspectorView: View {
                     Text("Bu iş: \(sheet.repeatCount) tabaka · Üretim: \(sheet.producedQuantityDescription) adet")
                     Text("Tüm işler: \(model.plan.totalPressSheets) tabaka")
                 }
-                Text(model.project.sheet.gutter == 0 ? "Bitişik dizilimde taşma yoktur, kesim çizgisinde kırpılır" : "Ara boşluk, komşu taşma kutuları arasında ölçülür.")
-                    .font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
-                if model.project.settings.turnMethod != .sheetwise {
+                if !usingMachineProfile {
+                    Text(model.project.sheet.gutter == 0 ? "Bitişik dizilimde taşma yoktur, kesim çizgisinde kırpılır" : "Ara boşluk, komşu taşma kutuları arasında ölçülür.")
+                        .font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
+                }
+                if usingMachineProfile ? model.project.machineProfile?.faces == .workAndTurn : model.project.settings.turnMethod != .sheetwise {
                     Text("Aynı kalıp iki yüzde kullanılır. Çevirme eksenindeki ürün sayısı çift olmalıdır.")
                         .font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
                 }

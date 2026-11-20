@@ -9,7 +9,8 @@ extension ImpositionPlanner {
               spec.size.width > 0,spec.size.height > 0 else { return }
         let stock = spec.orientation == .landscape ? Size(max(spec.size.width,spec.size.height),min(spec.size.width,spec.size.height)) :
             spec.orientation == .portrait ? Size(min(spec.size.width,spec.size.height),max(spec.size.width,spec.size.height)) : spec.size
-        let reserve = project.layoutExteriorReserve
+        let profile = project.activeMachineProfile
+        let reserve = max(project.layoutExteriorReserve, profile != nil ? s.bleed : 0)
         var margins = spec.margins
         if project.binding == .stepAndRepeat {
             margins = project.blockAlignment == .center && s.turnMethod == .sheetwise ? usableMargins(spec) : repeatMargins(spec,mirrorX:repeatMirrorsX(project))
@@ -35,23 +36,25 @@ extension ImpositionPlanner {
                 rows = max(1,project.stepAndRepeat.rows ?? (s.turnMethod != .sheetwise && !repeatMirrorsX(project) ? 2 : 1)) }
             else if project.binding == .saddleStitch { columns = 2; rows = 1 }
             else { let n = project.settings.signatureSize.pageCount ?? 4; (columns,rows) = signatureGrid(n) }
-            let spacing = project.binding == .stepAndRepeat && spec.gutter > 0 ? 2*s.bleed+spec.gutter : spec.gutter
-            var grid = Size(Double(columns)*page.trimSize.width+Double(columns-1)*spacing,
-                            Double(rows)*page.trimSize.height+Double(rows-1)*spacing)
+            let spacing = profile == nil && project.binding == .stepAndRepeat && spec.gutter > 0 ? 2*s.bleed+spec.gutter : spec.gutter
+            let rotation = profile?.rotation == .ninety ? 90 : 0
+            let trim = rotation == 90 ? Size(page.trimSize.height,page.trimSize.width) : page.trimSize
+            var grid = Size(Double(columns)*trim.width+Double(columns-1)*spacing,
+                            Double(rows)*trim.height+Double(rows-1)*spacing)
             if project.binding != .stepAndRepeat {
                 if s.turnMethod == .workAndTurn { grid.width = 2*(grid.width+2*reserve)+spec.gutter-2*reserve }
                 if s.turnMethod == .workAndTumble { grid.height = 2*(grid.height+2*reserve)+spec.gutter-2*reserve }
             }
             let origin = Point(max(0,margins.left+reserve),max(0,margins.bottom+reserve))
             let needed = Size(grid.width+margins.left+margins.right+2*reserve,grid.height+margins.top+margins.bottom+2*reserve)
-            let slot = Slot(sourcePageNumber: page.number,origin: origin,size: page.trimSize,
-                            artworkClip: Rect(x: origin.x,y: origin.y,width: page.trimSize.width,height: page.trimSize.height))
+            let slot = Slot(sourcePageNumber: page.number,origin: origin,size: trim,rotation: rotation,
+                            artworkClip: Rect(x: origin.x,y: origin.y,width: trim.width,height: trim.height))
             var sheet = Sheet(size: stock,front: Side(slots: [slot]),back: Side(slots: [slot]))
             sheet.diagnosticBounds = Rect(x: origin.x,y: origin.y,width: grid.width,height: grid.height)
             let index = plan.diagnosticSheets.count
             plan.diagnosticSheets.append(sheet)
-            let text = String(format: "İş %d: ürün %.2f×%.2f mm; ızgara %d×%d (0°), gereken %.2f×%.2f mm; tabaka %.2f×%.2f mm; kullanılabilir %.2f×%.2f mm.",
-                job+1,page.trimSize.width,page.trimSize.height,columns,rows,needed.width,needed.height,stock.width,stock.height,
+            let text = String(format: "İş %d: ürün %.2f×%.2f mm; ızgara %d×%d (%d°), gereken %.2f×%.2f mm; tabaka %.2f×%.2f mm; kullanılabilir %.2f×%.2f mm.",
+                job+1,page.trimSize.width,page.trimSize.height,columns,rows,rotation,needed.width,needed.height,stock.width,stock.height,
                 max(0,stock.width-margins.left-margins.right),max(0,stock.height-margins.top-margins.bottom))
             plan.issues.append(ValidationIssue(.error,.exceedsSheet,text,
                 slot: SlotReference(sheet: plan.sheets.isEmpty ? index : plan.sheets.count+index,side: .front,slot: 0)))
