@@ -22,11 +22,10 @@ final class LeafWorkspaceTests: XCTestCase {
         context.closePDF(); return url
     }
     private func model() -> Workspace { Workspace(bookmarkCreator:{ try $0.bookmarkData(options:.minimalBookmark,includingResourceValuesForKeys:nil,relativeTo:nil) }) }
-    private func settle(_ model: Workspace) async throws {
-        // Native URL routing enqueues a MainActor task before starting the import.
+    private func settle(_ model: Workspace, until ready: () -> Bool = { true }) async throws {
         try await Task.sleep(for:.milliseconds(30))
         for _ in 0..<1500 {
-            if !model.loading && !model.planning && !model.autoArranging && !model.checkingBindingStrips { return }
+            if !model.loading && !model.planning && !model.autoArranging && !model.checkingBindingStrips && ready() { return }
             try await Task.sleep(for:.milliseconds(10))
         }
         XCTFail("Leaf workspace did not settle")
@@ -88,12 +87,13 @@ final class LeafWorkspaceTests: XCTestCase {
         let folder = try folder(),input = try pdf(folder,count:2),delegate = AppDelegate(),workspace = model()
         delegate.application(NSApplication.shared,open:[input]) // Arrives before SwiftUI connects workspace.
         delegate.workspace = workspace
-        try await settle(workspace)
+        try await settle(workspace, until: { workspace.source?.url == input })
         XCTAssertEqual(workspace.source?.url,input)
-        let project = folder.appendingPathComponent("native.atispress"); try workspace.saveProject(as:project)
+        let project = try workspace.saveProject(as: folder.appendingPathComponent("native.atispress"))
+        try workspace.saveProject(as: folder.appendingPathComponent("running.atispress"))
         delegate.application(NSApplication.shared,open:[project])
         delegate.receiveOpenURLs([project]) // duplicate SwiftUI event must not ask twice
-        try await settle(workspace)
+        try await settle(workspace, until: { workspace.projectURL == project })
         XCTAssertEqual(workspace.projectURL,project); XCTAssertNil(workspace.error); XCTAssertFalse(workspace.isModified)
     }
     func testBundleDeclaresOwnedEditableProjectUTIAndMatchingExtension() throws {

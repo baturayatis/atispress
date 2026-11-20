@@ -156,16 +156,20 @@ extension PresentationReviewTests {
 }
 
 extension PresentationReviewTests {
-    func testRelease050MetadataAndUpdateComparisonStayAligned() throws {
+    func testReleaseMetadataAndUpdateComparisonStayAligned() throws {
         let root = URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let data = try Data(contentsOf:root.appendingPathComponent("packaging/Info.plist"))
         let plist = try XCTUnwrap(PropertyListSerialization.propertyList(from:data,format:nil) as? [String:Any])
-        XCTAssertEqual(plist["CFBundleShortVersionString"] as? String,"0.5.0")
-        XCTAssertEqual(plist["CFBundleVersion"] as? String,"7")
-        XCTAssertEqual(AppHelp.version,"0.5.0"); XCTAssertEqual(AppHelp.buildNumber,"7")
-        XCTAssertFalse(try AppHelp.updateAvailable(data:Data(#"{"tag_name":"v0.5.0"}"#.utf8)))
-        XCTAssertFalse(try AppHelp.updateAvailable(data:Data(#"{"tag_name":"v0.1.0"}"#.utf8)))
-        XCTAssertTrue(try AppHelp.updateAvailable(data:Data(#"{"tag_name":"v0.5.1"}"#.utf8)))
+        let version = try XCTUnwrap(plist["CFBundleShortVersionString"] as? String)
+        let build = try XCTUnwrap(plist["CFBundleVersion"] as? String)
+        XCTAssertEqual(AppHelp.version, version)
+        XCTAssertEqual(AppHelp.buildNumber, build)
+        let current = try XCTUnwrap(ReleaseVersion(version))
+        let nextMajor = try XCTUnwrap(current.numbers.first) + 1
+        let encoder = JSONEncoder()
+        XCTAssertFalse(try AppHelp.updateAvailable(data: encoder.encode(["tag_name": "v\(version)"])))
+        XCTAssertFalse(try AppHelp.updateAvailable(data: encoder.encode(["tag_name": "v0.1.0"])))
+        XCTAssertTrue(try AppHelp.updateAvailable(data: encoder.encode(["tag_name": "v\(nextMajor).0.0"])))
         for name in ["build_app.sh","make_dmg.sh"] {
             let script = try String(contentsOf:root.appendingPathComponent("scripts/"+name),encoding:.utf8)
             XCTAssertTrue(script.contains("packaging/Info.plist"))
