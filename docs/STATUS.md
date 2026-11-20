@@ -1,5 +1,14 @@
 # AtışPress — sayfa-bol durumu
 
+
+## 0.6.0 · build 8
+
+- Makine Profili, Heidelberg GTO 510×400 ve elle seçilen yön ile dizilim.
+- İş Şablonu, isteğe bağlı ebat uyarısı ve JSON içe/dışa aktarma.
+- Alt trim ve yatay kesim işareti maşa çizgisinde. Önizleme ve PDF aynı geometriyi kullanır.
+
+## Önceki durum
+
 15 Kasım 2026 · Dal: `sayfa-bol` · Proje şeması: **19**.
 
 ## Çalışanlar
