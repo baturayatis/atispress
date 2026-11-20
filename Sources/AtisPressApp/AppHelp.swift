@@ -76,6 +76,13 @@ struct HelpPanel:View {
                 Text("Açıklamanızı ve tanı bilgisini GitHub hata kaydına kendiniz ekleyebilirsiniz.").font(.caption)
                 Link("Hata kayıtlarını aç",destination:URL(string:"https://github.com/baturayatis/atispress/issues")!)
             } else if mode == "AtışPress Hakkında" {
+                if let icon = NSApplication.shared.applicationIconImage {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 80, height: 80)
+                        .accessibilityHidden(true)
+                }
                 Text("AtışPress · \(AppHelp.version) (\(AppHelp.buildNumber))")
                 Text(AppHelp.licenseName)
                 Text("© 2026 Atış Ajans · Tüm hakları saklıdır.")
