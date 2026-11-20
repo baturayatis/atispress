@@ -43,6 +43,30 @@ struct ProjectWindowControl: NSViewRepresentable {
             self.window = window; original = window.delegate; window.delegate = self
             model.closeApproved = false
             update()
+            addTitleIcon(to: window)
+        }
+        private func addTitleIcon(to window: NSWindow) {
+            guard let image = NSApplication.shared.applicationIconImage else { return }
+
+            let size: CGFloat = 20
+            let accessory = NSTitlebarAccessoryViewController()
+            accessory.view = NSView(frame: NSRect(x: 0, y: 0, width: size, height: size))
+            accessory.layoutAttribute = .left
+
+            let iconView = NSImageView(image: image)
+            iconView.imageScaling = .scaleProportionallyDown
+            iconView.setAccessibilityElement(false)
+            iconView.translatesAutoresizingMaskIntoConstraints = false
+            accessory.view.addSubview(iconView)
+            window.addTitlebarAccessoryViewController(accessory)
+
+            let titleRow = window.standardWindowButton(.closeButton) ?? accessory.view
+            NSLayoutConstraint.activate([
+                iconView.centerXAnchor.constraint(equalTo: accessory.view.centerXAnchor),
+                iconView.centerYAnchor.constraint(equalTo: titleRow.centerYAnchor),
+                iconView.widthAnchor.constraint(equalToConstant: size),
+                iconView.heightAnchor.constraint(equalToConstant: size)
+            ])
         }
         func update() {
             window?.isDocumentEdited = model.isModified
