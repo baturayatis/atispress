@@ -545,8 +545,8 @@ final class Workspace: ObservableObject {
             finish(response == .OK ? panel.url : nil)
         }
     }
-    func open(_ url: URL,confirmChanges: Bool = true) {
-        if project.binding == .gang && project.team == nil && project.sourcePreparation?.hasPreparedProducts != true && project.sourcePreparation?.hiddenGuideGroups.isEmpty != false && url.pathExtension.lowercased() == "pdf" { addGangPDFs([url]); return }
+    func open(_ url: URL,confirmChanges: Bool = true, confirmTemplateSize: ((JobTemplateSizeMismatch) -> Bool)? = nil) {
+        if project.binding == .gang && project.team == nil && project.sourcePreparation?.hasPreparedProducts != true && project.sourcePreparation?.hiddenGuideGroups.isEmpty != false && url.pathExtension.lowercased() == "pdf" { addGangPDFs([url], confirmTemplateSize: confirmTemplateSize); return }
         guard !preparingSource,!loading, !exporting, !autoArranging, (!confirmChanges || confirmDiscard()) else { return }
         showingTeamImportChoice = false
         if url.pathExtension.lowercased() == "atispress" {
@@ -566,6 +566,7 @@ final class Workspace: ObservableObject {
             do {
                 let source = try await openPagePDF(url)
                 guard !Task.isCancelled, importRevision == token else { return }
+                try checkJobTemplateSize(source, confirm: confirmTemplateSize)
                 var baseline = project
                 var prepared: AutoLayoutResult
                 while true {
@@ -1338,7 +1339,7 @@ extension Workspace {
         panel.title = "Karışık işe PDF ekle"; panel.prompt = "Ekle"
         panel.begin { [weak self] response in if response == .OK { self?.addGangPDFs(panel.urls) } }
     }
-    func addGangPDFs(_ urls: [URL]) {
+    func addGangPDFs(_ urls: [URL], confirmTemplateSize: ((JobTemplateSizeMismatch) -> Bool)? = nil) {
         guard !loading,!exporting,project.binding == .gang,project.team == nil,project.sourcePreparation?.separation == nil,!urls.isEmpty else { return }
         loading = true; error = nil; pdfLoadFailure=nil
         importTask = Task {
@@ -1347,6 +1348,7 @@ extension Workspace {
                 let originalCount = settings.jobs.count
                 for url in urls {
                     let pdf = try await PDFSource.open(url),id = UUID()
+                    try checkJobTemplateSize(pdf, confirm: confirmTemplateSize)
                     let reference = try ProjectSource.capture(url,createBookmark: bookmarkCreator)
                     let offset = assets.reduce(0) { $0+$1.source.pages.count }
                     var added = makeGangJobs(source:pdf,id:id,offset:offset,baseline:project)
@@ -1718,18 +1720,46 @@ extension Workspace {
     }
     func refreshJobTemplates() throws { jobTemplates = try templateStore.load() }
 
-    func saveJobTemplate(name: String) throws {
-        let template = JobTemplate(name: try templateName(name), project: project, overlays: overlays)
+    var suggestedTemplateSize: Size? { JobTemplate.inferredSize(from: templateArtworkPages) }
+
+    private var templateArtworkPages: [SourcePage] {
+        if project.binding == .gang, let jobs = project.gang?.jobs, !jobs.isEmpty {
+            return jobs.flatMap { [$0.front] + [$0.back].compactMap { $0 } }
+        }
+        return project.pages
+    }
+
+    func saveJobTemplate(name: String, expectedSize: Size? = nil) throws {
+        let template = JobTemplate(name: name, project: project, overlays: overlays, expectedSize: expectedSize)
         try templateStore.save(template)
         try refreshJobTemplates()
         selectedJobTemplateID = template.id
     }
 
-    func renameJobTemplate(_ id: UUID, to name: String) throws {
-        guard var template = try templateStore.load().first(where: { $0.id == id }) else { return }
-        template.name = try templateName(name)
+    func updateJobTemplate(_ id: UUID, name: String, expectedSize: Size?) throws {
+        guard var template = try templateStore.load().first(where: { $0.id == id }) else { throw JobTemplateError.missingTemplate }
+        template.name = name
+        template.expectedSize = expectedSize
         try templateStore.save(template)
         try refreshJobTemplates()
+    }
+
+    func exportJobTemplate(_ id: UUID, to url: URL) throws {
+        guard let template = jobTemplates.first(where: { $0.id == id }) else { throw JobTemplateError.missingTemplate }
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        try JobTemplateStore.write(template, to: url)
+    }
+
+    @discardableResult
+    func importJobTemplate(from url: URL) throws -> JobTemplate {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        var template = try JobTemplateStore.read(url)
+        if try templateStore.load().contains(where: { $0.id == template.id }) { template.id = UUID() }
+        try templateStore.save(template)
+        try refreshJobTemplates()
+        return template
     }
 
     func deleteJobTemplate(_ id: UUID) throws {
@@ -1738,14 +1768,28 @@ extension Workspace {
         try refreshJobTemplates()
     }
 
-    private func templateName(_ name: String) throws -> String {
-        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { throw CocoaError(.validationMissingMandatoryProperty) }
-        return name
+    func checkJobTemplateSize(_ pdf: PDFSource, confirm: ((JobTemplateSizeMismatch) -> Bool)? = nil) throws {
+        guard let template = jobTemplates.first(where: { $0.id == selectedJobTemplateID }),
+              let mismatch = template.mismatch(in: pdf.pages.map(\.sourcePage)) else { return }
+        guard (confirm ?? confirmJobTemplateSize)(mismatch) else { throw CancellationError() }
     }
 
-    func loadJobTemplate(_ template: JobTemplate) {
+    private func confirmJobTemplateSize(_ mismatch: JobTemplateSizeMismatch) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "PDF ebadı şablonla uyuşmuyor"
+        let expected = TRFormat.size(mismatch.expected.width, mismatch.expected.height)
+        let actual = TRFormat.size(mismatch.actual.width, mismatch.actual.height)
+        alert.informativeText = "“\(mismatch.templateName)” için beklenen ebat \(expected). PDF’nin \(mismatch.page). sayfası \(actual)."
+        alert.addButton(withTitle: "Devam Et")
+        alert.addButton(withTitle: "İptal")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    func loadJobTemplate(_ template: JobTemplate, confirmTemplateSize: ((JobTemplateSizeMismatch) -> Bool)? = nil) {
         guard !loading, !exporting, !autoArranging, !preparingSource else { return }
+        if let mismatch = template.mismatch(in: templateArtworkPages),
+           !(confirmTemplateSize ?? confirmJobTemplateSize)(mismatch) { return }
         let wasModified = isModified
         beginUndoGroup()
         restoring = true

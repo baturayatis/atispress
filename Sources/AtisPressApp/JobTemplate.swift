@@ -5,11 +5,13 @@ import PDFEngine
 struct JobTemplate: Codable, Identifiable {
     var id = UUID()
     var name: String
+    var expectedSize: Size?
     var settings: Project
     var overlays: PDFRenderOptions
 
-    init(name: String, project: Project, overlays: PDFRenderOptions) {
+    init(name: String, project: Project, overlays: PDFRenderOptions, expectedSize: Size? = nil) {
         self.name = name
+        self.expectedSize = expectedSize
         self.overlays = overlays
         // Keep the layout settings independent of the original PDF and bookmarks.
         var settings = project
@@ -34,6 +36,32 @@ struct JobTemplate: Codable, Identifiable {
             settings.gang = gang
         }
         self.settings = settings
+    }
+
+    static func inferredSize(from pages: [SourcePage]) -> Size? {
+        guard let first = pages.first?.trimSize, pages.allSatisfy({ matches($0.trimSize, first) }) else { return nil }
+        return first
+    }
+
+    func mismatch(in pages: [SourcePage]) -> JobTemplateSizeMismatch? {
+        guard let expectedSize, let page = pages.first(where: { !Self.matches($0.trimSize, expectedSize) }) else { return nil }
+        return JobTemplateSizeMismatch(templateName: name, expected: expectedSize, actual: page.trimSize, page: page.number)
+    }
+
+    private static func matches(_ first: Size, _ second: Size) -> Bool {
+        let a = [first.width, first.height].sorted()
+        let b = [second.width, second.height].sorted()
+        return abs(a[0]-b[0]) <= 0.1 && abs(a[1]-b[1]) <= 0.1
+    }
+
+    func validated() throws -> Self {
+        var template = self
+        template.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !template.name.isEmpty,
+              expectedSize.map({ [$0.width, $0.height].allSatisfy { $0.isFinite && $0 > 0 && $0 <= 10_000 } }) ?? true else {
+            throw JobTemplateError.invalidMetadata
+        }
+        return template
     }
 
     func applying(to project: Project) -> Project {
@@ -95,6 +123,25 @@ struct JobTemplate: Codable, Identifiable {
     }
 }
 
+struct JobTemplateSizeMismatch {
+    var templateName: String
+    var expected: Size
+    var actual: Size
+    var page: Int
+}
+
+enum JobTemplateError: LocalizedError {
+    case invalidMetadata, invalidJSON, missingTemplate
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidMetadata: "Şablon adı ve beklenen iş ebadı geçerli olmalı. Ebat için iki ölçüyü de girin veya ikisini de boş bırakın."
+        case .invalidJSON: "Dosya geçerli bir AtışPress iş şablonu içermiyor."
+        case .missingTemplate: "İş şablonu bulunamadı."
+        }
+    }
+}
+
 struct JobTemplateStore {
     var directory = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/AtışPress/templates", isDirectory: true)
@@ -104,7 +151,7 @@ struct JobTemplateStore {
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
         return try files.filter { $0.pathExtension == "json" && UUID(uuidString: $0.deletingPathExtension().lastPathComponent) != nil }
             .map { url in
-                let template = try JSONDecoder().decode(JobTemplate.self, from: Data(contentsOf: url))
+                let template = try Self.read(url)
                 guard self.url(template.id).lastPathComponent == url.lastPathComponent else { throw CocoaError(.fileReadCorruptFile) }
                 return template
             }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -112,9 +159,21 @@ struct JobTemplateStore {
 
     func save(_ template: JobTemplate) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Self.write(template, to: url(template.id))
+    }
+
+    static func read(_ url: URL) throws -> JobTemplate {
+        let data = try Data(contentsOf: url)
+        guard let template = try? JSONDecoder().decode(JobTemplate.self, from: data) else {
+            throw JobTemplateError.invalidJSON
+        }
+        return try template.validated()
+    }
+
+    static func write(_ template: JobTemplate, to url: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(template).write(to: url(template.id), options: .atomic)
+        try encoder.encode(template.validated()).write(to: url, options: .atomic)
     }
 
     func delete(_ id: UUID) throws { try FileManager.default.removeItem(at: url(id)) }

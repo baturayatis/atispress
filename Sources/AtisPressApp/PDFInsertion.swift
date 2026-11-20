@@ -79,6 +79,7 @@ extension Workspace {
                     let reference=try capturePageSource(url)
                     stage="PDFKit / CGPDFDocument yükleme"
                     let pdf=try await openPagePDF(url,password:password)
+                    try checkJobTemplateSize(pdf)
                     values.append(PDFInsertSource(url:url,pdf:pdf,selected:Set(pdf.pages.map(\.number)),reference:reference))
                 }
                 pdfInsertion=PDFInsertionDraft(sources:values,anchor:anchor,position:anchor==nil ? .end:.above)

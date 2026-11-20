@@ -27,7 +27,7 @@ final class JobTemplateTests: XCTestCase {
         let id = try XCTUnwrap(author.selectedJobTemplateID)
         XCTAssertEqual(try store.load().first?.name, "Kartvizit")
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: store.directory.path), [id.uuidString + ".json"])
-        try author.renameJobTemplate(id, to: "Kartvizit ofset")
+        try author.updateJobTemplate(id, name: "Kartvizit ofset", expectedSize: nil)
 
         let model = Workspace(templateStore: store)
         try model.refreshJobTemplates()
@@ -84,6 +84,82 @@ final class JobTemplateTests: XCTestCase {
         try model.deleteJobTemplate(id)
         XCTAssertNil(model.selectedJobTemplateID)
         XCTAssertTrue(try store.load().isEmpty)
+    }
+
+    func testExpectedSizeWarnsOnOpenAndTemplateSelectionAndAllowsContinuation() async throws {
+        let store = try library()
+        let model = Workspace(templateStore: store)
+        try model.saveJobTemplate(name: "A4", expectedSize: Size(210, 297))
+        let template = try XCTUnwrap(model.jobTemplates.first)
+        let matching = SourcePage(number: 1, trimSize: Size(297.05, 210))
+        let different = SourcePage(number: 2, trimSize: Size(85, 55))
+        XCTAssertNil(template.mismatch(in: [matching]))
+        XCTAssertEqual(template.mismatch(in: [matching, different])?.page, 2)
+        XCTAssertNil(JobTemplate.inferredSize(from: [matching, different]))
+        XCTAssertEqual(JobTemplate.inferredSize(from: [matching]), matching.trimSize)
+
+        let input = store.directory.appendingPathComponent("card.pdf")
+        var bounds = CGRect(x: 0, y: 0, width: 240, height: 156)
+        let consumer = try XCTUnwrap(CGDataConsumer(url: input as CFURL))
+        let pdf = try XCTUnwrap(CGContext(consumer: consumer, mediaBox: &bounds, nil))
+        pdf.beginPDFPage(nil)
+        pdf.endPDFPage()
+        pdf.closePDF()
+
+        var warnings: [JobTemplateSizeMismatch] = []
+        model.open(input, confirmChanges: false, confirmTemplateSize: { warnings.append($0); return false })
+        for _ in 0..<300 where model.loading { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertFalse(model.loading)
+        XCTAssertNil(model.source)
+        XCTAssertNil(model.error)
+        XCTAssertEqual(warnings.map(\.expected), [Size(210, 297)])
+
+        model.open(input, confirmChanges: false, confirmTemplateSize: { warnings.append($0); return true })
+        for _ in 0..<300 where model.loading { try await Task.sleep(for: .milliseconds(10)) }
+        let source = try XCTUnwrap(model.source)
+        XCTAssertEqual(warnings.count, 2)
+        XCTAssertEqual(warnings.last?.actual, source.pages.first?.sourcePage.trimSize)
+
+        var other = template
+        other.id = UUID()
+        other.settings.settings.bleed = 9
+        let oldBleed = model.project.settings.bleed
+        model.loadJobTemplate(other, confirmTemplateSize: { warnings.append($0); return false })
+        XCTAssertEqual(model.project.settings.bleed, oldBleed)
+        model.loadJobTemplate(other, confirmTemplateSize: { warnings.append($0); return true })
+        XCTAssertEqual(model.project.settings.bleed, 9)
+        XCTAssertTrue(model.source === source)
+        XCTAssertEqual(warnings.count, 4)
+    }
+
+    func testJSONTransferKeepsExpectedSizeAndSettingsAndReadsLegacyFiles() throws {
+        let store = try library()
+        let model = Workspace(templateStore: store)
+        model.project.settings.bleed = 2
+        try model.saveJobTemplate(name: "Kart", expectedSize: Size(85, 55))
+        let template = try XCTUnwrap(model.jobTemplates.first)
+        let exported = store.directory.appendingPathComponent("kart.json")
+        try model.exportJobTemplate(template.id, to: exported)
+
+        let other = Workspace(templateStore: try library())
+        let imported = try other.importJobTemplate(from: exported)
+        XCTAssertEqual(imported.id, template.id)
+        XCTAssertEqual(imported.expectedSize, Size(85, 55))
+        XCTAssertEqual(imported.settings, template.settings)
+        XCTAssertEqual(imported.overlays, template.overlays)
+        XCTAssertNotEqual(try other.importJobTemplate(from: exported).id, template.id)
+
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: exported)) as? [String: Any])
+        json.removeValue(forKey: "expectedSize")
+        try JSONSerialization.data(withJSONObject: json).write(to: exported)
+        XCTAssertNil(try other.importJobTemplate(from: exported).expectedSize)
+        let count = other.jobTemplates.count
+        json["expectedSize"] = ["width": -1, "height": 55]
+        try JSONSerialization.data(withJSONObject: json).write(to: exported)
+        XCTAssertThrowsError(try other.importJobTemplate(from: exported))
+        try Data("[]".utf8).write(to: exported)
+        XCTAssertThrowsError(try other.importJobTemplate(from: exported))
+        XCTAssertEqual(other.jobTemplates.count, count)
     }
 
     func testGangTemplateRemapsManualBlocksToCurrentArtwork() throws {
