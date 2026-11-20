@@ -48,6 +48,7 @@ struct WorkspaceView: View {
         .sheet(item:$model.scaleWindow,onDismiss:{model.finishPDFImportScaling(accepted:false)}) { ScaleWindowView(model:model,request:$0) }
         .toolbar {
             Button(action:model.choosePDF) { HStack { Image(systemName:"doc.badge.plus"); Text("PDF Seç") } }.help("PDF seç · ⌘O")
+            JobTemplateMenu(model: model)
             Spacer()
             Button("Otomatik düzenle") { model.requestAutomaticLayout() }.disabled(model.source == nil || model.loading || model.autoArranging || model.exporting)
             Button { model.preparingExport = true } label: {

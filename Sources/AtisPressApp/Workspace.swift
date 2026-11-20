@@ -136,6 +136,9 @@ final class Workspace: ObservableObject {
     private var autosaveTimer: Timer?
     private var persistenceEnabled = false
     private var recoveryStore = RecoveryStore()
+    private let templateStore: JobTemplateStore
+    @Published private(set) var jobTemplates: [JobTemplate] = []
+    @Published private(set) var selectedJobTemplateID: UUID?
     private var presetStore = PresetStore()
     @Published private(set) var presets: [JobPreset] = []
     @Published var selectedPresetID: UUID?
@@ -200,9 +203,10 @@ final class Workspace: ObservableObject {
 
     @Published private(set) var recentFiles: [RecentFile] = []
     init(bookmarkCreator: @escaping (URL) throws -> Data = ProjectSource.securityBookmark,
-         recentStore: RecentFilesStore? = nil,filePicker: FilePicker? = nil,uiDefaults:UserDefaults = .standard) {
+         recentStore: RecentFilesStore? = nil,filePicker: FilePicker? = nil,uiDefaults:UserDefaults = .standard, templateStore: JobTemplateStore = JobTemplateStore()) {
         self.ui = UsabilitySettings(defaults:uiDefaults)
         machineDefaults = uiDefaults
+        self.templateStore = templateStore
         self.bookmarkCreator = bookmarkCreator
         self.recentStore = recentStore ?? RecentFilesStore()
         self.filePicker = filePicker
@@ -712,7 +716,7 @@ final class Workspace: ObservableObject {
         var value=project;if value.pageItems==nil {value.pageItems=pageListItems}
         commitPageList(value,order:nextOrder,included:included,selection:selectedPages)
     }
-    func schedulePlan() {
+    func schedulePlan(normalizeSerials: Bool = true) {
         planTask?.cancel()
         let token = UUID(); revision = token
         let snapshot = project
@@ -727,7 +731,7 @@ final class Workspace: ObservableObject {
             next.tone = project.settings.tone
             plan = next; planning = false
             inspectBindingStrips()
-            normalizeSerialDigits()
+            if normalizeSerials { normalizeSerialDigits() }
             sheetIndex = max(0,min(sheetIndex,max(0,displaySheets.count-1)))
             repetition = max(0,min(repetition,(currentSheet?.repeatCount ?? 1)-1))
             updateGeneratedBleedSummary()
@@ -792,6 +796,7 @@ extension Workspace {
         var next = Self.newProject()
         next.machineProfile = preferredMachineProfile
         project = next
+        selectedJobTemplateID = nil
         planTask?.cancel(); revision = UUID()
         plan = ImpositionPlan(); sheetIndex = 0; side = .front; repetition = 0; selectedSerialID = nil
         planning = false; exportSummary = nil; exportVerification = nil; exportNotes = []; exportedFiles = []; error = nil
@@ -952,6 +957,7 @@ extension Workspace {
         projectURL = recovery == nil ? url : represented; projectAccess = access
         order = snapshot.order; included = snapshot.included; selectedPages = []
         bookletGutter = snapshot.bookletGutter; repeatGutter = snapshot.repeatGutter; gangGutter = snapshot.gangGutter
+        selectedJobTemplateID = nil
         sheetPreset = snapshot.sheetPreset; project = snapshot.project; overlays = snapshot.overlays
         sheetIndex = snapshot.sheetIndex; side = snapshot.side
         repetition = snapshot.repetition ?? 0; selectedSerialID = nil
@@ -1710,6 +1716,61 @@ extension Workspace {
             }
         } catch is CancellationError { } catch { self.error = "Kurtarma açılamadı: "+error.localizedDescription }
     }
+    func refreshJobTemplates() throws { jobTemplates = try templateStore.load() }
+
+    func saveJobTemplate(name: String) throws {
+        let template = JobTemplate(name: try templateName(name), project: project, overlays: overlays)
+        try templateStore.save(template)
+        try refreshJobTemplates()
+        selectedJobTemplateID = template.id
+    }
+
+    func renameJobTemplate(_ id: UUID, to name: String) throws {
+        guard var template = try templateStore.load().first(where: { $0.id == id }) else { return }
+        template.name = try templateName(name)
+        try templateStore.save(template)
+        try refreshJobTemplates()
+    }
+
+    func deleteJobTemplate(_ id: UUID) throws {
+        try templateStore.delete(id)
+        if selectedJobTemplateID == id { selectedJobTemplateID = nil }
+        try refreshJobTemplates()
+    }
+
+    private func templateName(_ name: String) throws -> String {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw CocoaError(.validationMissingMandatoryProperty) }
+        return name
+    }
+
+    func loadJobTemplate(_ template: JobTemplate) {
+        guard !loading, !exporting, !autoArranging, !preparingSource else { return }
+        let wasModified = isModified
+        beginUndoGroup()
+        restoring = true
+        if let team = template.settings.team {
+            if project.team == nil, canStartTeam { startTeam() }
+            else { setMode(template.settings.binding) }
+            if let current = project.team, current.duplex != team.duplex { setTeamDuplex(team.duplex) }
+        } else {
+            setMode(template.settings.binding)
+        }
+        project = template.applying(to: project)
+        overlays = template.overlays
+        sheetPreset = project.autoLayout?.sheetSelection == .automatic
+            ? Self.automaticSheetTitle : SmartAutoLayout.presetName(for: project.sheet.size)
+        if project.binding == .stepAndRepeat || project.isLeafBinding { repeatGutter = project.sheet.gutter }
+        if project.binding == .gang { gangGutter = project.sheet.gutter }
+        // A template becomes the editing baseline for a previously clean document.
+        if !wasModified { savedState = state }
+        selectedJobTemplateID = template.id
+        restoring = false
+        refreshModified()
+        schedulePlan(normalizeSerials: false)
+        endUndoGroup()
+    }
+
     func applyPreset(_ preset: JobPreset) {
         NSApp?.keyWindow?.makeFirstResponder(nil)
         guard !loading,!exporting,!autoArranging else { return }
