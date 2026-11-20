@@ -47,7 +47,7 @@ public enum ImpositionPlanner {
                 return ImpositionPlan(issues: [ValidationIssue(.error, .invalidInput, "Makine profili ölçüleri geçersiz.")])
             }
             guard profile.hasManualLayout else {
-                return ImpositionPlan(issues: [ValidationIssue(.error, .invalidInput, "Makine için yönü, sütun ve satır sayısını seçin.")])
+                return ImpositionPlan(issues: [ValidationIssue(.error, .exceedsSheet, "Makine diziliminde sütun ve satır sayıları 1–200 arasında olmalıdır.")])
             }
             project = source.applyingMachineProfile(profile)
         }

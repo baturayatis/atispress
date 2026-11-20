@@ -10,7 +10,7 @@ extension ImpositionPlanner {
         let stock = spec.orientation == .landscape ? Size(max(spec.size.width,spec.size.height),min(spec.size.width,spec.size.height)) :
             spec.orientation == .portrait ? Size(min(spec.size.width,spec.size.height),max(spec.size.width,spec.size.height)) : spec.size
         let profile = project.activeMachineProfile
-        let reserve = max(project.layoutExteriorReserve, profile != nil ? s.bleed : 0)
+        let reserve = profile == nil ? project.layoutExteriorReserve : project.machineExteriorReserve(bleed: s.bleed)
         var margins = spec.margins
         if project.binding == .stepAndRepeat {
             margins = project.blockAlignment == .center && s.turnMethod == .sheetwise ? usableMargins(spec) : repeatMargins(spec,mirrorX:repeatMirrorsX(project))

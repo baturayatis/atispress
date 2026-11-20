@@ -263,7 +263,7 @@ public enum GangPlanner {
         let bleed = jobs.map(\.bleed).max() ?? 0
         let gap = spec.gutter
         if profile == nil && gap > 0 && gap < 2*bleed { issue("Ara boşluk \(gap) mm; iki taşma için en az \(2*bleed) mm gerekir.") }
-        let reserve = max(bleed, profile == nil ? project.settings.cropMarkOffset+project.settings.cropMarkLength : project.layoutExteriorReserve)
+        let reserve = profile == nil ? max(bleed, project.settings.cropMarkOffset+project.settings.cropMarkLength) : project.machineExteriorReserve(bleed: bleed)
         var size = spec.size
         if spec.orientation == .portrait { size = Size(min(size.width,size.height),max(size.width,size.height)) }
         if spec.orientation == .landscape { size = Size(max(size.width,size.height),min(size.width,size.height)) }
@@ -278,7 +278,7 @@ public enum GangPlanner {
         var area = region(size),blocks = gang.blocks
         if let profile, let columns = profile.columns, let rows = profile.rows, let angle = profile.rotation?.angle {
             if samePlate && (mirrorsX ? columns : rows) % 2 != 0 {
-                issue("Çevir-çevir için çevirme eksenindeki sütun veya satır sayısı çift olmalıdır.")
+                result.issues.append(ValidationIssue(.error, .exceedsSheet, "Çevir-çevir için çevirme eksenindeki sütun veya satır sayısı çift olmalıdır."))
                 return result
             }
             if jobs.count == 1 {
@@ -287,6 +287,10 @@ public enum GangPlanner {
                 blocks = [block]
             } else if gang.mode != .manual || Set(blocks.map(\.jobID)) != Set(jobs.map(\.id)) {
                 issue("Her karışık iş için Montaj panelinden bir blok ekleyip konumunu belirleyin.")
+                return result
+            }
+            guard columns*rows <= 20_000/max(1, blocks.count) else {
+                result.issues.append(ValidationIssue(.error, .exceedsSheet, "Tabaka başına 20.000 yuva sınırı aşıldı."))
                 return result
             }
             for index in blocks.indices {
@@ -336,7 +340,10 @@ public enum GangPlanner {
         guard slotCount <= 20_000/factor else { issue("Tabaka başına 20.000 yuva sınırı aşıldı."); return result }
         let rects = blocks.map { b in blockBounds(b,job: jobs.first { $0.id == b.jobID }!,gutter: gap) }
         for (i,r) in rects.enumerated() {
-            if r.origin.x<area.origin.x-0.000001 || r.origin.y<area.origin.y-0.000001 || r.origin.x+r.size.width>area.origin.x+area.size.width+0.000001 || r.origin.y+r.size.height>area.origin.y+area.size.height+0.000001 { issue("Blok \(i+1): kenar/maşa/taşma sınırını aşıyor (\(String(format: "%.1f",r.origin.x)), \(String(format: "%.1f",r.origin.y)) mm.") }
+            if r.origin.x<area.origin.x-0.000001 || r.origin.y<area.origin.y-0.000001 || r.origin.x+r.size.width>area.origin.x+area.size.width+0.000001 || r.origin.y+r.size.height>area.origin.y+area.size.height+0.000001 {
+                let message = "Blok \(i+1): kenar/maşa/taşma sınırını aşıyor (\(String(format: "%.1f",r.origin.x)), \(String(format: "%.1f",r.origin.y)) mm."
+                result.issues.append(ValidationIssue(.error, profile == nil ? .gangLayout : .exceedsSheet, message))
+            }
             for (k,q) in rects.enumerated() where k>i {
                 if overlaps(r,q) { issue("Blok \(i+1) ve \(k+1) çakışıyor.") }
                 else if spec.gutter>0 && profile == nil {
@@ -346,6 +353,7 @@ public enum GangPlanner {
                 }
             }
         }
+        if profile != nil && result.issues.contains(where: { $0.code == .exceedsSheet }) { return result }
         let cuts = guillotineCuts(rects,within: area)
         if cuts == nil { issue("Düzen giyotinle düz kesilemiyor: çakışan veya birbirine geçen bloklar var. L biçimli kesim kabul edilmez.") }
         var front = Side(),back = Side(),capacities: [UUID:Int] = [:]

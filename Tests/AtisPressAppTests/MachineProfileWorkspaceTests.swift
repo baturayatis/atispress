@@ -52,6 +52,34 @@ final class MachineProfileWorkspaceTests: XCTestCase {
         XCTAssertEqual(file.state.project.sheet, restored.project.sheet)
     }
 
+    func testProfileDefaultsToOneByOneAndRetainsLastPreviewWhenGridDoesNotFit() async throws {
+        let suite = "MachineGridTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = Workspace(uiDefaults: defaults)
+        model.project.pages = [SourcePage(number: 1, trimSize: Size(118, 80))]
+        model.selectMachineProfile(.heidelberg)
+        for _ in 0..<100 where model.planning { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertEqual(model.currentSheet?.front.slots.count, 1)
+
+        model.project.machineProfile?.columns = 2
+        model.project.machineProfile?.rows = 2
+        for _ in 0..<100 where model.planning { try await Task.sleep(for: .milliseconds(5)) }
+        let last = try XCTUnwrap(model.currentSheet)
+        XCTAssertEqual(last.front.slots.count, 4)
+        for columns in [10, 20, 2] {
+            model.project.machineProfile?.columns = columns
+            for _ in 0..<100 where model.planning { try await Task.sleep(for: .milliseconds(5)) }
+            XCTAssertEqual(model.currentSheet?.front.slots, last.front.slots)
+            XCTAssertEqual(model.plan.canExport, columns == 2)
+            if columns != 2 {
+                XCTAssertTrue(model.plan.sheets.isEmpty)
+                XCTAssertTrue(model.plan.issues.contains { $0.code == .exceedsSheet && $0.severity == .warning })
+                XCTAssertTrue(model.highlightedSlots.isEmpty)
+            }
+        }
+    }
+
     func testLivePlanExportsTheSameStockAndFaces() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -71,6 +99,8 @@ final class MachineProfileWorkspaceTests: XCTestCase {
         let source = try await PDFSource.open(input)
         let model = Workspace()
         model.project.pages = source.pages.map(\.sourcePage)
+        model.project.settings.bleed = 9
+        model.project.settings.cropMarkOffset = 1
         var profile = MachineProfile.heidelberg
         profile.faces = .workAndTurn
         profile.rotation = .ninety
@@ -85,6 +115,12 @@ final class MachineProfileWorkspaceTests: XCTestCase {
         XCTAssertEqual(sheet.front.slots.count, 2)
         let tick = try XCTUnwrap(sheet.front.marks.first { $0.kind == .crop && $0.end.y == 30 })
         XCTAssertEqual(Set(sheet.front.slots.compactMap(\.sourcePageNumber)), [1, 2])
+        let printed = PDFExportMarkRenderer.geometry(side: sheet.front, sheet: sheet, settings: model.project.exportMarks)
+        let printedTick = try XCTUnwrap(printed.segments.first {
+            $0.kind == .crop && $0.start.x == tick.end.x && $0.start.y == tick.end.y
+        })
+        XCTAssertEqual(printedTick.start.y, 30)
+        XCTAssertEqual(printedTick.end.y, tick.start.y, accuracy: 0.000001)
         let result = try PDFExporter.export(plan: model.plan, source: source,
                                             destination: .singlePDF(folder.appendingPathComponent("output.pdf")),
                                             marks: model.project.exportMarks)
@@ -104,7 +140,7 @@ final class MachineProfileWorkspaceTests: XCTestCase {
                                         bytesPerRow: 8, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: 0)!
                 context.scaleBy(x: scale/mmToPoints, y: scale/mmToPoints)
                 let x = tick.end.x*mmToPoints
-                let y = ((tick.start.y+tick.end.y)/2)*mmToPoints
+                let y = (tick.end.y+0.15)*mmToPoints
                 context.translateBy(x: -x+4*mmToPoints/scale, y: -y+4*mmToPoints/scale)
                 context.drawPDFPage(cgPage)
             }

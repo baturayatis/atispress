@@ -88,14 +88,19 @@ final class MachineProfileTests: XCTestCase {
         }
     }
 
-    func testUnselectedLegacyAndOversizedGridsDoNotFallBackToAutomatic() {
+    func testDefaultAndLegacyGridIsOneByOneAndOversizedGridDoesNotAutomaticallyShrink() {
         for binding in [BindingMethod.stepAndRepeat, .gang] {
             var profile = MachineProfile.heidelberg
-            XCTAssertFalse(ImpositionPlanner.plan(project(profile: profile, binding: binding)).canExport)
+            let initial = ImpositionPlanner.plan(project(profile: profile, binding: binding))
+            XCTAssertTrue(initial.canExport)
+            XCTAssertEqual(initial.sheets.first?.front.slots.count, 1)
             profile.rotation = .automatic
-            profile.columns = 2
-            profile.rows = 1
-            XCTAssertFalse(ImpositionPlanner.plan(project(profile: profile, binding: binding)).canExport)
+            profile.columns = nil
+            profile.rows = nil
+            let legacy = ImpositionPlanner.plan(project(profile: profile, binding: binding))
+            XCTAssertTrue(legacy.canExport)
+            XCTAssertEqual(legacy.sheets.first?.front.slots.count, 1)
+            XCTAssertEqual(legacy.sheets.first?.front.slots.first?.rotation, 0)
             profile.rotation = .zero
             profile.columns = 5
             let input = project(profile: profile, binding: binding)

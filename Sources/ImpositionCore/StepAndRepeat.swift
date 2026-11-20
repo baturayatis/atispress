@@ -36,7 +36,7 @@ extension ImpositionPlanner {
         let mirrorX = repeatMirrorsX(project)
         let override = mirrorX ? options.columns : options.rows
         if settings.turnMethod != .sheetwise && override.map({ $0 % 2 != 0 }) == true {
-            issue(.invalidInput,"Aynı kalıp için \(mirrorX ? "sütun" : "satır") sayısı çift olmalıdır."); return plan
+            issue(project.activeMachineProfile == nil ? .invalidInput : .exceedsSheet,"Aynı kalıp için \(mirrorX ? "sütun" : "satır") sayısı çift olmalıdır."); return plan
         }
         for (job,pair) in project.repeatJobs.enumerated() {
             let front = pair.front, back = pair.back
@@ -50,7 +50,7 @@ extension ImpositionPlanner {
                 issue(.exceedsSheet,"İş \(job+1): ürün veya seçilen ızgara baskı tabakasına sığmıyor."); continue
             }
             guard grid.capacity <= 20_000 else {
-                issue(.invalidInput,"İş \(job+1): tek tabakada en fazla 20.000 ürün destekleniyor."); continue
+                issue(project.activeMachineProfile == nil ? .invalidInput : .exceedsSheet,"İş \(job+1): tek tabakada en fazla 20.000 ürün destekleniyor."); continue
             }
             var frontSlots: [Slot] = [], backSlots: [Slot] = []
             for row in 0..<grid.rows {
@@ -164,7 +164,7 @@ extension ImpositionPlanner {
         if let profile = project.activeMachineProfile,
            let columns = profile.columns, let rows = profile.rows, let rotation = profile.rotation?.angle {
             let margins = settings.turnMethod == .sheetwise ? usableMargins(spec) : repeatMargins(spec, mirrorX: mirrorX)
-            let reserve = max(project.layoutExteriorReserve, settings.bleed)
+            let reserve = project.machineExteriorReserve(bleed: settings.bleed)
             let area = Rect(x: margins.left+reserve, y: margins.bottom+reserve,
                             width: spec.size.width-margins.left-margins.right-2*reserve,
                             height: spec.size.height-margins.bottom-margins.top-2*reserve)

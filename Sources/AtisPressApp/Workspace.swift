@@ -85,7 +85,8 @@ final class Workspace: ObservableObject {
                 gangArtworkChanged = oldGang != previous.gang
                 previous.gang = oldGang
             }
-            if previous != project || clipChanged || ((serialChanged || gangArtworkChanged) && planning) { schedulePlan() }
+            let machineStrokeChanged = project.machineProfile != nil && oldValue.exportMarks.lineWidth != project.exportMarks.lineWidth
+            if previous != project || clipChanged || machineStrokeChanged || ((serialChanged || gangArtworkChanged) && planning) { schedulePlan() }
             else if serialChanged || gangArtworkChanged {
                 plan = ImpositionPlanner.updatingSerials(in: plan,project: project)
                 if gangArtworkChanged { updateGeneratedBleedSummary() }
@@ -168,7 +169,7 @@ final class Workspace: ObservableObject {
     }
 
     func selectMachineProfile(_ profile: MachineProfile?) {
-        project.machineProfile = profile
+        project.machineProfile = profile?.withLayoutDefaults
         machineDefaults.set(profile?.id.uuidString, forKey: Self.selectedMachineKey)
     }
 
@@ -192,7 +193,7 @@ final class Workspace: ObservableObject {
     private func loadMachineProfiles() -> [MachineProfile] {
         guard let data = machineDefaults.data(forKey: Self.machineProfilesKey),
               let profiles = try? JSONDecoder().decode([MachineProfile].self, from: data) else { return [.heidelberg] }
-        return profiles.filter(\.isValid)
+        return profiles.filter(\.isValid).map(\.withLayoutDefaults)
     }
 
     private func storeMachineProfiles(_ profiles: [MachineProfile]) {
@@ -238,6 +239,7 @@ final class Workspace: ObservableObject {
     private var exportTask: Task<Void,Never>?
     @Published private(set) var checkingBindingStrips = false
     private var bindingStripTask: Task<Void,Never>?
+    private var lastMachinePreview: (document: UUID, input: Project, sheets: [Sheet])?
     private var planTask: Task<Void,Never>?
     private var importTask: Task<Void,Never>?
     private var bookletGutter: Double?
@@ -721,16 +723,24 @@ final class Workspace: ObservableObject {
         planTask?.cancel()
         let token = UUID(); revision = token
         let snapshot = project
-        guard snapshot.hasPanelItems else {plan=ImpositionPlan();planning=false;return}
+        guard snapshot.hasPanelItems else {
+            lastMachinePreview = nil
+            plan = ImpositionPlan()
+            planning = false
+            return
+        }
+        let usingMachine = snapshot.supportsMachineProfile && snapshot.machineProfile != nil
         planning = true
         planTask = Task {
-            do { try await Task.sleep(for: .milliseconds(140)) } catch { return }
+            if !usingMachine {
+                do { try await Task.sleep(for: .milliseconds(140)) } catch { return }
+            }
             guard !Task.isCancelled else { return }
             let worker = Task.detached(priority: .userInitiated) { ImpositionPlanner.plan(snapshot) }
             var next = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             guard !Task.isCancelled, revision == token else { return }
             next.tone = project.settings.tone
-            plan = next; planning = false
+            plan = retainingMachinePreview(next, input: snapshot); planning = false
             inspectBindingStrips()
             if normalizeSerials { normalizeSerialDigits() }
             sheetIndex = max(0,min(sheetIndex,max(0,displaySheets.count-1)))
@@ -738,6 +748,41 @@ final class Workspace: ObservableObject {
             updateGeneratedBleedSummary()
         }
     }
+    private func retainingMachinePreview(_ result: ImpositionPlan, input: Project) -> ImpositionPlan {
+        guard input.supportsMachineProfile, let profile = input.machineProfile else {
+            lastMachinePreview = nil
+            return result
+        }
+        if result.canExport {
+            lastMachinePreview = (projectIdentifier, input, result.sheets)
+            return result
+        }
+        guard result.issues.contains(where: { $0.code == .exceedsSheet }) else { return result }
+        var next = result
+        if let previous = lastMachinePreview, previous.document == projectIdentifier,
+           previous.input.machineProfile?.id == profile.id,
+           previous.input.machineProfile?.size == profile.size,
+           previous.input.binding == input.binding,
+           previous.input.pages == input.pages, previous.input.pageItems == input.pageItems,
+           previous.input.gang?.jobs == input.gang?.jobs {
+            next.diagnosticSheets = previous.sheets
+        } else {
+            next.diagnosticSheets = (next.sheets+next.diagnosticSheets).map { sheet in
+                var sheet = sheet
+                sheet.diagnosticBounds = nil
+                return sheet
+            }
+        }
+        // These sheets are for display only. The requested grid has no exportable plan.
+        next.sheets = []
+        next.issues = next.issues.map { issue in
+            guard issue.code == .exceedsSheet else { return issue }
+            return ValidationIssue(.warning, issue.code, issue.message)
+        }
+        next.refreshWarningSummary(project: input)
+        return next
+    }
+
     func reveal(_ issue: ValidationIssue) {
         if let ref = issue.slot ?? issue.affectedSlots.first {
             sheetIndex = max(0,min(ref.sheet,max(0,displaySheets.count-1))); side = ref.side; repetition = 0
@@ -1062,7 +1107,7 @@ extension Workspace {
         project = result.project
         if project.autoLayout?.sheetSelection == .automatic { sheetPreset = Self.automaticSheetTitle }
         else if project.autoLayout?.manualFields.contains(.sheetSize) != true { sheetPreset = result.presetName }
-        plan = result.plan; planning = false
+        plan = retainingMachinePreview(result.plan, input: result.project); planning = false
         inspectBindingStrips()
         sheetIndex = max(0,min(sheetIndex,max(0,displaySheets.count-1)))
         repetition = max(0,min(repetition,(currentSheet?.repeatCount ?? 1)-1))

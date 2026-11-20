@@ -268,7 +268,7 @@ public struct Project: Equatable, Sendable, Codable {
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        machineProfile = try c.decodeIfPresent(MachineProfile.self, forKey: .machineProfile)
+        machineProfile = try c.decodeIfPresent(MachineProfile.self, forKey: .machineProfile)?.withLayoutDefaults
         previouslyHadBacks = try c.decodeIfPresent(Bool.self,forKey:.previouslyHadBacks)
         pageItemNextID = try c.decodeIfPresent(Int.self,forKey:.pageItemNextID)
         pageItems = try c.decodeIfPresent([PageListItem].self,forKey:.pageItems)
