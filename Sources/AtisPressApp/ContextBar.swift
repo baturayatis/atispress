@@ -130,7 +130,7 @@ enum ContextPresentation {
         case .guides:return [.guides]
         }
     }
-    static let appIconSize: CGFloat = 28
+    static let appIconSize: CGFloat = 40
 
     struct Layout:Equatable {
         var visible:[ContextControl]
