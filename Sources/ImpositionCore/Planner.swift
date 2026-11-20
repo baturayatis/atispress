@@ -65,6 +65,9 @@ public enum ImpositionPlanner {
         for index in result.sheets.indices {
             result.sheets[index].alignment = project.blockAlignment
             result.sheets[index].gripperEdge = project.sheet.gripperEdge
+            if let profile = project.activeMachineProfile, profile.gripperEdge == .bottom {
+                result.sheets[index].machineBottomTrim = profile.gripperWidth
+            }
             result.sheets[index].backFlipsX = (project.isLeafBinding || project.binding == .stepAndRepeat || project.binding == .gang) ? repeatMirrorsX(project) : project.settings.turnMethod != .workAndTumble
         }
         for index in result.diagnosticSheets.indices { result.diagnosticSheets[index].gripperEdge = project.sheet.gripperEdge }

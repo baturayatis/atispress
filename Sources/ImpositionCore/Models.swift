@@ -370,6 +370,7 @@ public struct Sheet: Equatable, Sendable {
     public var bookInfo: BookSheetInfo? = nil
     public var gangLayout: GangSheetLayout? = nil
     public var gripperEdge: Edge = .bottom
+    public var machineBottomTrim: Double? = nil
     /// Back-face viewing convention: reflect X (turn) or Y (tumble / side gripper).
     public var backFlipsX = true
     public var size: Size

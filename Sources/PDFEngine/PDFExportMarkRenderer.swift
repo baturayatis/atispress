@@ -1,8 +1,7 @@
 import CoreGraphics
 import ImpositionCore
 
-/// Production-only rendering. All strokes (including their width) are kept clear
-/// of planned artwork/bleed. Preview colors and dash patterns never enter here.
+/// Production-only rendering shared by preview and export.
 public enum PDFExportMarkRenderer {
     public struct Geometry {
         public var segments: [Mark]
@@ -15,6 +14,12 @@ public enum PDFExportMarkRenderer {
             let r: Rect? = slot.productionProtectedBounds
             return CGRect(x: r?.origin.x ?? slot.x,y: r?.origin.y ?? slot.y,
                           width: r?.size.width ?? slot.size.width,height: r?.size.height ?? slot.size.height).insetBy(dx: -half,dy: -half)
+        }
+        let trimBoxes = sheet.machineBottomTrim.map { _ in
+            side.slots.map { slot in
+                CGRect(x: slot.x, y: slot.y, width: slot.size.width, height: slot.size.height)
+                    .insetBy(dx: -half, dy: -half)
+            }
         }
         var output: [Mark] = [], blocked = false, outside = false
         for mark in side.marks {
@@ -45,7 +50,12 @@ public enum PDFExportMarkRenderer {
             }
             if mark.kind != .internalCut && (lo < paperLo || hi > paperHi) { outside = true }
             var intervals = [(max(lo,paperLo),min(hi,paperHi))].filter { $0.1 > $0.0 }
-            for box in boxes where fixed >= (horizontal ? box.minY : box.minX) && fixed <= (horizontal ? box.maxY : box.maxX) {
+            // Bottom register marks may extend into the discarded bleed at the gripper.
+            let bottomCrop = sheet.machineBottomTrim.map { line in
+                mark.kind == .crop && !settings.fullCut &&
+                    (horizontal ? abs(fixed-line) < 0.000001 : hi <= line+0.000001)
+            } ?? false
+            for box in (bottomCrop ? trimBoxes ?? boxes : boxes) where fixed >= (horizontal ? box.minY : box.minX) && fixed <= (horizontal ? box.maxY : box.maxX) {
                 let a = horizontal ? box.minX : box.minY, b = horizontal ? box.maxX : box.maxY
                 intervals = intervals.flatMap { l,h -> [(Double,Double)] in
                     guard b > l && a < h else { return [(l,h)] }

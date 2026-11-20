@@ -268,12 +268,13 @@ public enum GangPlanner {
         if spec.orientation == .portrait { size = Size(min(size.width,size.height),max(size.width,size.height)) }
         if spec.orientation == .landscape { size = Size(max(size.width,size.height),min(size.width,size.height)) }
         func region(_ size: Size) -> Rect {
-            var w = size.width-m.left-m.right-2*reserve,h = size.height-m.top-m.bottom-2*reserve
+            let bottomReserve = profile?.gripperEdge == .bottom ? 0 : reserve
+            var w = size.width-m.left-m.right-2*reserve,h = size.height-m.top-m.bottom-bottomReserve-reserve
             if samePlate {
                 let centerClearance = profile == nil ? gap+2*bleed : gap-2*reserve
                 if mirrorsX { w = (w-centerClearance)/2 } else { h = (h-centerClearance)/2 }
             }
-            return Rect(x: m.left+reserve,y: m.bottom+reserve,width: w,height: h)
+            return Rect(x: m.left+reserve,y: m.bottom+bottomReserve,width: w,height: h)
         }
         var area = region(size),blocks = gang.blocks
         if let profile, let columns = profile.columns, let rows = profile.rows, let angle = profile.rotation?.angle {

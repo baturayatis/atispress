@@ -26,13 +26,23 @@ final class MachineProfileWorkspaceTests: XCTestCase {
         let url = folder.appendingPathComponent("job.atispress")
         try model.saveProject(as: url)
 
+        defaults.set(profile.id.uuidString, forKey: "selectedMachineProfile")
         let restarted = Workspace(uiDefaults: defaults)
-        XCTAssertEqual(restarted.project.machineProfile, profile)
+        XCTAssertNil(restarted.project.machineProfile)
+        XCTAssertEqual(restarted.project.sheet, Workspace.newProject().sheet)
+        XCTAssertEqual(restarted.sheetPreset, Workspace.automaticSheetTitle)
+        XCTAssertTrue(restarted.machineProfiles.contains(profile))
         XCTAssertFalse(restarted.isModified)
+        model.createNewProject()
+        XCTAssertNil(model.project.machineProfile)
+        XCTAssertEqual(model.project.sheet, Workspace.newProject().sheet)
+        XCTAssertEqual(model.sheetPreset, Workspace.automaticSheetTitle)
         var edited = profile
         edited.gap = 8
         restarted.saveMachineProfile(edited)
-        XCTAssertEqual(Workspace(uiDefaults: defaults).project.machineProfile, edited)
+        let anotherWindow = Workspace(uiDefaults: defaults)
+        XCTAssertNil(anotherWindow.project.machineProfile)
+        XCTAssertTrue(anotherWindow.machineProfiles.contains(edited))
         restarted.deleteMachineProfile(profile.id)
         let restored = Workspace(uiDefaults: defaults)
         XCTAssertNil(restored.project.machineProfile)
@@ -113,14 +123,16 @@ final class MachineProfileWorkspaceTests: XCTestCase {
         XCTAssertTrue(model.plan.canExport, "\(model.plan.issues)")
         XCTAssertEqual(sheet.size, profile.size)
         XCTAssertEqual(sheet.front.slots.count, 2)
-        let tick = try XCTUnwrap(sheet.front.marks.first { $0.kind == .crop && $0.end.y == 30 })
+        XCTAssertTrue(sheet.front.slots.allSatisfy { $0.y == 30 && $0.artworkClip?.origin.y == 21 })
+        let tick = try XCTUnwrap(sheet.front.marks.first { $0.kind == .crop && $0.start.y == 30 && $0.end.y == 30 })
         XCTAssertEqual(Set(sheet.front.slots.compactMap(\.sourcePageNumber)), [1, 2])
         let printed = PDFExportMarkRenderer.geometry(side: sheet.front, sheet: sheet, settings: model.project.exportMarks)
         let printedTick = try XCTUnwrap(printed.segments.first {
-            $0.kind == .crop && $0.start.x == tick.end.x && $0.start.y == tick.end.y
+            $0.kind == .crop && $0.start.y == 30 && $0.end.y == 30 &&
+                $0.start.x == min(tick.start.x,tick.end.x) && $0.end.x == max(tick.start.x,tick.end.x)
         })
         XCTAssertEqual(printedTick.start.y, 30)
-        XCTAssertEqual(printedTick.end.y, tick.start.y, accuracy: 0.000001)
+        XCTAssertEqual(printedTick.end.y, 30)
         let result = try PDFExporter.export(plan: model.plan, source: source,
                                             destination: .singlePDF(folder.appendingPathComponent("output.pdf")),
                                             marks: model.project.exportMarks)
@@ -139,12 +151,14 @@ final class MachineProfileWorkspaceTests: XCTestCase {
                 let context = CGContext(data: bytes.baseAddress, width: 8, height: 8, bitsPerComponent: 8,
                                         bytesPerRow: 8, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: 0)!
                 context.scaleBy(x: scale/mmToPoints, y: scale/mmToPoints)
-                let x = tick.end.x*mmToPoints
-                let y = (tick.end.y+0.15)*mmToPoints
+                let x = (tick.start.x+tick.end.x)/2*mmToPoints
+                let y = 30*mmToPoints
                 context.translateBy(x: -x+4*mmToPoints/scale, y: -y+4*mmToPoints/scale)
                 context.drawPDFPage(cgPage)
             }
-            XCTAssertLessThan(pixels.min() ?? 255, 128, "PDF must contain the same gripper-side crop tick as the live plan")
+            XCTAssertLessThan(pixels[24..<40].min() ?? 255, 128, "PDF must print the horizontal crop tick at y = 30 mm")
+            XCTAssertEqual(pixels[0..<8].min(), 255)
+            XCTAssertEqual(pixels[56..<64].min(), 255)
         }
     }
 }

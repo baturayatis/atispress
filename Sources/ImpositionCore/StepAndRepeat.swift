@@ -165,9 +165,10 @@ extension ImpositionPlanner {
            let columns = profile.columns, let rows = profile.rows, let rotation = profile.rotation?.angle {
             let margins = settings.turnMethod == .sheetwise ? usableMargins(spec) : repeatMargins(spec, mirrorX: mirrorX)
             let reserve = project.machineExteriorReserve(bleed: settings.bleed)
-            let area = Rect(x: margins.left+reserve, y: margins.bottom+reserve,
+            let bottomReserve = profile.gripperEdge == .bottom ? 0 : reserve
+            let area = Rect(x: margins.left+reserve, y: margins.bottom+bottomReserve,
                             width: spec.size.width-margins.left-margins.right-2*reserve,
-                            height: spec.size.height-margins.bottom-margins.top-2*reserve)
+                            height: spec.size.height-margins.bottom-margins.top-bottomReserve-reserve)
             let item = rotation == 0 ? trim : Size(trim.height, trim.width)
             let block = Size(Double(columns)*item.width+Double(columns-1)*spec.gutter,
                              Double(rows)*item.height+Double(rows-1)*spec.gutter)
@@ -297,12 +298,12 @@ extension ImpositionPlanner {
         let end = offset+length
         var left = (start: x0-offset, end: x0-end)
         var right = (start: x1+offset, end: x1+end)
-        var bottom = (start: y0-offset, end: y0-end)
+        let bottom = (start: y0-offset, end: y0-end)
         var top = (start: y1+offset, end: y1+end)
         if let machine {
             let grip = machine.gripperWidth
             switch machine.gripperEdge {
-            case .bottom: bottom = (grip+length, grip)
+            case .bottom: break
             case .top:
                 let line = machine.size.height-grip
                 top = (line-length, line)

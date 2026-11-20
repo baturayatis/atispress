@@ -45,8 +45,9 @@ extension ImpositionPlanner {
                 if s.turnMethod == .workAndTurn { grid.width = 2*(grid.width+2*reserve)+spec.gutter-2*reserve }
                 if s.turnMethod == .workAndTumble { grid.height = 2*(grid.height+2*reserve)+spec.gutter-2*reserve }
             }
-            let origin = Point(max(0,margins.left+reserve),max(0,margins.bottom+reserve))
-            let needed = Size(grid.width+margins.left+margins.right+2*reserve,grid.height+margins.top+margins.bottom+2*reserve)
+            let bottomReserve = profile?.gripperEdge == .bottom ? 0 : reserve
+            let origin = Point(max(0,margins.left+reserve),max(0,margins.bottom+bottomReserve))
+            let needed = Size(grid.width+margins.left+margins.right+2*reserve,grid.height+margins.top+margins.bottom+bottomReserve+reserve)
             let slot = Slot(sourcePageNumber: page.number,origin: origin,size: trim,rotation: rotation,
                             artworkClip: Rect(x: origin.x,y: origin.y,width: trim.width,height: trim.height))
             var sheet = Sheet(size: stock,front: Side(slots: [slot]),back: Side(slots: [slot]))

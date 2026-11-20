@@ -20,7 +20,7 @@ struct MachineProfileView: View {
                 get: { model.project.machineProfile?.id },
                 set: { id in model.selectMachineProfile(profiles.first { $0.id == id }) }
             )) {
-                Text("Proje ayarları").tag(nil as UUID?)
+                Text("Makine yok / Serbest").tag(nil as UUID?)
                 ForEach(profiles) { profile in
                     Text(profile.name).tag(Optional(profile.id))
                 }

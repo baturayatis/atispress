@@ -41,15 +41,20 @@ final class MachineProfileTests: XCTestCase {
                 let bottom = try XCTUnwrap(slots.map(\.y).min())
                 let top = try XCTUnwrap(slots.map { $0.y+$0.size.height }.max())
                 XCTAssertEqual(left + right, 510, accuracy: 0.000001)
-                XCTAssertEqual(bottom, 33, accuracy: 0.000001)
+                XCTAssertEqual(bottom, 30, accuracy: 0.000001)
                 let xs = Set(slots.map(\.x)).sorted()
                 XCTAssertEqual(xs[1]-xs[0]-slots[0].size.width, 4, accuracy: 0.000001)
                 let crops = sheet.front.marks.filter { $0.kind == .crop }
-                XCTAssertEqual(crops.flatMap { [$0.start.y, $0.end.y] }.min(), 30)
+                let lowerHorizontal = crops.filter { $0.start.y == 30 && $0.end.y == 30 }
+                XCTAssertEqual(lowerHorizontal.count, 2)
+                XCTAssertTrue(lowerHorizontal.allSatisfy { abs($0.start.x-$0.end.x) == 2 })
+                let lowerVertical = crops.filter { $0.start.x == $0.end.x && $0.start.y < 30 }
+                XCTAssertFalse(lowerVertical.isEmpty)
+                XCTAssertTrue(lowerVertical.allSatisfy { $0.start.y == 29 && $0.end.y == 27 })
+                XCTAssertTrue(crops.contains { $0.start.y == top+1 && $0.end.y == top+3 })
                 for mark in crops {
                     for point in [mark.start, mark.end] {
                         XCTAssertTrue(point.x < left || point.x > right || point.y < bottom || point.y > top)
-                        XCTAssertGreaterThanOrEqual(point.y, 30)
                     }
                 }
             }
@@ -131,7 +136,7 @@ final class MachineProfileTests: XCTestCase {
         let sheet = try XCTUnwrap(plan.sheets.first)
         let blocks = try XCTUnwrap(sheet.gangLayout?.blocks)
         XCTAssertEqual(blocks[1].origin.x-blocks[0].origin.x, 180)
-        XCTAssertEqual(blocks[0].origin.y, 33)
+        XCTAssertEqual(blocks[0].origin.y, 30)
         XCTAssertEqual(sheet.front.slots.count, 4)
         XCTAssertTrue(sheet.front.slots.allSatisfy { $0.rotation == 90 })
     }

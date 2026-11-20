@@ -161,16 +161,10 @@ final class Workspace: ObservableObject {
     private let filePicker: FilePicker?
     private let machineDefaults: UserDefaults
     private static let machineProfilesKey = "machineProfiles"
-    private static let selectedMachineKey = "selectedMachineProfile"
     @Published private(set) var machineProfiles: [MachineProfile] = []
-
-    private var preferredMachineProfile: MachineProfile? {
-        machineProfiles.first { $0.id.uuidString == machineDefaults.string(forKey: Self.selectedMachineKey) }
-    }
 
     func selectMachineProfile(_ profile: MachineProfile?) {
         project.machineProfile = profile?.withLayoutDefaults
-        machineDefaults.set(profile?.id.uuidString, forKey: Self.selectedMachineKey)
     }
 
     func saveMachineProfile(_ profile: MachineProfile) {
@@ -185,9 +179,7 @@ final class Workspace: ObservableObject {
     func deleteMachineProfile(_ id: UUID) {
         storeMachineProfiles(loadMachineProfiles().filter { $0.id != id })
         if project.machineProfile?.id == id { selectMachineProfile(nil) }
-        else if machineDefaults.string(forKey: Self.selectedMachineKey) == id.uuidString {
-            machineDefaults.removeObject(forKey: Self.selectedMachineKey)
-        }
+
     }
 
     private func loadMachineProfiles() -> [MachineProfile] {
@@ -212,9 +204,6 @@ final class Workspace: ObservableObject {
         self.recentStore = recentStore ?? RecentFilesStore()
         self.filePicker = filePicker
         machineProfiles = loadMachineProfiles()
-        var initialProject = Self.newProject()
-        initialProject.machineProfile = preferredMachineProfile
-        _project = Published(initialValue: initialProject)
         recentFiles = self.recentStore.files()
         savedState = state
         journal.reset(editSnapshot)
@@ -839,9 +828,7 @@ extension Workspace {
         order = []; included = []; selectedPages = []; overlays = Self.defaultPreviewOverlays(); sheetPreset = Self.automaticSheetTitle
         bookletGutter = nil; repeatGutter = 0; gangGutter = nil
         machineProfiles = loadMachineProfiles()
-        var next = Self.newProject()
-        next.machineProfile = preferredMachineProfile
-        project = next
+        project = Self.newProject()
         selectedJobTemplateID = nil
         planTask?.cancel(); revision = UUID()
         plan = ImpositionPlan(); sheetIndex = 0; side = .front; repetition = 0; selectedSerialID = nil
