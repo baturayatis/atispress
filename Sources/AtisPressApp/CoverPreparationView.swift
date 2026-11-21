@@ -73,9 +73,11 @@ struct CoverPreparationView: View {
             CoverSheetMeasure(title:"Yükseklik",value:stock.sheetDimension(\.height),minimum:1)
             CoverSheetMeasure(title:"Ara boşluk",value:Binding(get:{ model.coverPreparation.gap ?? 0 },
                 set:{ value in model.updateCoverImposition { $0.gap = value } }))
-            CoverSheetMeasure(title:"Taşma",value:Binding(
-                get:{ model.coverPreparation.bleed ?? CoverPreparationSettings.defaultBleed },
-                set:{ value in model.updateCoverImposition { $0.bleed = value } }),maximum:1000)
+            LabeledContent("Kapak taşması") {
+                BleedInput(title:"Kapak taşması",value:Binding(
+                    get:{ model.coverPreparation.bleed ?? CoverPreparationSettings.defaultBleed },
+                    set:{ value in model.updateCoverImposition { $0.bleed = value } }),maximum:1000)
+            }
             Picker("Tabaka yönü",selection:stock.orientation) {
                 Text("Otomatik").tag(Orientation.auto)
                 Text("Dikey").tag(Orientation.portrait)
@@ -114,6 +116,12 @@ struct CoverPreparationView: View {
                 Text("\(layout.columns) × \(layout.rows) · \(layout.copiesPerSheet) kapak/tabaka").monospacedDigit()
             }
             Button("Tabaka önizle") { model.coverPreviewOutput = .sheet }
+            if let sheet = plan.sheets.first, model.project.exportMarks.registrationCrosses {
+                let marks = model.coverPreparationMarks(.sheet)
+                ForEach(PDFColorControlRenderer.geometry(sheet:sheet,settings:marks).warnings.filter { $0.hasPrefix("Kros") },id:\.self) {
+                    Text($0).foregroundStyle(DesignSystem.warning)
+                }
+            }
             if let error = plan.issues.first(where:{ $0.severity == .error }) {
                 Text(error.message).foregroundStyle(DesignSystem.warning)
             } else if let warning = plan.issues.first(where:{ $0.severity == .warning }) {

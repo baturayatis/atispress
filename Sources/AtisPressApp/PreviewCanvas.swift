@@ -155,6 +155,7 @@ final class SheetCanvasView: NSView {
         printedMarks = controlMarks
         var previewMarks = controlMarks
         previewMarks.colorBar = overlays.colorBar; previewMarks.registrationTargets = overlays.registrationTargets
+        previewMarks.registrationCrosses = false
         colorControls = overlays.colorBar || overlays.registrationTargets ? PDFColorControlRenderer.geometry(sheet: sheet,settings: previewMarks,kind: kind) : nil
         bleedGuideEnabled = bleedAmount > 0 && (generatedBleed.enabled || side.slots.contains { slot in
             guard let number = slot.sourcePageNumber, let source, source.pages.indices.contains(number-1) else { return false }

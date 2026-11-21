@@ -134,6 +134,35 @@ import PDFEngine
         XCTAssertEqual(try ProjectDocument(state: model.state).encoded(), before)
     }
 
+    func testJobAndCoverBleedStaySeparateAndDecimalInputIsStrict() throws {
+        let model = Workspace(uiDefaults:defaults())
+        let toolbar = ContextBindings(model:model)
+        toolbar.bleed.wrappedValue = 90
+        XCTAssertEqual(toolbar.bleed.wrappedValue,90)
+        XCTAssertEqual(model.coverPreparation.bleed ?? CoverPreparationSettings.defaultBleed,3)
+        for (draft,expected) in [("9,0",9.0),("9.0",9.0),("9.000",9.0),(" 3,25 ",3.25),("0",0)] {
+            XCTAssertEqual(BleedInput.parse(draft,maximum:1000),expected)
+        }
+        for value in ["","-1","1,","9,0 mm","9,0,0","1.000,5","NaN","1000,1"] {
+            XCTAssertNil(BleedInput.parse(value,maximum:1000),value)
+        }
+        model.updateCoverImposition { $0.bleed = BleedInput.parse("3,25",maximum:1000) }
+        for panel in InspectorPanel.allCases {
+            model.ui.jump(panel)
+            XCTAssertEqual(toolbar.bleed.wrappedValue,90)
+            XCTAssertEqual(model.coverPreparation.bleed,3.25)
+        }
+        toolbar.crosses.wrappedValue = true
+        XCTAssertTrue(model.project.exportMarks.registrationCrosses)
+        XCTAssertTrue(model.coverPreparationMarks(.sheet).registrationCrosses)
+        XCTAssertFalse(model.coverPreparationMarks(.spread).registrationCrosses)
+        XCTAssertFalse(toolbar.registration.wrappedValue)
+        let reopened = try ProjectDocument.decode(ProjectDocument(state:model.state).encoded())
+        XCTAssertEqual(reopened.state.project.settings.bleed,90)
+        XCTAssertEqual(reopened.state.project.coverPreparation?.bleed,3.25)
+        XCTAssertTrue(reopened.state.project.exportMarks.registrationCrosses)
+    }
+
     func testNewWorkspaceOpensJobInspectorAndGlobalToolbarSurvivesEveryTab() throws {
         let store = defaults()
         let previous = Workspace(uiDefaults:store)
@@ -156,10 +185,11 @@ import PDFEngine
         for panel in InspectorPanel.allCases {
             model.ui.jump(panel)
             let fields = ContextPresentation.controls(for:model)
-            XCTAssertEqual(Array(fields.prefix(8)),ContextPresentation.globalControls)
+            XCTAssertEqual(Array(fields.prefix(ContextPresentation.globalControls.count)),ContextPresentation.globalControls)
             let narrow = ContextPresentation.layout(fields,width:460)
             XCTAssertEqual(narrow.visible+narrow.overflow,fields)
             XCTAssertTrue((narrow.visible+narrow.overflow).contains(.registration))
+            XCTAssertTrue((narrow.visible+narrow.overflow).contains(.crosses))
             XCTAssertEqual(model.project,state)
         }
         model.project.exportMarks.registrationTargets = false

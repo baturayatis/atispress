@@ -30,6 +30,7 @@ struct ExportMarksView: View {
                 if scope == .all {ColorControlSizeView(model:model)}
             }
             if scope == .all || scope == .printed {
+                Toggle("Kros işaretleri (çıktıya basılır)",isOn:ContextBindings(model:model).crosses)
                 Toggle("Kesim işaretleri (çıktıya basılır)",isOn: ContextBindings(model:model).crop).inspectorTarget("crop").automaticReset(model,.exportCrop)
                 if model.project.isBooklet { Toggle("Katlama işaretleri (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.fold,.exportFold)).inspectorTarget("fold").automaticReset(model,.exportFold) }
                 Toggle("Taşma çizgisi (çıktıya basılır)",isOn: model.autoBinding($model.project.exportMarks.bleed,.exportBleed)).inspectorTarget("printBleed").automaticReset(model,.exportBleed)

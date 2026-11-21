@@ -276,6 +276,7 @@ final class Workspace: ObservableObject {
         var marks = ExportMarks.none
         marks.crop = project.coverPreparation?.crop ?? project.exportMarks.crop
         marks.registrationTargets = project.exportMarks.registrationTargets
+        marks.registrationCrosses = project.exportMarks.registrationCrosses
         marks.targetSize = project.exportMarks.targetSize
         marks.lineWidth = project.exportMarks.lineWidth
         marks.color = project.exportMarks.color

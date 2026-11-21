@@ -58,6 +58,11 @@ import ImpositionCore
             model.project.exportMarks.registrationTargets = value
         } })
     }
+    var crosses: Binding<Bool> {
+        Binding(get:{ model.project.exportMarks.registrationCrosses },set:{ value in edit {
+            model.project.exportMarks.registrationCrosses = value
+        } })
+    }
     var previewRegistration: Binding<Bool> {
         Binding(get:{ model.overlays.registrationTargets },set:{ value in edit { model.setPreviewTargets(value) } })
     }
@@ -85,7 +90,7 @@ import ImpositionCore
 
 enum ContextKind:Equatable {case flat,book,serial,job,split,guides}
 enum ContextControl:String,Identifiable {
-    case sheet,orientation,machine,production,quantity,bleed,crop,registration,arrangement,binding,signature,cover
+    case sheet,orientation,machine,production,quantity,bleed,crop,registration,crosses,arrangement,binding,signature,cover
     case field,kind,font,size,color,x,y,rotation,center,waste,dimensions,split,guides
     var id:String {rawValue}
     var title:String {
@@ -95,9 +100,10 @@ enum ContextControl:String,Identifiable {
         case .machine:return "Makine"
         case .production:return "Üretim"
         case .quantity:return "Adet"
-        case .bleed:return "Taşma payı"
+        case .bleed:return "İş taşması"
         case .crop:return "Kesim işaretleri"
         case .registration:return "Diz işaretleri"
+        case .crosses:return "Kros işaretleri"
         case .arrangement:return "Dizilim"
         case .binding:return "Cilt yöntemi"
         case .signature:return "Forma"
@@ -127,6 +133,7 @@ enum ContextControl:String,Identifiable {
         case .bleed:return 250
         case .crop:return 200
         case .registration:return 185
+        case .crosses:return 190
         case .binding:return 265
         case .signature:return 210
         case .cover:return 205
@@ -157,7 +164,7 @@ enum ContextPresentation {
         case .guides:return [.guides]
         }
     }
-    static let globalControls: [ContextControl] = [.sheet,.orientation,.machine,.production,.quantity,.bleed,.crop,.registration]
+    static let globalControls: [ContextControl] = [.sheet,.orientation,.machine,.production,.quantity,.bleed,.crop,.registration,.crosses]
 
     @MainActor static func controls(for model: Workspace) -> [ContextControl] {
         var result=controls(kind(model))
@@ -269,10 +276,11 @@ struct ContextBar:View {
         case .bleed:
             HStack(spacing:3) {
                 Toggle("Eksik taşmayı üret",isOn:values.bleedEnabled).labelsHidden().toggleStyle(.switch)
-                TextField("Taşma payı",value:values.bleed,format:.number.locale(TRFormat.locale)).frame(minWidth:34).textFieldStyle(.roundedBorder)
-                Text("mm").font(.system(size:13))
+                BleedInput(title:"İş taşması",value:values.bleed,maximum:1_000_000)
+                    .id(model.selectedGangJobID)
             }
         case .crop:Toggle("Kesim işaretleri",isOn:values.crop).labelsHidden().toggleStyle(.checkbox).font(.system(size:13)).help("Kesim işaretleri (çıktıya basılır)")
+        case .crosses: Toggle("Kros işaretleri",isOn:values.crosses).labelsHidden()
         case .registration:
             Menu {
                 Toggle("Çıktıya bas",isOn:values.registration)

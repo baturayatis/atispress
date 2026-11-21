@@ -2,6 +2,7 @@ public struct ColorControlSettings: Equatable, Codable, Sendable {
     public enum BarSide: String, Codable, Sendable { case gripper, opposite }
     public var colorBar = false
     public var targets = false
+    public var crosses: Bool?
     /// Circle diameter / crosshair span, in mm. Stroke is added outside it.
     public var targetSize: Double = 5
     /// Square vector patches, in mm.
@@ -17,6 +18,10 @@ extension ExportMarks {
     public var registrationTargets: Bool {
         get { colorControls?.targets ?? false }
         set { var value = colorControls ?? ColorControlSettings(); value.targets = newValue; colorControls = value }
+    }
+    public var registrationCrosses: Bool {
+        get { colorControls?.crosses ?? false }
+        set { var value = colorControls ?? ColorControlSettings(); value.crosses = newValue; colorControls = value }
     }
     public var targetSize: Double {
         get { colorControls?.targetSize ?? 5 }

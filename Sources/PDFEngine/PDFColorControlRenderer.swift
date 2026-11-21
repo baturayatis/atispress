@@ -33,12 +33,13 @@ public enum PDFColorControlRenderer {
     public struct Geometry {
         public var patches: [Patch] = []
         public var targets: [Target] = []
+        public var crosses: [Target] = []
         public var warnings: [String] = []
         public var barBounds: CGRect? {
             guard !patches.isEmpty else { return nil }
             return patches.reduce(CGRect.null) { $0.union($1.bounds) }
         }
-        public var bounds: [CGRect] { patches.map(\.bounds)+targets.map(\.bounds) }
+        public var bounds: [CGRect] { patches.map(\.bounds)+targets.map(\.bounds)+crosses.map(\.bounds) }
     }
     private static let unit = PDFPreviewDrawing.pointsPerMM
     private static func opposite(_ edge: Edge) -> Edge {
@@ -49,7 +50,7 @@ public enum PDFColorControlRenderer {
     }
     public static func geometry(sheet: Sheet,settings: ExportMarks,kind: SideKind = .front) -> Geometry {
         var result = Geometry()
-        guard settings.colorBar || settings.registrationTargets else { return result }
+        guard settings.colorBar || settings.registrationTargets || settings.registrationCrosses else { return result }
         let paper = CGRect(x: 0.5,y: 0.5,width: sheet.size.width-1,height: sheet.size.height-1)
         guard sheet.diagnosticBounds == nil,paper.width.isFinite,paper.height.isFinite,paper.width > 0,paper.height > 0 else {
             result.warnings = ["Renk kontrol işaretleri için geçerli tabaka alanı yok; işaretler eklenmedi."]; return result
@@ -101,7 +102,7 @@ public enum PDFColorControlRenderer {
             }
         }
         let block = artwork.reduce(CGRect.null) { $0.union($1) }
-        func band(_ edge: Edge) -> CGRect {
+        func band(_ edge: Edge, paper: CGRect) -> CGRect {
             guard !block.isNull else { return paper }
             switch edge {
             case .bottom: return CGRect(x: paper.minX,y: paper.minY,width: paper.width,height: max(0,block.minY-paper.minY))
@@ -110,8 +111,8 @@ public enum PDFColorControlRenderer {
             case .right: return CGRect(x: block.maxX,y: paper.minY,width: max(0,paper.maxX-block.maxX),height: paper.height)
             }
         }
-        func fit(_ size: CGSize,edge: Edge,centered: Bool) -> CGRect? {
-            let area = band(edge)
+        func fit(_ size: CGSize,edge: Edge,centered: Bool,limits: CGRect? = nil) -> CGRect? {
+            let area = band(edge,paper:limits ?? paper).intersection(limits ?? paper)
             guard size.width.isFinite,size.height.isFinite,size.width > 0,size.height > 0,
                   area.width >= size.width,area.height >= size.height else { return nil }
             let horizontal = edge == .bottom || edge == .top
@@ -174,15 +175,57 @@ public enum PDFColorControlRenderer {
                 }
             } else { result.warnings.append("Renk skalası için seçilen kenarda boş alan yok veya yama boyutu geçersiz; skala eklenmedi.") }
         }
+        if settings.registrationCrosses {
+            var printable = printableBounds(sheet.front,paper:paper,gripper:sheet.gripperEdge)
+            if sheet.hasContent(on:.back) {
+                let rear = printableBounds(sheet.back,paper:paper,gripper:sheet.gripperEdge)
+                printable = rear.isNull ? .null : printable.intersection(reflected(rear))
+            }
+            let size = 5.0
+            protected += result.patches.map { $0.bounds.insetBy(dx:-0.25,dy:-0.25) }
+            var missingEdges: [String] = []
+            for edge in [Edge.bottom,.top,.left,.right] {
+                if let r = fit(CGSize(width:size+stroke,height:size+stroke),edge:edge,centered:false,limits:printable) {
+                    let cross = Target(edge:edge,center:CGPoint(x:r.midX,y:r.midY),size:size,strokeWidth:stroke)
+                    result.crosses.append(cross)
+                    protected.append(cross.bounds.insetBy(dx:-0.25,dy:-0.25))
+                } else { missingEdges.append(title(kind == .back ? reflectedEdge(edge) : edge)) }
+            }
+            if !missingEdges.isEmpty {
+                result.warnings.append("Kros işaretleri için baskı alanında boş yer yok (\(missingEdges.joined(separator:", "))).")
+            }
+        }
         if kind == .back {
             result.patches = result.patches.map { Patch(bounds: reflected($0.bounds),definition: $0.definition) }
-            result.targets = result.targets.map { target in
+            func flipped(_ target: Target) -> Target {
                 let bounds = reflected(target.circleBounds)
-                return Target(edge: reflectedEdge(target.edge),center: CGPoint(x: bounds.midX,y: bounds.midY),size: target.size,strokeWidth: target.strokeWidth)
+                return Target(edge:reflectedEdge(target.edge),center:CGPoint(x:bounds.midX,y:bounds.midY),
+                              size:target.size,strokeWidth:target.strokeWidth)
             }
+            result.targets = result.targets.map(flipped)
+            result.crosses = result.crosses.map(flipped)
         }
         return result
     }
+    private static func printableBounds(_ side: Side,paper: CGRect,gripper: Edge) -> CGRect {
+        let frame = side.marks.filter { $0.kind == .margin && $0.label == nil }
+        var bounds = paper
+        if frame.count >= 4 {
+            let points = frame.flatMap { [$0.start,$0.end] }
+            let xs = points.map(\.x), ys = points.map(\.y)
+            if let l = xs.min(), let r = xs.max(), let b = ys.min(), let t = ys.max() {
+                bounds = paper.intersection(CGRect(x:l,y:b,width:r-l,height:t-b))
+            }
+        }
+        guard let guide = side.marks.first(where:{ $0.kind == .gripper }) else { return bounds }
+        switch gripper {
+        case .bottom: return bounds.intersection(CGRect(x:paper.minX,y:guide.start.y,width:paper.width,height:max(0,paper.maxY-guide.start.y)))
+        case .top: return bounds.intersection(CGRect(x:paper.minX,y:paper.minY,width:paper.width,height:max(0,guide.start.y-paper.minY)))
+        case .left: return bounds.intersection(CGRect(x:guide.start.x,y:paper.minY,width:max(0,paper.maxX-guide.start.x),height:paper.height))
+        case .right: return bounds.intersection(CGRect(x:paper.minX,y:paper.minY,width:max(0,guide.start.x-paper.minX),height:paper.height))
+        }
+    }
+
     public static func draw(_ geometry: Geometry,in context: CGContext) {
         context.saveGState(); defer { context.restoreGState() }
         let space = CGColorSpaceCreateDeviceCMYK()
@@ -194,13 +237,15 @@ public enum PDFColorControlRenderer {
         }
         context.setStrokeColor(CGColor(colorSpace: space,components: [1,1,1,1,1])!)
         context.setLineDash(phase: 0,lengths: []); context.setLineCap(.butt)
-        for target in geometry.targets {
-            context.setLineWidth(target.strokeWidth)
-            context.strokeEllipse(in: target.circleBounds)
-            context.move(to: CGPoint(x: target.center.x-target.size/2,y: target.center.y))
-            context.addLine(to: CGPoint(x: target.center.x+target.size/2,y: target.center.y))
-            context.move(to: CGPoint(x: target.center.x,y: target.center.y-target.size/2))
-            context.addLine(to: CGPoint(x: target.center.x,y: target.center.y+target.size/2)); context.strokePath()
+        for (marks,circled) in [(geometry.targets,true),(geometry.crosses,false)] {
+            for target in marks {
+                context.setLineWidth(target.strokeWidth)
+                if circled { context.strokeEllipse(in:target.circleBounds) }
+                context.move(to: CGPoint(x: target.center.x-target.size/2,y: target.center.y))
+                context.addLine(to: CGPoint(x: target.center.x+target.size/2,y: target.center.y))
+                context.move(to: CGPoint(x: target.center.x,y: target.center.y-target.size/2))
+                context.addLine(to: CGPoint(x: target.center.x,y: target.center.y+target.size/2)); context.strokePath()
+            }
         }
     }
 }

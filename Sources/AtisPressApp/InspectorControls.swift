@@ -108,3 +108,77 @@ extension Workspace {
         Binding(get:{ self.project.leafSettings[keyPath:key] },set:{ self.project.leafSettings[keyPath:key] = $0 })
     }
 }
+
+/// A draft belongs to the active edit. Only a complete, validated decimal reaches the project.
+struct BleedInput: View {
+    let title: String
+    @Binding var value: Double
+    let maximum: Double
+    @FocusState private var focused: Bool
+    @State private var draft = ""
+    @State private var baseline: Double?
+    @State private var dirty = false
+    @State private var error: String?
+
+    static func parse(_ input: String,maximum: Double) -> Double? {
+        let text = input.trimmingCharacters(in:.whitespacesAndNewlines)
+        guard text.range(of:#"^[0-9]+([.,][0-9]+)?$"#,options:.regularExpression) != nil,
+              let parsed = Double(text.replacingOccurrences(of:",",with:".")),
+              (0...maximum).contains(parsed) else { return nil }
+        return parsed
+    }
+
+    private func display(_ number: Double) -> String {
+        number.formatted(.number.locale(TRFormat.locale).grouping(.never).precision(.fractionLength(0...16)))
+    }
+
+    var body: some View {
+        HStack(spacing:4) {
+            TextField(title,text:Binding(get:{ focused || dirty ? draft : display(value) },set:{ text in
+                if !dirty { baseline = value }
+                draft = text
+                dirty = true
+                error = nil
+            }))
+            .focused($focused).multilineTextAlignment(.trailing).textFieldStyle(.roundedBorder)
+            .frame(minWidth:44,maxWidth:85).accessibilityLabel(title)
+            .onSubmit(commit).onExitCommand { reset(); focused = false }
+            .onChange(of:focused) { _, active in
+                if active, !dirty { draft = display(value) }
+                else if !active { commit() }
+            }
+            .onChange(of:value) { _, current in
+                if !dirty { draft = display(current) }
+            }
+            Text("mm")
+            if let error {
+                Image(systemName:"exclamationmark.triangle.fill")
+                    .foregroundStyle(DesignSystem.warning).help(error).accessibilityLabel(error)
+            }
+        }
+    }
+
+    private func commit() {
+        guard dirty else { return }
+        guard baseline == value else {
+            error = "Taşma başka bir kontrolden değiştirildi. Esc ile yeni değeri gösterin."
+            return
+        }
+        guard let next = Self.parse(draft,maximum:maximum) else {
+            error = "0–\(display(maximum)) mm arasında bir sayı girin. Ondalık ayırıcı virgül veya nokta olabilir."
+            return
+        }
+        dirty = false
+        baseline = nil
+        error = nil
+        draft = display(next)
+        if next != value { value = next }
+    }
+
+    private func reset() {
+        dirty = false
+        baseline = nil
+        error = nil
+        draft = display(value)
+    }
+}

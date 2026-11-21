@@ -210,3 +210,65 @@ final class ColorControlTests: XCTestCase {
     }
 
 }
+
+extension ColorControlTests {
+    func testPlainRegistrationCrossesStayInPrintableAreaAndMatchPDF() async throws {
+        let folder = try folder(), source = try await source(folder)
+        var imposed = sheet()
+        imposed.back = Side()
+        imposed.gripperEdge = .bottom
+        let corners = [Point(12,16),Point(288,16),Point(288,384),Point(12,384)]
+        imposed.front.marks += (0..<4).map { Mark(kind:.margin,start:corners[$0],end:corners[($0+1)%4]) }
+        imposed.front.marks.append(Mark(kind:.gripper,start:Point(12,28),end:Point(288,28)))
+        var enabled = ExportMarks.none
+        enabled.lineWidth = 1.4
+        enabled.registrationCrosses = true
+        let geometry = PDFColorControlRenderer.geometry(sheet:imposed,settings:enabled)
+        XCTAssertTrue(geometry.targets.isEmpty)
+        XCTAssertFalse(geometry.crosses.isEmpty)
+        let printable = CGRect(x:12,y:28,width:276,height:356)
+        let artwork = CGRect(x:27,y:47,width:246,height:306)
+        for cross in geometry.crosses {
+            XCTAssertTrue(printable.contains(cross.bounds))
+            XCTAssertFalse(artwork.intersects(cross.bounds))
+        }
+        var both = enabled
+        both.registrationTargets = true
+        let independent = PDFColorControlRenderer.geometry(sheet:imposed,settings:both)
+        XCTAssertFalse(independent.targets.isEmpty)
+        XCTAssertFalse(independent.crosses.isEmpty)
+        for cross in independent.crosses {
+            XCTAssertTrue(independent.targets.allSatisfy { !$0.bounds.intersects(cross.bounds) })
+        }
+        XCTAssertTrue(PDFColorControlRenderer.geometry(sheet:imposed,settings:.none).crosses.isEmpty)
+        let unit = PDFPreviewDrawing.pointsPerMM
+        func bitmap() throws -> CGContext {
+            let ctx = try XCTUnwrap(CGContext(data:nil,width:1200,height:1600,bitsPerComponent:8,bytesPerRow:0,
+                space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue))
+            ctx.setFillColor(CGColor(gray:1,alpha:1)); ctx.fill(CGRect(x:0,y:0,width:1200,height:1600))
+            ctx.scaleBy(x:4,y:4)
+            return ctx
+        }
+        func pixel(_ ctx: CGContext,_ p: CGPoint) -> UInt8 {
+            ctx.data!.assumingMemoryBound(to:UInt8.self)[(ctx.height-1-Int(p.y*4))*ctx.bytesPerRow+4*Int(p.x*4)]
+        }
+        let output = folder.appendingPathComponent("crosses.pdf")
+        let result = try PDFExporter.export(plan:ImpositionPlan(sheets:[imposed]),source:source,destination:.singlePDF(output),marks:enabled)
+        XCTAssertEqual(result.pageCount,1)
+        let document = try XCTUnwrap(CGPDFDocument(output as CFURL))
+        let page = try XCTUnwrap(document.page(at:1))
+        let preview = try bitmap(), printed = try bitmap(), hidden = try bitmap()
+        PDFExportMarkRenderer.draw(side:imposed.front,sheet:imposed,in:preview,settings:enabled,info:"")
+        PDFExportMarkRenderer.draw(side:imposed.front,sheet:imposed,in:hidden,settings:.none,info:"")
+        printed.scaleBy(x:1/unit,y:1/unit); printed.drawPDFPage(page)
+        let cross = try XCTUnwrap(geometry.crosses.first)
+        XCTAssertLessThan(pixel(preview,cross.center),128)
+        XCTAssertLessThan(pixel(printed,cross.center),128)
+        XCTAssertEqual(pixel(hidden,cross.center),255)
+        let ringOnly = CGPoint(x:cross.center.x+1.77,y:cross.center.y+1.77)
+        XCTAssertEqual(pixel(preview,ringOnly),255)
+        XCTAssertEqual(pixel(printed,ringOnly),255)
+        let ops = Operators(); ops.scan(page)
+        XCTAssertTrue(ops.strokes.contains([1,1,1,1]))
+    }
+}
