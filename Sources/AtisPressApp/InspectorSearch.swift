@@ -91,6 +91,7 @@ struct InspectorSearchEntry: Identifiable {
         .init("columns", "Sütun sayısını belirle", .montage, .placement, "kolon ızgara") { $0.project.binding == .stepAndRepeat },
         .init("rows", "Satır sayısını belirle", .montage, .placement, "ızgara sıra") { $0.project.binding == .stepAndRepeat },
         .init("teamRotation", "Takımda 90° döndürmeye izin ver", .montage, .products, "rotasyon dönüş") { $0.project.team != nil },
+        .init("prepareCover", "Kapak Hazırla", .coverPreparation, .coverPreparation, "ön arka sırt açılım kapak PDF tabaka montajı"),
         .init("coverMode", "Kapak ve Sırt", .montage, .cover, "sırt payı açılım kalınlık ayrı PDF kapak") { $0.project.isLeafBinding || $0.project.isBooklet },
         .init("bindingEdge", "Cilt kenarı", .montage, .binding, "spiral Wire-O delik") { $0.project.isLeafBinding },
         .init("holes", "Delik işaretleri", .montage, .binding, "spiral çıktı delgeç") { $0.project.isLeafBinding },

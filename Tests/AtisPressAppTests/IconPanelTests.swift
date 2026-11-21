@@ -59,11 +59,11 @@ import PDFEngine
     func testSidebarSeparatesPressAndColorAndPreservesNumberShortcuts() {
         let model = Workspace(uiDefaults: defaults())
         let tabs = InspectorPanel.allCases
-        XCTAssertEqual(tabs.map(\.title), ["İş", "Tabaka", "Montaj", "Ölçüler", "Kesim", "İş Ayır", "Seri No", "Baskı", "Renk", "Fiyat", "Çıktı"])
+        XCTAssertEqual(tabs.map(\.title), ["İş", "Tabaka", "Montaj", "Ölçüler", "Kesim", "İş Ayır", "Seri No", "Baskı", "Renk", "Fiyat", "Çıktı", "Kapak Hazırla"])
         XCTAssertEqual(InspectorPanel.neighbor(of: .job, step: -1, visible: tabs), .job)
         XCTAssertEqual(InspectorPanel.neighbor(of: .sheet, step: 1, visible: tabs), .montage)
         XCTAssertEqual(InspectorPanel.neighbor(of: .cut, step: 1, visible: tabs), .separation)
-        XCTAssertEqual(InspectorPanel.neighbor(of: .output, step: 1, visible: tabs), .output)
+        XCTAssertEqual(InspectorPanel.neighbor(of: .output, step: 1, visible: tabs), .coverPreparation)
         XCTAssertEqual(InspectorPanel.shortcuts.prefix(9).map(\.id), Array(1...9))
         XCTAssertEqual(InspectorPanel.shortcuts.prefix(9).map(\.group), [.jobBasics, .paper, .edges, .bleed, .printedMarks, .serialFields, .scale, .binding, .cost])
         let addedShortcuts = InspectorPanel.shortcuts.suffix(2)

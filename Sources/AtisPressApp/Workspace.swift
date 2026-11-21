@@ -63,6 +63,7 @@ final class Workspace: ObservableObject {
             if applyingAutomatic { return }
             if oldValue.settings.tone != project.settings.tone { plan.tone = project.settings.tone }
             var previous = oldValue
+            previous.coverPreparation = project.coverPreparation
             previous.settings.tone = project.settings.tone
             previous.exportMarks = project.exportMarks
             previous.includeBlankBacks = project.includeBlankBacks
@@ -225,6 +226,52 @@ final class Workspace: ObservableObject {
     @Published var zoomFactor: CGFloat = 1
     private var filePanel: NSOpenPanel?
     private var exportPanel: NSSavePanel?
+    @Published var coverPreviewOutput: CoverPreparationPlanner.Output = .spread
+    private var coverPlanCache: (source: UUID, project: Project, plans: [CoverPreparationPlanner.Output: ImpositionPlan])?
+
+    func coverPreparationPlan(_ output: CoverPreparationPlanner.Output) -> ImpositionPlan {
+        guard let source else { return ImpositionPlan() }
+        if coverPlanCache?.source != source.id || coverPlanCache?.project != project {
+            coverPlanCache = (source.id,project,[:])
+        }
+        if let cached = coverPlanCache?.plans[output] { return cached }
+        let result = CoverPreparationPlanner.plan(project,pages:source.pages.map(\.sourcePage),output:output)
+        coverPlanCache?.plans[output] = result
+        return result
+    }
+
+    func requestCoverPreparationExport(_ output: CoverPreparationPlanner.Output) {
+        guard !loading, !preparingSource, !autoArranging, !exporting, let source else { return }
+        if let exportPanel { exportPanel.makeKeyAndOrderFront(nil); return }
+        let snapshot = coverPreparationPlan(output)
+        guard snapshot.canExport else { return }
+        let options = coverPreparationMarks(output)
+        let panel = NSSavePanel()
+        exportPanel = panel
+        panel.allowedContentTypes = [.pdf]
+        panel.canCreateDirectories = true
+        panel.title = output == .spread ? "Kapak PDF’i oluştur" : "Tabakaya bağla / PDF oluştur"
+        panel.prompt = "PDF oluştur"
+        let name = source.displayName as NSString
+        panel.nameFieldStringValue = name.deletingPathExtension+(output == .spread ? "-kapak.pdf" : "-kapak-tabaka.pdf")
+        panel.begin { [weak self] response in
+            guard let self else { return }
+            self.exportPanel = nil
+            guard response == .OK, let url = panel.url, !self.exporting else { return }
+            self.coverPreviewOutput = output
+            self.runPDFExport(to:.singlePDF(url),source:source,snapshot:snapshot,options:options,includeBlankBacks:false)
+        }
+    }
+
+    func coverPreparationMarks(_ output: CoverPreparationPlanner.Output) -> ExportMarks {
+        guard output == .sheet else { return .none }
+        var marks = ExportMarks.none
+        marks.crop = project.coverPreparation?.crop ?? project.exportMarks.crop
+        marks.lineWidth = project.exportMarks.lineWidth
+        marks.color = project.exportMarks.color
+        return marks
+    }
+
     private var exportTask: Task<Void,Never>?
     @Published private(set) var checkingBindingStrips = false
     private var bindingStripTask: Task<Void,Never>?
@@ -320,6 +367,12 @@ final class Workspace: ObservableObject {
         }
         let snapshot = plan, options = project.exportMarks
         let includeBlankBacks = project.includeBlankBacks ?? true
+        runPDFExport(to:destination,source:source,snapshot:snapshot,options:options,includeBlankBacks:includeBlankBacks,
+                     scopedParent:scopedParent,cleanupOnFailure:cleanupOnFailure)
+    }
+
+    private func runPDFExport(to destination: PDFExportDestination,source: PDFSource,snapshot: ImpositionPlan,options: ExportMarks,
+                              includeBlankBacks: Bool,scopedParent: URL? = nil,cleanupOnFailure: URL? = nil) {
         let sheetInfo = project.sheetInfo ?? SheetInfoSettings(), production = project.autoLayout?.production ?? .digital
         exporting = true; exportSummary = nil; exportedFiles = []; exportVerification = nil; exportNotes = []
         let worker = Task.detached(priority: .userInitiated) {

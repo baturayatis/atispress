@@ -149,45 +149,12 @@ public enum BookPlanner {
                 }
                 return output
             }
-            func transformed(_ p: Point,by whole: Slot) -> Point {
-                // Same clockwise/reflection contract as PDFPreviewDrawing.slotTransform, in pure core.
-                func rotated(_ p: Point) -> Point {
-                    let q = whole.mirrored ? Point(-p.x,p.y) : p
-                    switch (whole.rotation%360+360)%360 {
-                    case 90: return Point(q.y,-q.x)
-                    case 180: return Point(-q.x,-q.y)
-                    case 270: return Point(-q.y,q.x)
-                    default: return q
-                    }
-                }
-                let corners = [Point(0,0),Point(spread.width,0),Point(0,spread.height),Point(spread.width,spread.height)].map(rotated)
-                let q = rotated(p)
-                return Point(whole.x+q.x-corners.map(\.x).min()!,whole.y+q.y-corners.map(\.y).min()!)
-            }
-            func rect(_ r: Rect,by whole: Slot) -> Rect {
-                let points = [r.origin,Point(r.origin.x+r.size.width,r.origin.y),Point(r.origin.x,r.origin.y+r.size.height),Point(r.origin.x+r.size.width,r.origin.y+r.size.height)].map { transformed($0,by:whole) }
-                let x = points.map(\.x),y = points.map(\.y)
-                return Rect(x:x.min()!,y:y.min()!,width:x.max()!-x.min()!,height:y.max()!-y.min()!)
-            }
             func assembled(_ side: Side) -> Side {
                 var output = side; output.slots = []
                 for whole in side.slots {
                     let inside = whole.itemSide == .back
                     let panels = pieces(inside:inside)
-                    for var panel in panels {
-                        let bounds = rect(Rect(x:panel.x,y:panel.y,width:panel.size.width,height:panel.size.height),by:whole)
-                        panel.origin = bounds.origin; panel.size = bounds.size; panel.rotation = whole.rotation; panel.mirrored = whole.mirrored
-                        panel.artworkClip = panel.artworkClip.map { rect($0,by:whole) }
-                        if let a = panel.artworkClip,let b = whole.artworkClip {
-                            let x = max(a.origin.x,b.origin.x),y = max(a.origin.y,b.origin.y)
-                            let w = min(a.origin.x+a.size.width,b.origin.x+b.size.width)-x
-                            let h = min(a.origin.y+a.size.height,b.origin.y+b.size.height)-y
-                            guard w>0,h>0 else { continue }
-                            panel.artworkClip = Rect(x:x,y:y,width:w,height:h)
-                        }
-                        panel.itemSide = whole.itemSide
-                        output.slots.append(panel)
-                    }
+                    output.slots += panels.compactMap { CoverPanelPlacement.place($0,in:whole,spread:spread) }
                     let l = inside ? rightFlap : leftFlap
                     for x in Set([l,l+trim.width,l+trim.width+(spine ?? 0),spread.width-(inside ? leftFlap : rightFlap)]).sorted() where x>0 && x<spread.width {
                         if !isSpread && (spineMarks || book.automaticCover == true) && x >= l+trim.width && x <= l+trim.width+(spine ?? 0) {
@@ -195,12 +162,12 @@ public enum BookPlanner {
                                 let offset = original.settings.bleed+max(0.5,original.settings.cropMarkOffset)
                                 let length = max(3,original.settings.cropMarkLength)
                                 for (a,b) in [(-offset-length,-offset),(spread.height+offset,spread.height+offset+length)] {
-                                    output.marks.append(Mark(kind:.spineFold,start:transformed(Point(x,a),by:whole),end:transformed(Point(x,b),by:whole)))
+                                    output.marks.append(Mark(kind:.spineFold,start:CoverPanelPlacement.point(Point(x,a),in:whole,spread:spread),end:CoverPanelPlacement.point(Point(x,b),in:whole,spread:spread)))
                                 }
                             }
                             continue
                         }
-                        output.marks.append(Mark(kind:.fold,start:transformed(Point(x,0),by:whole),end:transformed(Point(x,spread.height),by:whole)))
+                        output.marks.append(Mark(kind:.fold,start:CoverPanelPlacement.point(Point(x,0),in:whole,spread:spread),end:CoverPanelPlacement.point(Point(x,spread.height),in:whole,spread:spread)))
                     }
                 }
                 return output

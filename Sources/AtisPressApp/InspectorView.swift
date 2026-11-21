@@ -90,6 +90,7 @@ struct InspectorView: View {
         case .binding:
             if model.project.isLeafBinding { LeafInspectorView(model:model,section:0) }
             else { signatureControls }
+        case .coverPreparation: CoverPreparationView(model:model)
         case .cover,.bookPaper,.spine: BookInspectorView(model:model)
         case .blanks: BlankPlacementInspector(model:model)
         case .edges:

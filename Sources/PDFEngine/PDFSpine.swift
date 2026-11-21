@@ -161,7 +161,11 @@ public struct PDFSpineOverlay: PDFSlotOverlay, @unchecked Sendable {
                 guard let number, let page = document.page(at:number),
                       let strip = try samples.samples(for:page).strips[edge] else { throw PDFExportError.invalidGeometry }
                 let width = trim.width/2
-                strip.drawExtension(x:x,width:width,trim:trim,bleed:placement.artworkRect,in:context)
+                if artwork.vectorExtension && strip.uniformColor(tolerance:0) == nil {
+                    extendVector(page,edge:edge,strip:strip,x:x,width:width,trim:trim,clip:placement.artworkRect,in:context)
+                } else {
+                    strip.drawExtension(x:x,width:width,trim:trim,bleed:placement.artworkRect,in:context)
+                }
                 let amount = tone?.value(forPage: number, side: placement.slot.itemSide ?? placement.reference.side) ?? 0
                 if amount != 0 {
                     context.setFillColor(CGColor(gray:amount > 0 ? 1 : 0,alpha:Double(abs(amount))/100))
@@ -187,5 +191,29 @@ public struct PDFSpineOverlay: PDFSlotOverlay, @unchecked Sendable {
                 context.restoreGState()
             }
         }
+    }
+
+    private func extendVector(_ page: CGPDFPage,edge: SampleEdge,strip: EdgeStrip,x: Double,width: Double,
+                              trim: CGRect,clip: CGRect,in context: CGContext) {
+        let box = page.getBoxRect(.trimBox).intersection(page.getBoxRect(.mediaBox))
+        let rotated = page.rotationAngle % 180 != 0
+        let source = CGRect(x:0,y:0,width:(rotated ? box.height : box.width)/PDFPreviewDrawing.pointsPerMM,
+                            height:(rotated ? box.width : box.height)/PDFPreviewDrawing.pointsPerMM)
+        let depth = min(source.width,0.05)
+        guard depth > 0, source.height > 0 else { return }
+        let scale = width/depth
+        let start = edge == .right ? source.maxX-depth : source.minX
+        let band = CGRect(x:x,y:trim.minY,width:width,height:trim.height)
+        context.setFillColor(PDFSpine.color(strip.firstColor))
+        context.fill(CGRect(x:x,y:trim.maxY,width:width,height:max(0,clip.maxY-trim.maxY)))
+        context.setFillColor(PDFSpine.color(strip.lastColor))
+        context.fill(CGRect(x:x,y:clip.minY,width:width,height:max(0,trim.minY-clip.minY)))
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.clip(to:band)
+        context.translateBy(x:x,y:trim.minY)
+        context.scaleBy(x:scale,y:trim.height/source.height)
+        context.translateBy(x:-start,y:0)
+        PDFPreviewDrawing.draw(page,in:context,rect:source)
     }
 }

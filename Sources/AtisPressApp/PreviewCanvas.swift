@@ -24,6 +24,7 @@ struct PreviewCanvas: NSViewRepresentable {
     var selectSerial: ((UUID) -> Void)? = nil
     var moveSerial: ((UUID,Point) -> Void)? = nil
     var controlMarks = ExportMarks.none
+    var forceVectorArtwork = false
     var moveGangBlock: ((UUID,Point) -> Void)? = nil
     var beginEdit: (() -> Void)? = nil
     var endEdit: (() -> Void)? = nil
@@ -60,6 +61,7 @@ struct PreviewCanvas: NSViewRepresentable {
     private func update(_ canvas: SheetCanvasView) {
         if let zoomModel { canvas.connectSerialEditing(zoomModel) }
         canvas.focusArea = focusArea
+        canvas.forceVectorArtwork = forceVectorArtwork
         canvas.repetition = repetition; canvas.selectedSerial = selectedSerial
         canvas.selectSerial = selectSerial; canvas.moveSerial = moveSerial; canvas.moveGangBlock = moveGangBlock; canvas.beginEdit = beginEdit; canvas.endEdit = endEdit
         canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed,controlMarks: controlMarks,bleedAmount:bleedAmount,info:printedInfo,tone:tone)
@@ -96,6 +98,7 @@ final class SheetCanvasView: NSView {
     var overlays = PreviewOverlays()
     var bleedGuideEnabled = false
     var printedMarks = ExportMarks.none
+    var forceVectorArtwork = false
     var printedInfo = ""
     var highlighted = Set<Int>()
     var zoomAction = 0
@@ -207,8 +210,9 @@ final class SheetCanvasView: NSView {
             }
             if let number = slot.sourcePageNumber {
                 let page = vectorDocument?.page(at: number)
-                let raster = scale < 0.85 && slot.rescale == nil ? source?.cachedRaster(page: number,pixels: rasterPixels) : nil
-                if scale < 0.85 && slot.rescale == nil && raster == nil && !failedRasters.contains(number) { loadRaster(number,pixels: rasterPixels) }
+                let shouldRaster = !forceVectorArtwork && scale < 0.85 && slot.rescale == nil
+                let raster = shouldRaster ? source?.cachedRaster(page: number,pixels: rasterPixels) : nil
+                if shouldRaster && raster == nil && !failedRasters.contains(number) { loadRaster(number,pixels: rasterPixels) }
                 // A vector fallback avoids flashing empty trim rectangles while the bleed raster loads.
                 try? PDFPlanRenderer.drawSlot(slot,page: page,in: context,
                     reference: SlotReference(sheet: sheetIndex,side: sideKind,slot: index),repetition: repetition,raster: raster,overlays: extensions,pass: .artwork,tone: tone?.value(for: slot,on: sideKind) ?? 0)

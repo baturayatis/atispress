@@ -72,7 +72,7 @@ public enum ImpositionPlanner {
         for index in result.sheets.indices {
             result.sheets[index].alignment = project.blockAlignment
             result.sheets[index].gripperEdge = project.sheet.gripperEdge
-            if let profile = project.activeMachineProfile, profile.gripperEdge == .bottom {
+            if let profile = project.activeMachineProfile, project.coverGrid == nil, profile.gripperEdge == .bottom {
                 result.sheets[index].machineBottomTrim = profile.gripperWidth
             }
             result.sheets[index].backFlipsX = (project.isLeafBinding || project.binding == .stepAndRepeat || project.binding == .gang) ? repeatMirrorsX(project) : project.settings.turnMethod != .workAndTumble

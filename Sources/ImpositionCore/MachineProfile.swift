@@ -93,9 +93,11 @@ extension Project {
         input.sheet = SheetSpec(size: profile.size, gripperEdge: profile.gripperEdge,
                                 gripperWidth: profile.gripperWidth, gutter: profile.gap)
         input.alignment = .center
-        input.stepAndRepeat.columns = profile.columns
-        input.stepAndRepeat.rows = profile.rows
-        input.settings.turnMethod = profile.faces == .single ? .sheetwise : .workAndTurn
+        if coverGrid == nil {
+            input.stepAndRepeat.columns = profile.columns
+            input.stepAndRepeat.rows = profile.rows
+            input.settings.turnMethod = profile.faces == .single ? .sheetwise : .workAndTurn
+        }
         input.autoLayout?.trimTolerance = 0
         return input
     }

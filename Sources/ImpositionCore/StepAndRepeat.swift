@@ -81,7 +81,7 @@ extension ImpositionPlanner {
                 }
             }
             // The array stays in copy order. GridPosition expresses each face's row/column order.
-            let frontSide = repeatSide(frontSlots,grid: grid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet, machine: project.activeMachineProfile)
+            let frontSide = repeatSide(frontSlots,grid: grid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet, machine: project.coverGrid == nil ? project.activeMachineProfile : nil)
             var backGrid = grid
             if project.blockAlignment == .center {
                 let width = Double(grid.columns)*grid.item.width+Double(grid.columns-1)*grid.spacing
@@ -89,7 +89,7 @@ extension ImpositionPlanner {
                 backGrid.origin = Point(grid.mirrorX ? grid.sheet.width-grid.origin.x-width : grid.origin.x,
                                         grid.mirrorX ? grid.origin.y : grid.sheet.height-grid.origin.y-height)
             }
-            let backSide = repeatSide(backSlots,grid: backGrid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet, machine: project.activeMachineProfile)
+            let backSide = repeatSide(backSlots,grid: backGrid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet, machine: project.coverGrid == nil ? project.activeMachineProfile : nil)
             if settings.generatedBleed.enabled {
                 for slot in frontSide.slots+backSide.slots {
                     if let clip = slot.artworkClip,
@@ -161,7 +161,7 @@ extension ImpositionPlanner {
     private static func repeatGrid(_ project: Project, trim: Size) -> RepeatGrid? {
         let spec = project.sheet, settings = project.settings, options = project.stepAndRepeat
         let mirrorX = repeatMirrorsX(project)
-        if let profile = project.activeMachineProfile,
+        if project.coverGrid == nil, let profile = project.activeMachineProfile,
            let columns = profile.columns, let rows = profile.rows, let rotation = profile.rotation?.angle {
             let margins = settings.turnMethod == .sheetwise ? usableMargins(spec) : repeatMargins(spec, mirrorX: mirrorX)
             let reserve = project.machineExteriorReserve(bleed: settings.bleed)
@@ -179,16 +179,21 @@ extension ImpositionPlanner {
         }
         let portrait = Size(min(spec.size.width,spec.size.height),max(spec.size.width,spec.size.height))
         let landscape = Size(portrait.height,portrait.width)
-        let sheets = spec.orientation == .portrait ? [portrait] : spec.orientation == .landscape ? [landscape] : [portrait,landscape]
-        let reserve = project.layoutExteriorReserve
+        let cover = project.coverGrid
+        let usesCoverMachine = cover != nil && project.activeMachineProfile != nil
+        let sheets = usesCoverMachine ? [spec.size] :
+            spec.orientation == .portrait ? [portrait] : spec.orientation == .landscape ? [landscape] : [portrait,landscape]
+        let stroke = max(0.01,project.exportMarks.lineWidth.isFinite ? project.exportMarks.lineWidth : 0.25)*25.4/144
+        let reserve = project.layoutExteriorReserve+(cover != nil && settings.cropMarkLength > 0 ? stroke : 0)
+        let rotations = cover?.rotation.angle.map { [$0] } ?? (options.allowRotation ? [0,90] : [0])
         // Zero gutter is an explicit shared-trim-cut mode. Otherwise bleed boxes do not overlap.
-        let spacing = spec.gutter == 0 ? spec.gutter : 2*settings.bleed+spec.gutter
+        let spacing = spec.gutter == 0 || usesCoverMachine ? spec.gutter : 2*settings.bleed+spec.gutter
         var best: RepeatGrid?
         for sheet in sheets {
             let m = project.blockAlignment == .center && settings.turnMethod == .sheetwise ? usableMargins(spec) : repeatMargins(spec,mirrorX:mirrorX)
             let width = sheet.width-m.left-m.right-2*reserve
             let height = sheet.height-m.top-m.bottom-2*reserve
-            for rotation in (options.allowRotation ? [0,90] : [0]) {
+            for rotation in rotations {
                 let item = rotation == 0 ? trim : Size(trim.height,trim.width)
                 let tolerance = max(project.autoLayout?.trimTolerance ?? 0,(project.usesFullSheetBooklet || (project.bookCoverTemplate && reserve == 0)) ? 0.0001 : 0)
                 guard width+tolerance >= item.width, height+tolerance >= item.height else { continue }
@@ -203,12 +208,18 @@ extension ImpositionPlanner {
                 guard columns > 0,rows > 0,Double(columns) <= max(tolerance > 0 ? 1 : 0,fitColumns),Double(rows) <= max(tolerance > 0 ? 1 : 0,fitRows) else { continue }
                 let usedWidth = Double(columns)*item.width+Double(columns-1)*spacing
                 let usedHeight = Double(rows)*item.height+Double(rows-1)*spacing
-                let origin: Point
+                var origin: Point
                 if project.blockAlignment == .center {
                     origin = Point(m.left+(sheet.width-m.left-m.right-usedWidth)/2,
                                    m.bottom+(sheet.height-m.bottom-m.top-usedHeight)/2)
                 } else {
                     origin = !mirrorX ? Point(m.left+reserve,(sheet.height-usedHeight)/2) : Point((sheet.width-usedWidth)/2,m.bottom+reserve)
+                }
+                if let cover {
+                    origin.x += cover.x; origin.y += cover.y
+                    guard origin.x >= m.left+reserve-0.000001, origin.y >= m.bottom+reserve-0.000001,
+                          origin.x+usedWidth <= sheet.width-m.right-reserve+0.000001,
+                          origin.y+usedHeight <= sheet.height-m.top-reserve+0.000001 else { continue }
                 }
                 let candidate = RepeatGrid(sheet: sheet,origin: origin,item: item,columns: columns,rows: rows,rotation: rotation,spacing: spacing,mirrorX: mirrorX)
                 if best == nil || candidate.capacity > best!.capacity ||
@@ -237,7 +248,7 @@ extension ImpositionPlanner {
             lines += marks(slot,settings).filter { $0.kind != .crop && $0.kind != .bleed }
             // Bleed guides stop at shared cuts; they never imply overlapping neighboring artwork.
             let p = slot.gridPosition!
-            let insideBleed = spec.gutter == 0 ? 0 : machine != nil ? min(settings.bleed, grid.spacing/2) : settings.bleed
+            let insideBleed = min(settings.bleed,grid.spacing/2)
             var l = slot.x-(p.column > 0 ? insideBleed : settings.bleed)
             var r = slot.x+slot.size.width+(p.column < grid.columns-1 ? insideBleed : settings.bleed)
             var b = slot.y-(p.row > 0 ? insideBleed : settings.bleed)

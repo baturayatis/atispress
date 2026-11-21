@@ -232,6 +232,8 @@ public struct Project: Equatable, Sendable, Codable {
     public var allSheetsPreview: Bool? = nil
     public var costing: JobCostSettings? = nil
     var bookCoverTemplate = false
+    var coverGrid: CoverPreparationSettings.Grid?
+    public var coverPreparation: CoverPreparationSettings?
     public var leafBinding: LeafBindingSettings? = nil
     public var alignment: BlockAlignment? = nil
     public var previouslyHadBacks:Bool? = nil
@@ -264,10 +266,11 @@ public struct Project: Equatable, Sendable, Codable {
         self.stepAndRepeat = stepAndRepeat
     }
     private enum CodingKeys: String, CodingKey {
-        case machineProfile, internalCutJobs, team, previouslyHadBacks, pageItemNextID, pageItems, sourcePreparation, scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
+        case coverPreparation, machineProfile, internalCutJobs, team, previouslyHadBacks, pageItemNextID, pageItems, sourcePreparation, scaling, rescaleJobs, allSheetsPreview, costing, leafBinding, alignment, blankPlacement, book, gang, sheetInfo, includeBlankBacks, autoLayout, serialFields, exportMarks, pages, blankPagePolicy, binding, coverMode, sheet, settings, stepAndRepeat
     }
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        coverPreparation = try c.decodeIfPresent(CoverPreparationSettings.self,forKey:.coverPreparation)
         machineProfile = try c.decodeIfPresent(MachineProfile.self, forKey: .machineProfile)?.withLayoutDefaults
         previouslyHadBacks = try c.decodeIfPresent(Bool.self,forKey:.previouslyHadBacks)
         pageItemNextID = try c.decodeIfPresent(Int.self,forKey:.pageItemNextID)

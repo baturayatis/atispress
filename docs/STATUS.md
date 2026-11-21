@@ -13,6 +13,15 @@
 - İş Şablonu, isteğe bağlı ebat uyarısı ve JSON içe/dışa aktarma.
 - Alt trim ve yatay kesim işareti maşa çizgisinde. Önizleme ve PDF aynı geometriyi kullanır.
 
+## Kapak Hazırla · şema 29
+
+- Sağ denetçide ayrı bir kapak çalışma alanı. Ön ve arka sayfa, sırt
+  genişliği ve CMYK tercihi iç sayfa düzeninden bağımsız saklanır.
+- Açılım PDF’si kesim ebadındadır. Tek yüzlü tabaka PDF’sinde mevcut
+  tekrarlı yerleşim, kesim işaretleri, maşa ve taşma geometrisi kullanılır.
+- Düz kenarlarda renk dolgusu, değişken kenarlarda PDF’nin ince kenar
+  bandı uzatılır. Önizleme ve PDF aynı vektör çizim yolunu kullanır.
+
 ## Kapak ve Sırt · şema 28
 
 - Yeni cilt işlerinde kapak seçimi otomatik. Sırt payı, kapak grubu ve üst

@@ -17,6 +17,20 @@ In an environment that prevents nested `sandbox-exec` (including the current
 agent environment), use `swift build --disable-sandbox` and
 `swift test --disable-sandbox`. Xcode can also open `Package.swift` directly.
 
+## Kapak Hazırla
+
+Sağ denetçide **Kapak Hazırla** bölümünü açın. Ön ve arka kapak için PDF
+sayfalarını seçin. Varsayılan ilk ve son sayfadır. **Sırt payı (mm)** 0 ise
+iki yüz bitişir. Pozitif sırtta kapak kenarları otomatik uzatılır veya
+**Elle seç** ile CMYK girilir.
+
+**Kapak PDF'i oluştur** kesim ebadında tek bir açılım verir. **Tabaka montajı**
+işteki tabaka ve makine ayarlarını devralabilir veya kapak için ayrı ayarlar
+kullanabilir. Otomatik dizilim 0° ve 90° yönlerini karşılaştırır. Sütun ve
+satır sayısıyla dizilimi, yatay ve dikey kaydırmayla blok konumunu ayarlayın.
+**Tabakaya bağla / PDF oluştur** yalnız monte edilmiş kapakları basar.
+Kapak ayarları .atispress şema 29 ile kaydedilir.
+
 ## Kapak ve Sırt
 
 **Montaj → Kapak ve Sırt** bölümündeki **Sırt payı (mm)** ile üst çubuktaki
@@ -168,7 +182,7 @@ kapsamı ve elle kontrol listesi [docs/STATUS.md](docs/STATUS.md) içindedir.
 Bu sürüm **0.5.0 (build 7)**. Sürüm kaynağı
 `packaging/Info.plist`; Hakkında, tanı bilgisi ve güncelleme karşılaştırması
 aynı paket sürümünü kullanır. `swift run` için de 0.5.0 / 7 yedeği bulunur.
-Proje dosyası şeması bağımsızdır ve **28**’dir; eski projeler açılır.
+Proje dosyası şeması bağımsızdır ve **29**’dur; eski projeler açılır.
 
 **macOS 14 veya üzeri** gerekir. Intel ve Apple Silicon Mac’ler aynı universal
 uygulamayı kullanır.

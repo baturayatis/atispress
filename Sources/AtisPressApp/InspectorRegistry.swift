@@ -2,7 +2,7 @@ import Foundation
 import ImpositionCore
 
 enum InspectorPanel: String, CaseIterable, Identifiable, Codable {
-    case job, sheet, montage, dimensions, cut, separation, serial, press, color, price, output
+    case job, sheet, montage, dimensions, cut, separation, serial, press, color, price, output, coverPreparation
 
     var id: String { rawValue }
 
@@ -18,6 +18,7 @@ enum InspectorPanel: String, CaseIterable, Identifiable, Codable {
         case .press: return "Baskı"
         case .color: return "Renk"
         case .price: return "Fiyat"
+        case .coverPreparation: return "Kapak Hazırla"
         case .output: return "Çıktı"
         }
     }
@@ -48,6 +49,7 @@ enum InspectorPanel: String, CaseIterable, Identifiable, Codable {
         case .press: return "printer"
         case .color: return "paintpalette"
         case .price: return "turkishlirasign.circle"
+        case .coverPreparation: return "book.closed"
         case .output: return "square.and.arrow.up"
         }
     }
@@ -115,7 +117,7 @@ struct InspectorShortcut: Identifiable {
 
 enum InspectorGroup: String, Identifiable, Hashable {
     case jobBasics, method, waste, presets, paper, products, placement, jobFaces
-    case binding, cover, bookPaper, spine, blanks
+    case binding, cover, bookPaper, spine, blanks, coverPreparation
     case edges, bleed, generatedBleed, scale, printedMarks, internalCuts, cutMeasures, separation
     case serialFields, serialContent, serialRange, serialAppearance, serialPosition
     case production, tone, colorControls, colorSizes, colorInfo, registration, sheetInfo, preview
@@ -139,6 +141,7 @@ enum InspectorGroup: String, Identifiable, Hashable {
         case .jobFaces: return "İşe özel yüz eşlemesi"
         case .binding: return "Cilt"
         case .cover: return "Kapak ve Sırt"
+        case .coverPreparation: return "Kapak açılımı"
         case .bookPaper: return "Cilt kâğıdı"
         case .spine: return "Sırt ve creep"
         case .blanks: return "Sayfa düzeni"
@@ -280,6 +283,7 @@ extension InspectorPanel {
         case .color: return [.tone, .colorControls, .colorSizes, .colorInfo]
         case .price: return [.cost, .labor, .result, .quote, .priceLibrary]
         case .output: return [.output, .preflight]
+        case .coverPreparation: return [.coverPreparation]
         }
     }
 

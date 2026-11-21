@@ -127,3 +127,85 @@ final class BookExportTests: XCTestCase {
     }
 
 }
+
+extension BookExportTests {
+    func testCoverPreparationExportsOnlySelectedArtworkAndMatchesVectorPreview() async throws {
+        let folder = try folder()
+        let url = folder.appendingPathComponent("panels.pdf")
+        var box = CGRect(x:0,y:0,width:50*unit,height:70*unit)
+        let writer = try XCTUnwrap(CGContext(consumer:XCTUnwrap(CGDataConsumer(url:url as CFURL)),mediaBox:&box,nil))
+        for i in 1...3 {
+            writer.beginPDFPage(nil)
+            writer.setFillColor(PDFSpine.color(i == 1 ? .cmyk(1,0,0,0) : .cmyk(0,1,0,0)))
+            writer.fill(box)
+            writer.setFillColor(PDFSpine.color(i == 1 ? .cmyk(1,0.5,0,0) : .cmyk(0,0.5,0.7,0)))
+            writer.fill(CGRect(x:0,y:box.midY,width:box.width,height:box.height/2))
+            let font = CTFontCreateWithName("Helvetica" as CFString,10,nil)
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string:"PANEL\(i)",
+                attributes:[NSAttributedString.Key(kCTFontAttributeName as String):font]))
+            writer.textMatrix = .identity
+            writer.textPosition = CGPoint(x:15*unit,y:20*unit)
+            CTLineDraw(line,writer)
+            writer.endPDFPage()
+        }
+        writer.closePDF()
+        let source = try await PDFSource.open(url)
+        let before = try Data(contentsOf:url)
+        let pages = source.pages.map(\.sourcePage)
+        let document = try XCTUnwrap(CGPDFDocument(url as CFURL))
+        var project = Project(pages:pages,binding:.perfectBound,
+            sheet:SheetSpec(size:Size(180,125),gripperWidth:7,orientation:.landscape))
+        project.coverPreparation = CoverPreparationSettings()
+        project.coverPreparation?.spineWidth = 10
+
+        for (output,mode) in [(CoverPreparationPlanner.Output.spread,CoverPreparationSettings.SpineColorMode.automatic),
+                              (.sheet,.automatic),(.spread,.manual)] {
+            project.coverPreparation?.colorMode = mode
+            let plan = CoverPreparationPlanner.plan(project,pages:pages,output:output)
+            let sheet = try XCTUnwrap(plan.sheets.first)
+            let marks: ExportMarks = output == .spread ? .none : ExportMarks()
+            let out = folder.appendingPathComponent("\(output)-\(mode).pdf")
+            let exported = try PDFExporter.export(plan:plan,source:source,destination:.singlePDF(out),marks:marks)
+            XCTAssertEqual(exported.pageCount,1)
+            let pdf = try XCTUnwrap(PDFDocument(url:out))
+            XCTAssertTrue(pdf.string?.contains("PANEL1") == true)
+            XCTAssertTrue(pdf.string?.contains("PANEL3") == true)
+            XCTAssertFalse(pdf.string?.contains("PANEL2") == true)
+            let page = try XCTUnwrap(CGPDFDocument(out as CFURL)?.page(at:1))
+            XCTAssertEqual(Self.images(page.dictionary),0)
+            XCTAssertEqual(page.getBoxRect(.mediaBox).width,sheet.size.width*unit,accuracy:0.01)
+            XCTAssertEqual(page.getBoxRect(.mediaBox).height,sheet.size.height*unit,accuracy:0.01)
+            func bitmap() throws -> CGContext {
+                let width = Int(ceil(sheet.size.width*2))
+                let height = Int(ceil(sheet.size.height*2))
+                let context = try XCTUnwrap(CGContext(data:nil,width:width,height:height,bitsPerComponent:8,bytesPerRow:0,
+                    space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue))
+                context.scaleBy(x:2,y:2)
+                return context
+            }
+            let preview = try bitmap()
+            try PDFPlanRenderer.drawSide(sheet.front,sheet:sheet,document:document,in:preview,
+                sheetIndex:0,kind:.front,repetition:0,options:.artworkOnly)
+            PDFExportMarkRenderer.draw(side:sheet.front,sheet:sheet,in:preview,settings:marks,info:"")
+            let printed = try bitmap()
+            printed.scaleBy(x:1/unit,y:1/unit)
+            printed.drawPDFPage(page)
+            func sample(_ context: CGContext,_ point: CGPoint) -> [UInt8] {
+                let index = (context.height-1-Int(point.y*2))*context.bytesPerRow+Int(point.x*2)*4
+                return Array(UnsafeBufferPointer(start:context.data!.assumingMemoryBound(to:UInt8.self)+index,count:4))
+            }
+            let spine = try XCTUnwrap(sheet.front.slots.first { $0.spineArtwork != nil })
+            let transform = PDFPreviewDrawing.slotTransform(spine)
+            let samples = [CGPoint(x:2,y:10),CGPoint(x:8,y:10),CGPoint(x:2,y:60),CGPoint(x:8,y:60)]
+                .map { $0.applying(transform) }
+            XCTAssertEqual(Set(samples.map { sample(preview,$0) }).count,mode == .manual ? 1 : 4)
+            for point in samples {
+                XCTAssertEqual(sample(preview,point),sample(printed,point))
+            }
+            if output == .sheet {
+                XCTAssertFalse(PDFExportMarkRenderer.geometry(side:sheet.front,sheet:sheet,settings:marks).segments.isEmpty)
+            }
+        }
+        XCTAssertEqual(try Data(contentsOf:url),before)
+    }
+}

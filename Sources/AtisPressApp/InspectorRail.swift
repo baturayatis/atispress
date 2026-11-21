@@ -4,6 +4,7 @@ import ImpositionCore
 extension Workspace {
     func panelHasIndicator(_ panel:InspectorPanel) -> Bool {
         if InspectorRegistry.fields(panel).contains(where:{isManual($0) || project.autoLayout?.presetFields?.contains($0)==true}) {return true}
+        if panel == .coverPreparation { return project.coverPreparation != nil }
         if panel == .job && basicQuantity != nil {return true}
         if panel == .serial && !editableSerialFields.isEmpty {return true}
         if panel == .dimensions && project.hasRescaling {return true}
@@ -101,7 +102,7 @@ struct InspectorRail:View {
                     Image(systemName:panel.symbol).font(.system(size:17)).frame(width:24,height:20)
                     if model.panelHasIndicator(panel) {Circle().fill(DesignSystem.warning).frame(width:5,height:5).offset(x:5,y:-1)}
                 }
-                Text(panel.title).font(.system(size:12)).lineLimit(1)
+                Text(panel.title).font(.system(size:12)).lineLimit(1).minimumScaleFactor(0.75)
             }.frame(width:68,height:48)
                 .foregroundStyle(selected ? DesignSystem.selectedText : DesignSystem.text)
                 .background(selected ? DesignSystem.selected : Color.clear,in:RoundedRectangle(cornerRadius:6))

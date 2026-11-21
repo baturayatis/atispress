@@ -7,8 +7,8 @@ import PDFEngine
 
 @MainActor
 final class BookWorkspaceTests: XCTestCase {
-    private func model() -> Workspace {
-        Workspace(bookmarkCreator:{ try $0.bookmarkData(options:.minimalBookmark,includingResourceValuesForKeys:nil,relativeTo:nil) })
+    private func model(uiDefaults: UserDefaults = .standard) -> Workspace {
+        Workspace(bookmarkCreator:{ try $0.bookmarkData(options:.minimalBookmark,includingResourceValuesForKeys:nil,relativeTo:nil) },uiDefaults:uiDefaults)
     }
     private func folder() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -36,6 +36,59 @@ final class BookWorkspaceTests: XCTestCase {
         workspace.project.settings.signatureSize = .eight
         try await settle(workspace)
     }
+    func testCoverPreparationRightPanelAndProjectRoundTripDoNotChangeInterior() async throws {
+        let folder = try folder()
+        let pdf = try fixture(folder,"cover-preparation.pdf",count:8,size:Size(50,70))
+        let workspace = model()
+        workspace.open(pdf); try await settle(workspace)
+        workspace.setProductionBinding(.perfectBound)
+        workspace.project.sheet = SheetSpec(preset:.cm50x70)
+        try await settle(workspace)
+        let interior = workspace.plan.sheets
+        let pages = workspace.project.pages
+        let url = folder.appendingPathComponent("cover.atispress")
+        try workspace.saveProject(as:url)
+        var old = try XCTUnwrap(JSONSerialization.jsonObject(with:Data(contentsOf:url)) as? [String:Any])
+        old["version"] = 28
+        try JSONSerialization.data(withJSONObject:old).write(to:url)
+        let suite = "atispress-cover-preparation-"+UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName:suite))
+        defer { defaults.removePersistentDomain(forName:suite) }
+        let reopened = model(uiDefaults:defaults)
+        try await reopened.loadProject(at:url); try await settle(reopened)
+        XCTAssertNil(reopened.project.coverPreparation)
+        XCTAssertEqual(reopened.plan.sheets,interior)
+        XCTAssertEqual(reopened.coverPreparationPlan(.spread).sheets.first?.front.slots.compactMap(\.sourcePageNumber),[8,1])
+        reopened.ui.jump(.coverPreparation)
+        XCTAssertEqual(reopened.ui.activePanel.title,"Kapak Hazırla")
+        XCTAssertEqual(reopened.ui.activePanel.groups(for:reopened.project),[.coverPreparation])
+        XCTAssertFalse(reopened.isModified)
+        reopened.coverPreparation.front = 2
+        reopened.coverPreparation.back = 7
+        reopened.coverPreparation.spineWidth = 6
+        reopened.coverPreparation.colorMode = .manual
+        reopened.coverPreparation.color = .cmyk(0,0.3,0.8,0.1)
+        reopened.coverPreparation.bleed = 1
+        reopened.coverPreparation.crop = false
+        reopened.coverSheetSpec = SheetSpec(size:Size(240,170),gripperWidth:8,gutter:5,orientation:.landscape)
+        reopened.coverPreparation.grid.columns = 1
+        reopened.coverPreparation.grid.rows = 1
+        reopened.coverPreparation.grid.x = 2
+        XCTAssertEqual(reopened.project.pages,pages)
+        XCTAssertEqual(reopened.plan.sheets,interior)
+        XCTAssertFalse(reopened.planning)
+        XCTAssertTrue(reopened.coverPreparationPlan(.sheet).canExport)
+        XCTAssertFalse(reopened.coverPreparationMarks(.sheet).crop)
+        try reopened.saveProject()
+        let loaded = model()
+        try await loaded.loadProject(at:url); try await settle(loaded)
+        XCTAssertEqual(loaded.project.coverPreparation,reopened.project.coverPreparation)
+        XCTAssertEqual(loaded.coverPreparationPlan(.spread).sheets,reopened.coverPreparationPlan(.spread).sheets)
+        XCTAssertEqual(loaded.coverPreparationPlan(.sheet).sheets,reopened.coverPreparationPlan(.sheet).sheets)
+        XCTAssertEqual(loaded.plan.sheets,interior)
+        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:url)).version,29)
+    }
+
     func testModernCoverSpineBindingImportReplacementRemovalAndRoundTrip() async throws {
         let folder = try folder()
         let body = try fixture(folder,"body.pdf",count:10,size:Size(50,70))
@@ -123,7 +176,7 @@ final class BookWorkspaceTests: XCTestCase {
         XCTAssertEqual(reopened.spineContent.mode,.empty)
         XCTAssertFalse(reopened.isModified)
         try reopened.saveProject()
-        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:file)).version,28)
+        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:file)).version,ProjectDocument.currentVersion)
     }
 
     func testSchemaTenRoundtripEveryBookSettingAndSharedPlan() async throws {

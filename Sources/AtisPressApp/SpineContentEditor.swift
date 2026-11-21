@@ -104,7 +104,7 @@ private struct SpineBlockEditor: View {
     }
 }
 
-private struct SpineCMYKPicker: View {
+struct SpineCMYKPicker: View {
     @Binding var color: BleedColor
     @State private var show = false
     var body: some View {
@@ -117,8 +117,8 @@ private struct SpineCMYKPicker: View {
                     ForEach(Array(["C","M","Y","K"].enumerated()),id:\.offset) { index, name in
                         HStack {
                             Text(name); Spacer()
-                            DimensionInput(name,value:Binding(get:{ color.components[index]*100 },set:{ value in
-                                var channels = color.components
+                            DimensionInput(name,value:Binding(get:{ (color.components.count == 4 ? color.components[index] : 0)*100 },set:{ value in
+                                var channels = color.components.count == 4 ? color.components : [0,0,0,0]
                                 channels[index] = min(100,max(0,value))/100
                                 color = .cmyk(channels[0],channels[1],channels[2],channels[3])
                             }),unit:"%",range:0...100)

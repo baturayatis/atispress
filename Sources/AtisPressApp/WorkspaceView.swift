@@ -20,7 +20,8 @@ struct WorkspaceView: View {
                 WorkspaceSplitView(settings: model.ui, windowWidth: geometry.size.width) {
                     sidebar
                 } preview: {
-                    center
+                    if model.ui.activePanel == .coverPreparation, model.source != nil { CoverPreparationPreview(model:model) }
+                    else { center }
                 } tools: {
                     InspectorDock(model: model, prices: prices)
                 }.frame(height:max(0,geometry.size.height-57))

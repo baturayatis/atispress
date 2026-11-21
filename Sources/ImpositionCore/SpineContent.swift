@@ -44,6 +44,7 @@ public struct SpineArtwork: Equatable, Sendable {
     public var content: SpineContent
     public var backPage: Int?
     public var frontPage: Int?
+    public var vectorExtension = false
 }
 
 public struct SpineCalculation {
