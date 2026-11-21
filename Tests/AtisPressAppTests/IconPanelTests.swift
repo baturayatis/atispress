@@ -134,6 +134,40 @@ import PDFEngine
         XCTAssertEqual(try ProjectDocument(state: model.state).encoded(), before)
     }
 
+    func testNewWorkspaceOpensJobInspectorAndGlobalToolbarSurvivesEveryTab() throws {
+        let store = defaults()
+        let previous = Workspace(uiDefaults:store)
+        previous.ui.jump(.coverPreparation)
+        previous.ui.inspectorCollapsed = true
+        let model = Workspace(uiDefaults:store,restoreInspector:false)
+        XCTAssertEqual(model.ui.activePanel,.job)
+        XCTAssertFalse(model.ui.inspectorCollapsed)
+        XCTAssertTrue(model.ui.railVisible)
+        XCTAssertNil(model.ui.flyoutPanel)
+        let controls = ContextBindings(model:model)
+        controls.sheet.wrappedValue = "33×48"
+        controls.orientation.wrappedValue = .landscape
+        controls.quantity.wrappedValue = 23
+        controls.bleed.wrappedValue = 2
+        controls.crop.wrappedValue = false
+        controls.registration.wrappedValue = true
+        controls.previewRegistration.wrappedValue = true
+        let state = model.project
+        for panel in InspectorPanel.allCases {
+            model.ui.jump(panel)
+            let fields = ContextPresentation.controls(for:model)
+            XCTAssertEqual(Array(fields.prefix(8)),ContextPresentation.globalControls)
+            let narrow = ContextPresentation.layout(fields,width:460)
+            XCTAssertEqual(narrow.visible+narrow.overflow,fields)
+            XCTAssertTrue((narrow.visible+narrow.overflow).contains(.registration))
+            XCTAssertEqual(model.project,state)
+        }
+        model.project.exportMarks.registrationTargets = false
+        XCTAssertFalse(controls.registration.wrappedValue)
+        XCTAssertTrue(controls.previewRegistration.wrappedValue)
+        XCTAssertTrue(previous.ui.inspectorCollapsed)
+    }
+
     func testPanelSelectionFlyoutAndPersistenceDoNotEditProject() throws {
         let store=defaults(),model=Workspace(uiDefaults:store)
         let before=try ProjectDocument(state:model.state).encoded()

@@ -97,7 +97,7 @@ struct CoverPreparationView: View {
                 }
             }
             Toggle("Kesim işaretleri",isOn:Binding(get:{ model.coverPreparation.crop ?? model.project.exportMarks.crop },
-                                                    set:{ model.coverPreparation.crop = $0 }))
+                                                    set:{ stock.crop.wrappedValue = $0 }))
             Picker("Kapak dönüşü",selection:Binding(get:{ model.coverPreparation.grid.rotation },
                 set:{ value in model.updateCoverImposition { $0.grid.rotation = value } })) {
                 Text("Otomatik (en çok kopya)").tag(MachineProfile.Rotation.automatic)
@@ -182,6 +182,7 @@ struct CoverPreparationPreview: View {
         let output = model.coverPreviewOutput
         let plan = model.coverPreparationPlan(output)
         let marks = model.coverPreparationMarks(output)
+        let guides = coverGuides(output,marks:marks)
         VStack(spacing:0) {
             HStack {
                 Picker("Kapak önizlemesi",selection:$model.coverPreviewOutput) {
@@ -199,7 +200,7 @@ struct CoverPreparationPreview: View {
             }.padding(10)
             if let sheet = plan.sheets.first {
                 PreviewCanvas(sheet:sheet,side:sheet.front,sheetIndex:0,sideKind:.front,source:model.source,
-                              overlays:.artworkOnly,generatedBleed:plan.generatedBleed,highlighted:[],
+                              overlays:guides,generatedBleed:plan.generatedBleed,highlighted:[],
                               zoomAction:model.zoomAction,zoomFactor:model.zoomFactor,controlMarks:marks,forceVectorArtwork:true,preparedSpineModel:model,
                               beginEdit:model.beginUndoGroup,endEdit:model.endUndoGroup)
                     .id(output)
@@ -214,4 +215,11 @@ struct CoverPreparationPreview: View {
         }
         .accessibilityIdentifier("coverPreparationPreview")
     }
+
+    private func coverGuides(_ output: CoverPreparationPlanner.Output,marks: ExportMarks) -> PreviewOverlays {
+        var guides = PreviewOverlays.artworkOnly
+        guides.registrationTargets = output == .sheet && model.overlays.registrationTargets && !marks.registrationTargets
+        return guides
+    }
+
 }

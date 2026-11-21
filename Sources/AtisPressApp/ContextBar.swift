@@ -46,7 +46,20 @@ import ImpositionCore
         Binding(get:{model.workflowBleed},set:{value in edit {model.markManual(.bleed);model.workflowBleed=value}})
     }
     var crop:Binding<Bool> {
-        Binding(get:{model.project.exportMarks.crop},set:{value in edit {model.markManual(.exportCrop);model.project.exportMarks.crop=value}})
+        Binding(get:{ model.project.exportMarks.crop },set:{ value in edit {
+            model.markManual(.exportCrop)
+            model.project.exportMarks.crop = value
+            model.project.coverPreparation?.crop = nil
+        } })
+    }
+    var registration: Binding<Bool> {
+        Binding(get:{ model.project.exportMarks.registrationTargets },set:{ value in edit {
+            model.markManual(.exportTargets)
+            model.project.exportMarks.registrationTargets = value
+        } })
+    }
+    var previewRegistration: Binding<Bool> {
+        Binding(get:{ model.overlays.registrationTargets },set:{ value in edit { model.setPreviewTargets(value) } })
     }
     var arrangement:Binding<RepeatArrangement> {
         Binding(get:{model.repeatArrangement},set:{value in edit {model.setRepeatArrangement(value)}})
@@ -72,7 +85,7 @@ import ImpositionCore
 
 enum ContextKind:Equatable {case flat,book,serial,job,split,guides}
 enum ContextControl:String,Identifiable {
-    case sheet,orientation,machine,production,quantity,bleed,crop,arrangement,binding,signature,cover
+    case sheet,orientation,machine,production,quantity,bleed,crop,registration,arrangement,binding,signature,cover
     case field,kind,font,size,color,x,y,rotation,center,waste,dimensions,split,guides
     var id:String {rawValue}
     var title:String {
@@ -84,6 +97,7 @@ enum ContextControl:String,Identifiable {
         case .quantity:return "Adet"
         case .bleed:return "Taşma payı"
         case .crop:return "Kesim işaretleri"
+        case .registration:return "Diz işaretleri"
         case .arrangement:return "Dizilim"
         case .binding:return "Cilt yöntemi"
         case .signature:return "Forma"
@@ -112,6 +126,7 @@ enum ContextControl:String,Identifiable {
         case .quantity:return 215
         case .bleed:return 250
         case .crop:return 200
+        case .registration:return 185
         case .binding:return 265
         case .signature:return 210
         case .cover:return 205
@@ -142,6 +157,19 @@ enum ContextPresentation {
         case .guides:return [.guides]
         }
     }
+    static let globalControls: [ContextControl] = [.sheet,.orientation,.machine,.production,.quantity,.bleed,.crop,.registration]
+
+    @MainActor static func controls(for model: Workspace) -> [ContextControl] {
+        var result=controls(kind(model))
+        if kind(model) == .job && model.project.binding != .saddleStitch && (model.project.isBooklet || model.project.isLeafBinding) {
+            result.insert(.cover,at:0)
+        }
+        if kind(model) == .book && model.project.binding == .saddleStitch {result.removeAll{$0 == .cover}}
+        if kind(model) == .book && model.project.isLeafBinding {result.removeAll{$0 == .signature}}
+        if let selected=model.editableSerialFields.first(where:{$0.id==model.selectedSerialID}),selected.kind != .text,!selected.codeSettings.humanReadable {result.removeAll{$0 == .font}}
+        return globalControls+result.filter { !globalControls.contains($0) }
+    }
+
     static let appIconSize: CGFloat = 40
 
     struct Layout:Equatable {
@@ -171,35 +199,21 @@ struct ContextBar:View {
     @State private var overflow=false
     @State private var customSheet=false
     private var values:ContextBindings {ContextBindings(model:model)}
-    private var controls:[ContextControl] {
-        if model.ui.activePanel == .coverPreparation, model.source != nil { return [.sheet,.orientation,.machine] }
-        var result=ContextPresentation.controls(ContextPresentation.kind(model))
-        if ContextPresentation.kind(model) == .job && model.project.binding != .saddleStitch && (model.project.isBooklet || model.project.isLeafBinding) {
-            result.insert(.cover,at:0)
-        }
-        if ContextPresentation.kind(model) == .book && model.project.binding == .saddleStitch {result.removeAll{$0 == .cover}}
-        if ContextPresentation.kind(model) == .book && model.project.isLeafBinding {result.removeAll{$0 == .signature}}
-        if let selected=model.editableSerialFields.first(where:{$0.id==model.selectedSerialID}),selected.kind != .text,!selected.codeSettings.humanReadable {result.removeAll{$0 == .font}}
-        return result
-    }
     var body:some View {
         GeometryReader { geometry in
-            let hasControls = model.project.hasPanelItems || (model.ui.activePanel == .coverPreparation && model.source != nil)
-            let layout = ContextPresentation.layout(hasControls ? controls : [], width: geometry.size.width)
+            let layout = ContextPresentation.layout(ContextPresentation.controls(for:model),width:geometry.size.width)
             HStack(spacing:8) {
-                if hasControls {
-                    ForEach(layout.visible) {control in field(control).frame(width:control.width)}
-                } else {
-                    Text(model.source == nil ? "PDF seçin" : "Baskıya dahil sayfa yok")
-                }
+                ForEach(layout.visible) {control in field(control).frame(width:control.width)}
                 Spacer(minLength:0)
                 if !layout.overflow.isEmpty {
                     Button("…") {overflow.toggle()}.frame(width:32).help("Diğer bağlam ayarları")
                         .accessibilityLabel("Diğer bağlam ayarları")
                         .popover(isPresented:$overflow) {
-                            VStack(alignment:.leading,spacing:12) {
-                                ForEach(layout.overflow) {control in field(control).frame(width:480)}
-                            }.padding(16)
+                            ScrollView {
+                                VStack(alignment:.leading,spacing:12) {
+                                    ForEach(layout.overflow) {control in field(control).frame(width:480)}
+                                }.padding(16)
+                            }.frame(width:525,height:min(560,CGFloat(layout.overflow.count*44+32)))
                         }
                 }
                 if layout.showsAppIcon, let icon = NSApplication.shared.applicationIconImage {
@@ -255,10 +269,18 @@ struct ContextBar:View {
         case .bleed:
             HStack(spacing:3) {
                 Toggle("Eksik taşmayı üret",isOn:values.bleedEnabled).labelsHidden().toggleStyle(.switch)
-                TextField("Taşma payı",value:values.bleed,format:.number.locale(TRFormat.locale)).frame(minWidth:34).textFieldStyle(.roundedBorder).disabled(!values.bleedEnabled.wrappedValue)
+                TextField("Taşma payı",value:values.bleed,format:.number.locale(TRFormat.locale)).frame(minWidth:34).textFieldStyle(.roundedBorder)
                 Text("mm").font(.system(size:13))
             }
         case .crop:Toggle("Kesim işaretleri",isOn:values.crop).labelsHidden().toggleStyle(.checkbox).font(.system(size:13)).help("Kesim işaretleri (çıktıya basılır)")
+        case .registration:
+            Menu {
+                Toggle("Çıktıya bas",isOn:values.registration)
+                Toggle("Önizleme kılavuzları",isOn:values.previewRegistration)
+                Button("Diz boyutunu ayarla") { model.ui.jump(.press,opening:.registration) }
+            } label: {
+                Image(systemName:"scope").accessibilityLabel("Diz işaretleri")
+            }
         case .arrangement:
             Picker("Dizilim",selection:values.arrangement) {
                 Text("Bitişik").tag(RepeatArrangement.adjacent);Text("Aralıklı").tag(RepeatArrangement.spaced)

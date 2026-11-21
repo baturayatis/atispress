@@ -68,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct AtisPressApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @StateObject private var workspace = Workspace()
+    @StateObject private var workspace = Workspace(restoreInspector:false)
     @StateObject private var prices = PricingStore()
     @Environment(\.openWindow) private var openWindow
     var body: some Scene {
@@ -78,6 +78,9 @@ struct AtisPressApp: App {
                 .background(ProjectWindowControl(model: workspace))
                 .onOpenURL { delegate.receiveOpenURLs([$0]) }
                 .task {
+                    workspace.ui.railVisible = true
+                    workspace.ui.inspectorCollapsed = false
+                    workspace.ui.jump(.job)
                     workspace.startPersistence()
                     await workspace.offerRecoveryOnLaunch()
                     delegate.workspace = workspace

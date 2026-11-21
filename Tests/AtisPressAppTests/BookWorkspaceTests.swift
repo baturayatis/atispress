@@ -153,6 +153,11 @@ final class BookWorkspaceTests: XCTestCase {
         model.open(url); try await settle(model)
         let toolbar = ContextBindings(model:model)
         model.ui.jump(.coverPreparation)
+        toolbar.sheet.wrappedValue = "33×48"
+        for (orientation,size) in [(Orientation.landscape,Size(480,330)),(.portrait,Size(330,480))] {
+            toolbar.orientation.wrappedValue = orientation
+            XCTAssertEqual(model.coverPreparationPlan(.sheet).sheets.first?.size,size)
+        }
         toolbar.sheet.wrappedValue = "70×100"
         toolbar.orientation.wrappedValue = .landscape
         XCTAssertEqual(model.coverPreparationPlan(.sheet).sheets.first?.size,Size(1000,700))
@@ -179,6 +184,20 @@ final class BookWorkspaceTests: XCTestCase {
         XCTAssertEqual(toolbar.sheetDimension(\.width).wrappedValue,812.5)
         XCTAssertEqual(toolbar.sheet.wrappedValue,"Özel ölçü…")
         XCTAssertEqual(model.coverPreparationPlan(.spread).sheets.first?.front.slots.compactMap(\.sourcePageNumber),[4,1])
+        model.coverPreparation.crop = false
+        toolbar.crop.wrappedValue = true
+        toolbar.registration.wrappedValue = true
+        let sheetPlan = model.coverPreparationPlan(.sheet)
+        let coverSheet = try XCTUnwrap(sheetPlan.sheets.first)
+        let printMarks = model.coverPreparationMarks(.sheet)
+        XCTAssertTrue(printMarks.crop)
+        XCTAssertTrue(printMarks.registrationTargets)
+        XCTAssertFalse(PDFColorControlRenderer.geometry(sheet:coverSheet,settings:printMarks).targets.isEmpty)
+        XCTAssertFalse(model.coverPreparationMarks(.spread).registrationTargets)
+        let out = folder.appendingPathComponent("marked-cover.pdf")
+        let result = try PDFExporter.export(plan:sheetPlan,source:XCTUnwrap(model.source),destination:.singlePDF(out),marks:printMarks)
+        XCTAssertEqual(result.pageCount,1)
+        XCTAssertEqual(Set(coverSheet.front.slots.compactMap(\.sourcePageNumber)),[1,4])
         try await settle(model)
         let file = folder.appendingPathComponent("stock.atispress")
         try model.saveProject(as:file)

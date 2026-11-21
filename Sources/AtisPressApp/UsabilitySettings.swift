@@ -140,7 +140,7 @@ final class UsabilitySettings: ObservableObject {
         groupRequest = group.map { GroupRequest($0, controlID: controlID) }
         if inspectorCollapsed { flyoutPanel = panel }
     }
-    init(defaults:UserDefaults = .standard) {
+    init(defaults:UserDefaults = .standard, restoreInspector: Bool = true) {
         self.defaults = defaults
         inspectorWidth = WorkspaceColumnLayout.preferredWidth(CGFloat(defaults.double(forKey: Self.inspectorWidthKey)))
         inspectorFavoritesExpanded = defaults.object(forKey: Self.favoritesExpandedKey) as? Bool ?? true
@@ -153,9 +153,14 @@ final class UsabilitySettings: ObservableObject {
         inspectorFavorites = (defaults.stringArray(forKey: Self.inspectorFavoritesKey) ?? [])
             .filter { InspectorSearchEntry.byID[$0] != nil && seen.insert($0).inserted }
         teamPDFImport = defaults.string(forKey: TeamPDFImport.defaultsKey).flatMap(TeamPDFImport.init(rawValue:)) ?? .ask
-        activePanel=defaults.string(forKey:"atispress.ui.activePanel").flatMap(InspectorPanel.restoring) ?? .job
-        railVisible=defaults.object(forKey:"atispress.ui.rail") as? Bool ?? true
-        inspectorCollapsed=(defaults.object(forKey:"atispress.ui.rail") as? Bool ?? true) && defaults.bool(forKey:"atispress.ui.inspectorCollapsed")
+        let savedRail = defaults.object(forKey:"atispress.ui.rail") as? Bool ?? true
+        if restoreInspector {
+            railVisible = savedRail
+            activePanel=defaults.string(forKey:"atispress.ui.activePanel").flatMap(InspectorPanel.restoring) ?? .job
+            inspectorCollapsed=savedRail && defaults.bool(forKey:"atispress.ui.inspectorCollapsed")
+        } else {
+            railVisible = true
+        }
         collapsedCards = Set(defaults.stringArray(forKey:"atispress.workflow.collapsedCards") ?? [])
         detailsExpanded = defaults.bool(forKey:"atispress.workflow.details")
         expandedAddons = Set((defaults.stringArray(forKey:"atispress.workflow.addons") ?? []).compactMap(WorkflowAddon.init(rawValue:)))

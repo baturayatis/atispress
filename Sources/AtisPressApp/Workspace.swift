@@ -198,8 +198,9 @@ final class Workspace: ObservableObject {
 
     @Published private(set) var recentFiles: [RecentFile] = []
     init(bookmarkCreator: @escaping (URL) throws -> Data = ProjectSource.securityBookmark,
-         recentStore: RecentFilesStore? = nil,filePicker: FilePicker? = nil,uiDefaults:UserDefaults = .standard, templateStore: JobTemplateStore = JobTemplateStore()) {
-        self.ui = UsabilitySettings(defaults:uiDefaults)
+         recentStore: RecentFilesStore? = nil,filePicker: FilePicker? = nil,uiDefaults:UserDefaults = .standard, templateStore: JobTemplateStore = JobTemplateStore(),
+         restoreInspector: Bool = true) {
+        self.ui = UsabilitySettings(defaults:uiDefaults,restoreInspector:restoreInspector)
         machineDefaults = uiDefaults
         self.templateStore = templateStore
         self.bookmarkCreator = bookmarkCreator
@@ -274,6 +275,8 @@ final class Workspace: ObservableObject {
         guard output == .sheet else { return .none }
         var marks = ExportMarks.none
         marks.crop = project.coverPreparation?.crop ?? project.exportMarks.crop
+        marks.registrationTargets = project.exportMarks.registrationTargets
+        marks.targetSize = project.exportMarks.targetSize
         marks.lineWidth = project.exportMarks.lineWidth
         marks.color = project.exportMarks.color
         return marks
