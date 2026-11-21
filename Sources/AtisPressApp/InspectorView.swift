@@ -229,14 +229,14 @@ struct InspectorView: View {
                         .inspectorTarget(InspectorSearchEntry.sheetID(chip))
                 }
             }
-            OrientationPicker("Yön",selection:Binding(get:{ (model.project.autoLayout ?? .legacy).isFixed(.orientation) ? model.project.sheet.orientation : .auto },set:model.selectWorkflowOrientation), inspectorID: "orientation").id("orientation").automaticReset(model,.orientation)
+            OrientationPicker("Yön",selection:ContextBindings(model:model).orientation, inspectorID: "orientation").id("orientation").automaticReset(model,.orientation)
 
 
-            let selectedSize = model.project.sheet.size
+            let selectedSize = model.project.sharedSheet.size
             Text(model.workflowOrientationSummary).help(TRFormat.size(selectedSize.width,selectedSize.height)).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
             if model.sheetPreset == "Özel" {
-                measurement("Genişlik",$model.project.sheet.size.width,autoField:.sheetSize,range:20...3000,id:"sheetWidth")
-                measurement("Yükseklik",$model.project.sheet.size.height,autoField:.sheetSize,range:20...3000,id:"sheetHeight")
+                measurement("Genişlik",ContextBindings(model:model).sheetDimension(\.width),range:1...10_000,id:"sheetWidth")
+                measurement("Yükseklik",ContextBindings(model:model).sheetDimension(\.height),range:1...10_000,id:"sheetHeight")
             }
             if let recommendation = model.visibleWorkflowRecommendation {
                 VStack(alignment:.leading,spacing:DesignSystem.Space.sm) {

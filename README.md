@@ -28,12 +28,14 @@ Nesneyi önizlemede sürükleyin, tutamaçlarla ölçekleyip döndürün veya
 X/Y ölçülerini girin. Sürükleme 1 mm’ye yuvarlanır.
 
 **Kapak PDF'i oluştur** kesim ebadında tek bir açılım verir. **Tabaka montajı**
-330 × 480 mm, 0 mm ara boşluk ve 3 mm taşmayla başlar. İşte seçili bir
-makine varsa, elle tabaka ölçüsü girilene kadar makinenin ölçüsü kullanılır.
+üst çubukla aynı tabaka ölçüsünü, yönü ve makine profilini kullanır.
+Kapak için varsayılan ara boşluk 0 mm, taşma 3 mm’dir. Seçili makine,
+işte ayrıca bir tabaka ölçüsü belirlenene kadar kendi ölçüsünü sağlar.
 Otomatik dizilim 0° ve 90° yönlerini karşılaştırır. Sütun ve
 satır sayısıyla dizilimi, yatay ve dikey kaydırmayla blok konumunu ayarlayın.
 **Tabakaya bağla / PDF oluştur** yalnız monte edilmiş kapakları basar.
-Kapak ve sırt içeriği .atispress şema 31 ile kaydedilir.
+Kapak ve sırt içeriği .atispress şema 32 ile kaydedilir. Eski kapak
+projelerinde ayrıca belirlenmiş tabaka ve makine ayarları ortak ayarlara taşınır.
 
 ## Kapak ve Sırt
 
@@ -186,7 +188,7 @@ kapsamı ve elle kontrol listesi [docs/STATUS.md](docs/STATUS.md) içindedir.
 Bu sürüm **0.5.0 (build 7)**. Sürüm kaynağı
 `packaging/Info.plist`; Hakkında, tanı bilgisi ve güncelleme karşılaştırması
 aynı paket sürümünü kullanır. `swift run` için de 0.5.0 / 7 yedeği bulunur.
-Proje dosyası şeması bağımsızdır ve **31**’dir; eski projeler açılır.
+Proje dosyası şeması bağımsızdır ve **32**’dir; eski projeler açılır.
 
 **macOS 14 veya üzeri** gerekir. Intel ve Apple Silicon Mac’ler aynı universal
 uygulamayı kullanır.

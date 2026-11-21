@@ -66,6 +66,16 @@ public enum SheetPreset: Sendable {
         }
     }
 }
+extension Size {
+    public func oriented(_ orientation: Orientation) -> Size {
+        switch orientation {
+        case .auto: return self
+        case .portrait: return Size(min(width,height),max(width,height))
+        case .landscape: return Size(max(width,height),min(width,height))
+        }
+    }
+}
+
 public struct SheetSpec: Equatable, Sendable, Codable {
     public var size: Size
     public var margins: Insets

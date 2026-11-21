@@ -8,11 +8,6 @@ extension Workspace {
         set { project.coverPreparation = newValue }
     }
 
-    var coverSheetSpec: SheetSpec {
-        get { coverPreparation.effectiveSheet(for:project) }
-        set { updateCoverImposition { $0.sheet = newValue } }
-    }
-
     func updateCoverImposition(_ change: (inout CoverPreparationSettings) -> Void) {
         var cover = coverPreparation
         change(&cover)
@@ -24,7 +19,7 @@ extension Workspace {
 struct CoverPreparationView: View {
     @ObservedObject var model: Workspace
     @State private var sheetDetails = false
-    private let presets: [SheetPreset] = [.a5,.a4,.a3,.sra3,.cm33x48,.cm35x50,.cm50x70,.cm70x100]
+    private var stock: ContextBindings { ContextBindings(model:model) }
 
     var body: some View {
         if let source = model.source {
@@ -67,68 +62,38 @@ struct CoverPreparationView: View {
         }.accessibilityIdentifier(title == "Ön kapak" ? "preparedCoverFront" : "preparedCoverBack")
     }
 
-    private var selectedMachine: MachineProfile? {
-        model.coverPreparation.useProjectMachine ? model.project.machineProfile : model.coverPreparation.machine
-    }
-
-    private var machineSelection: Binding<String> {
-        Binding(get:{
-            if model.coverPreparation.useProjectMachine { return "project" }
-            return model.coverPreparation.machine?.id.uuidString ?? "none"
-        },set:{ choice in
-            model.updateCoverImposition {
-                $0.useProjectMachine = choice == "project"
-                $0.machine = model.machineProfiles.first { $0.id.uuidString == choice }
-            }
-        })
-    }
-
     private func sheetControls(_ plan: ImpositionPlan) -> some View {
         VStack(alignment:.leading,spacing:8) {
             Text("Tabaka montajı").font(.headline)
-            Picker("Makine",selection:machineSelection) {
-                Text("İşteki makine ayarı").tag("project")
-                Text("Makine yok / Serbest").tag("none")
-                ForEach(model.machineProfiles) { profile in Text(profile.name).tag(profile.id.uuidString) }
-                if let profile = model.coverPreparation.machine,
-                   !model.machineProfiles.contains(where:{ $0.id == profile.id }) {
-                    Text(profile.name).tag(profile.id.uuidString)
-                }
+            SharedMachinePicker(model:model)
+            Picker("Tabaka",selection:stock.sheet) {
+                ForEach(WorkflowPresentation.sheetChips,id:\.self) { Text($0).tag($0) }
             }
-            if let machine = selectedMachine {
-                Text(machine.name+" · "+TRFormat.size(machine.size.width,machine.size.height))
-                    .foregroundStyle(DesignSystem.muted)
-            }
-            Menu("Tabaka · "+TRFormat.size(model.coverSheetSpec.size.width,model.coverSheetSpec.size.height)) {
-                Button("Varsayılan ölçü") { model.updateCoverImposition { $0.sheet = nil } }
-                ForEach(presets,id:\.title) { preset in
-                    Button(preset.title) { model.coverSheetSpec.size = preset.size }
-                }
-            }.accessibilityLabel("Kapak tabakası")
-            CoverSheetMeasure(title:"Genişlik",value:$model.coverSheetSpec.size.width,minimum:1)
-            CoverSheetMeasure(title:"Yükseklik",value:$model.coverSheetSpec.size.height,minimum:1)
-            CoverSheetMeasure(title:"Ara boşluk",value:$model.coverSheetSpec.gutter)
+            CoverSheetMeasure(title:"Genişlik",value:stock.sheetDimension(\.width),minimum:1)
+            CoverSheetMeasure(title:"Yükseklik",value:stock.sheetDimension(\.height),minimum:1)
+            CoverSheetMeasure(title:"Ara boşluk",value:Binding(get:{ model.coverPreparation.gap ?? 0 },
+                set:{ value in model.updateCoverImposition { $0.gap = value } }))
             CoverSheetMeasure(title:"Taşma",value:Binding(
                 get:{ model.coverPreparation.bleed ?? CoverPreparationSettings.defaultBleed },
                 set:{ value in model.updateCoverImposition { $0.bleed = value } }),maximum:1000)
-            Picker("Tabaka yönü",selection:$model.coverSheetSpec.orientation) {
+            Picker("Tabaka yönü",selection:stock.orientation) {
                 Text("Otomatik").tag(Orientation.auto)
                 Text("Dikey").tag(Orientation.portrait)
                 Text("Yatay").tag(Orientation.landscape)
             }
             DisclosureGroup("Kenarlar ve maşa",isExpanded:$sheetDetails) {
-                measure("Sol kenar",$model.coverSheetSpec.margins.left)
-                measure("Sağ kenar",$model.coverSheetSpec.margins.right)
-                measure("Alt kenar",$model.coverSheetSpec.margins.bottom)
-                measure("Üst kenar",$model.coverSheetSpec.margins.top)
-                if selectedMachine == nil {
-                    Picker("Maşa kenarı",selection:$model.coverSheetSpec.gripperEdge) {
+                measure("Sol kenar",margin(\.left,.marginLeft))
+                measure("Sağ kenar",margin(\.right,.marginRight))
+                measure("Alt kenar",margin(\.bottom,.marginBottom))
+                measure("Üst kenar",margin(\.top,.marginTop))
+                if model.project.machineProfile == nil {
+                    Picker("Maşa kenarı",selection:$model.project.sheet.gripperEdge) {
                         Text("Alt").tag(ImpositionCore.Edge.bottom)
                         Text("Üst").tag(ImpositionCore.Edge.top)
                         Text("Sol").tag(ImpositionCore.Edge.left)
                         Text("Sağ").tag(ImpositionCore.Edge.right)
                     }
-                    measure("Maşa payı",$model.coverSheetSpec.gripperWidth)
+                    measure("Maşa payı",$model.project.sheet.gripperWidth)
                 }
             }
             Toggle("Kesim işaretleri",isOn:Binding(get:{ model.coverPreparation.crop ?? model.project.exportMarks.crop },
@@ -155,6 +120,15 @@ struct CoverPreparationView: View {
                 Text(warning.message).foregroundStyle(DesignSystem.warning)
             }
         }
+    }
+
+    private func margin(_ path: WritableKeyPath<Insets,Double>,_ field: AutoLayoutField) -> Binding<Double> {
+        Binding(get:{ model.project.sharedSheet.margins[keyPath:path] },set:{ value in
+            model.markManual(field)
+            model.project.sheet.margins[keyPath:path] = value
+            model.schedulePlan()
+            model.showUpdatedCoverSheet()
+        })
     }
 
     private func count(_ title: String,_ value: Binding<Int?>) -> some View {
@@ -217,7 +191,9 @@ struct CoverPreparationPreview: View {
                 Spacer()
                 if let size = plan.sheets.first?.size {
                     let angle = plan.sheets.first?.front.slots.first?.rotation ?? 0
-                    Text(TRFormat.size(size.width,size.height)+(output == .sheet ? " · \(angle)°" : "")).monospacedDigit()
+                    let copies = plan.sheets.first?.repeatLayout?.copiesPerSheet ?? 0
+                    Text(TRFormat.size(size.width,size.height)+(output == .sheet ? " · \(angle)° · \(copies) kapak" : ""))
+                        .monospacedDigit()
                 }
                 Button("Sığdır") { model.zoomFactor = 0; model.zoomAction += 1 }
             }.padding(10)

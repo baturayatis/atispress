@@ -32,26 +32,18 @@ public struct CoverPreparationSettings: Codable, Equatable, Sendable {
         spineText = nil; spineLogo = nil
     }
     public var sheet: SheetSpec?
+    public var gap: Double?
     public var bleed: Double?
     public var crop: Bool?
-    public var useProjectMachine = true
+    public var useProjectMachine: Bool?
     public var machine: MachineProfile?
     public var grid = Grid()
 
-    public static let defaultSheet = SheetSpec(preset:.cm33x48,orientation:.portrait)
     public static let defaultBleed = 3.0
 
     public func effectiveSheet(for project: Project) -> SheetSpec {
-        let profile = useProjectMachine ? project.machineProfile : machine
-        var result = sheet ?? Self.defaultSheet
-        if let profile {
-            if sheet == nil {
-                result.size = profile.size
-                result.orientation = profile.size.width > profile.size.height ? .landscape : .portrait
-            }
-            result.gripperEdge = profile.gripperEdge
-            result.gripperWidth = profile.gripperWidth
-        }
+        var result = project.sharedSheet
+        result.gutter = gap ?? 0
         return result
     }
 
@@ -132,7 +124,10 @@ public enum CoverPreparationPlanner {
         var input = Project(pages:[SourcePage(number:front.number,trimSize:size,availableBleed:bleed)],
                             sheet:cover.effectiveSheet(for:project),settings:settings,
                             stepAndRepeat:StepAndRepeatSettings(columns:cover.grid.columns,rows:cover.grid.rows))
-        input.machineProfile = cover.useProjectMachine ? project.machineProfile : cover.machine
+        input.machineProfile = project.machineProfile
+        var ownership = AutoLayoutSettings.legacy
+        ownership.usesExplicitSheet = true
+        input.autoLayout = ownership
         input.coverGrid = cover.grid
         input.exportMarks = project.exportMarks
         input.blockAlignment = .center

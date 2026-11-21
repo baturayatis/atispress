@@ -84,7 +84,9 @@ extension ImpositionPlanner {
                 }
             }
             // The array stays in copy order. GridPosition expresses each face's row/column order.
-            let frontSide = repeatSide(frontSlots,grid: grid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet, machine: project.coverGrid == nil ? project.activeMachineProfile : nil)
+            var markingProfile = project.coverGrid == nil ? project.activeMachineProfile : nil
+            markingProfile?.size = grid.sheet
+            let frontSide = repeatSide(frontSlots,grid: grid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet, machine: markingProfile)
             var backGrid = grid
             if project.blockAlignment == .center {
                 let width = Double(grid.columns)*grid.item.width+Double(grid.columns-1)*grid.spacing
@@ -92,7 +94,7 @@ extension ImpositionPlanner {
                 backGrid.origin = Point(grid.mirrorX ? grid.sheet.width-grid.origin.x-width : grid.origin.x,
                                         grid.mirrorX ? grid.origin.y : grid.sheet.height-grid.origin.y-height)
             }
-            let backSide = repeatSide(backSlots,grid: backGrid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet, machine: project.coverGrid == nil ? project.activeMachineProfile : nil)
+            let backSide = repeatSide(backSlots,grid: backGrid,spec: spec,settings: settings,clipToSheet: project.clipsArtworkToSheet, machine: markingProfile)
             if settings.generatedBleed.enabled {
                 for slot in frontSide.slots+backSide.slots {
                     if let clip = slot.artworkClip,
@@ -169,16 +171,20 @@ extension ImpositionPlanner {
             let margins = settings.turnMethod == .sheetwise ? usableMargins(spec) : repeatMargins(spec, mirrorX: mirrorX)
             let reserve = project.machineExteriorReserve(bleed: settings.bleed)
             let bottomReserve = profile.gripperEdge == .bottom ? 0 : reserve
-            let area = Rect(x: margins.left+reserve, y: margins.bottom+bottomReserve,
-                            width: spec.size.width-margins.left-margins.right-2*reserve,
-                            height: spec.size.height-margins.bottom-margins.top-bottomReserve-reserve)
-            let item = rotation == 0 ? trim : Size(trim.height, trim.width)
+            let item = rotation == 0 ? trim : Size(trim.height,trim.width)
             let block = Size(Double(columns)*item.width+Double(columns-1)*spec.gutter,
                              Double(rows)*item.height+Double(rows-1)*spec.gutter)
-            guard block.width <= area.size.width, block.height <= area.size.height else { return nil }
-            return RepeatGrid(sheet: spec.size, origin: profile.anchoredOrigin(in: area, for: block),
-                              item: item, columns: columns, rows: rows, rotation: rotation,
-                              spacing: spec.gutter, mirrorX: mirrorX)
+            let sizes = spec.orientation == .auto ? [spec.size,Size(spec.size.height,spec.size.width)] : [spec.size]
+            for size in sizes {
+                let area = Rect(x:margins.left+reserve,y:margins.bottom+bottomReserve,
+                    width:size.width-margins.left-margins.right-2*reserve,
+                    height:size.height-margins.bottom-margins.top-bottomReserve-reserve)
+                guard block.width <= area.size.width, block.height <= area.size.height else { continue }
+                return RepeatGrid(sheet:size,origin:profile.anchoredOrigin(in:area,for:block),
+                                  item:item,columns:columns,rows:rows,rotation:rotation,
+                                  spacing:spec.gutter,mirrorX:mirrorX)
+            }
+            return nil
         }
         let portrait = Size(min(spec.size.width,spec.size.height),max(spec.size.width,spec.size.height))
         let landscape = Size(portrait.height,portrait.width)

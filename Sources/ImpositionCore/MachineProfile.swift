@@ -78,8 +78,42 @@ extension Project {
         !bookCoverTemplate && (binding == .stepAndRepeat || (binding == .gang && team == nil))
     }
 
+    public var sharedSheetOrientation: Orientation {
+        (autoLayout ?? .legacy).isFixed(.orientation) ? sheet.orientation : .auto
+    }
+
+    public var sharedSheet: SheetSpec {
+        var stock = sheet
+        stock.orientation = sharedSheetOrientation
+        if let profile = machineProfile {
+            if autoLayout?.usesExplicitSheet != true { stock.size = profile.size }
+            if autoLayout?.isFixed(.marginLeft) != true { stock.margins.left = 0 }
+            if autoLayout?.isFixed(.marginRight) != true { stock.margins.right = 0 }
+            if autoLayout?.isFixed(.marginTop) != true { stock.margins.top = 0 }
+            if autoLayout?.isFixed(.marginBottom) != true { stock.margins.bottom = 0 }
+            stock.gripperEdge = profile.gripperEdge
+            stock.gripperWidth = profile.gripperWidth
+        }
+        return stock
+    }
+
+    public mutating func setSharedSheetSize(_ size: Size) {
+        var state = autoLayout ?? .legacy
+        state.usesExplicitSheet = true
+        state.sheetSelection = .fixed
+        state.manualFields.insert(.sheetSize)
+        state.automaticFields.remove(.sheetSize)
+        state.presetFields?.remove(.sheetSize)
+        state.summary = nil
+        autoLayout = state
+        sheet.size = size
+    }
+
     var activeMachineProfile: MachineProfile? {
-        supportsMachineProfile ? machineProfile?.withLayoutDefaults : nil
+        guard supportsMachineProfile, var profile = machineProfile?.withLayoutDefaults else { return nil }
+        let stock = sharedSheet
+        profile.size = stock.size.oriented(stock.orientation)
+        return profile
     }
 
     func machineExteriorReserve(bleed: Double) -> Double {
@@ -92,8 +126,9 @@ extension Project {
         var input = self
         input.alignment = .center
         if coverGrid == nil {
-            input.sheet = SheetSpec(size: profile.size, gripperEdge: profile.gripperEdge,
-                                    gripperWidth: profile.gripperWidth, gutter: profile.gap)
+            input.sheet = sharedSheet
+            input.sheet.size = profile.size
+            input.sheet.gutter = profile.gap
             input.stepAndRepeat.columns = profile.columns
             input.stepAndRepeat.rows = profile.rows
             input.settings.turnMethod = profile.faces == .single ? .sheetwise : .workAndTurn

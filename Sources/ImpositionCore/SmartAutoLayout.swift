@@ -54,6 +54,8 @@ public struct AutoLayoutSettings: Equatable, Codable, Sendable {
     }
     public var presetFields: Set<AutoLayoutField>? = nil
     public var presetName: String? = nil
+    /// A press profile supplies its stock until the job explicitly chooses stock.
+    public var usesExplicitSheet: Bool?
     public func isFixed(_ field: AutoLayoutField) -> Bool { manualFields.contains(field) || presetFields?.contains(field) == true }
     public var manualFields = Set<AutoLayoutField>()
     public var automaticFields = Set<AutoLayoutField>()

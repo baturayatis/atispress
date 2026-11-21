@@ -52,7 +52,7 @@ final class Workspace: ObservableObject {
                 }
                 if !changed.isEmpty {
                     var state = project.autoLayout ?? .legacy
-                    if changed.contains(.sheetSize) { state.sheetSelection = .fixed }
+                    if changed.contains(.sheetSize) { state.sheetSelection = .fixed; state.usesExplicitSheet = true }
                     state.manualFields.formUnion(changed); state.automaticFields.subtract(changed); state.presetFields?.subtract(changed); state.summary = nil
                     trackingManual = true; project.autoLayout = state; trackingManual = false
                 }
@@ -166,6 +166,7 @@ final class Workspace: ObservableObject {
 
     func selectMachineProfile(_ profile: MachineProfile?) {
         project.machineProfile = profile?.withLayoutDefaults
+        showUpdatedCoverSheet()
     }
 
     func saveMachineProfile(_ profile: MachineProfile) {
@@ -855,7 +856,8 @@ final class Workspace: ObservableObject {
         var next = result
         if let previous = lastMachinePreview, previous.document == projectIdentifier,
            previous.input.machineProfile?.id == profile.id,
-           previous.input.machineProfile?.size == profile.size,
+           previous.input.sharedSheet.size == input.sharedSheet.size,
+           previous.input.sharedSheet.orientation == input.sharedSheet.orientation,
            previous.input.binding == input.binding,
            previous.input.pages == input.pages, previous.input.pageItems == input.pageItems,
            previous.input.gang?.jobs == input.gang?.jobs {
@@ -1215,7 +1217,7 @@ extension Workspace {
         state.sheetSelection = selection
         state.summary = nil
         if selection == .fixed { state.manualFields.insert(.sheetSize); state.automaticFields.remove(.sheetSize) }
-        else { state.manualFields.remove(.sheetSize) }
+        else { state.manualFields.remove(.sheetSize); state.usesExplicitSheet = nil }
         project.autoLayout = state
         sheetPreset = selection == .automatic ? Self.automaticSheetTitle : SmartAutoLayout.presetName(for: project.sheet.size)
         if !project.pages.isEmpty { autoArrange(resetOverrides: false) }
@@ -2159,30 +2161,42 @@ extension Workspace {
         return "\(productKind.rawValue) · \(TRFormat.size(size.width,size.height)) · \(project.resolvedPageLayout == .simplex ? "tek yüz" : "çift yüz")"
     }
     var selectedWorkflowChip:String {
-        if project.autoLayout?.sheetSelection == .automatic { return "Otomatik" }
-        if sheetPreset == "Özel" { return "Özel ölçü…" }
-        return WorkflowPresentation.sheetPresets.first { $0.value.size == project.sheet.size }?.key ?? "Özel ölçü…"
+        if project.machineProfile == nil && project.autoLayout?.sheetSelection == .automatic { return "Otomatik" }
+        if sheetPreset == "Özel" && (project.machineProfile == nil || project.autoLayout?.usesExplicitSheet == true) {
+            return "Özel ölçü…"
+        }
+        let stock = project.sharedSheet.size.oriented(.portrait)
+        return WorkflowPresentation.sheetPresets.first { $0.value.size == stock }?.key ?? "Özel ölçü…"
     }
+
+    func showUpdatedCoverSheet() {
+        if ui.activePanel == .coverPreparation { coverPreviewOutput = .sheet }
+    }
+
     func selectWorkflowSheet(_ chip:String) {
-        if chip == "Otomatik" { returnToAutomaticSheet(); return }
-        markManual(.sheetSize)
-        if let preset = WorkflowPresentation.sheetPresets[chip] {
-            sheetPreset = chip
-            var next = project
-            next.sheet.size = preset.size
-            if workflowOrientation == .auto { next.sheet.orientation = .auto }
-            applyingAutomatic = true; project = next; applyingAutomatic = false
-            schedulePlan()
-        }
-        else {
-            sheetPreset = "Özel"
-            if workflowOrientation == .auto { selectWorkflowOrientation(.auto) }
-        }
+        if chip == "Otomatik" { returnToAutomaticSheet(); showUpdatedCoverSheet(); return }
+        if let preset = WorkflowPresentation.sheetPresets[chip] { setWorkflowSheetSize(preset.size,preset:chip) }
+        else { setWorkflowSheetSize(project.sharedSheet.size,preset:"Özel") }
     }
-    /// Resolved automatic geometry is not a manual orientation choice.
-    var workflowOrientation:Orientation {
-        (project.autoLayout ?? .legacy).isFixed(.orientation) ? project.sheet.orientation : .auto
+
+    func setWorkflowSheetDimension(_ path: WritableKeyPath<Size,Double>, _ value: Double) {
+        guard (1...10_000).contains(value) else { return }
+        var size = project.sharedSheet.size
+        size[keyPath:path] = value
+        setWorkflowSheetSize(size,preset:"Özel")
     }
+
+    private func setWorkflowSheetSize(_ size: Size,preset: String) {
+        var next = project
+        next.setSharedSheetSize(size)
+        if workflowOrientation == .auto { next.sheet.orientation = .auto }
+        sheetPreset = preset
+        applyingAutomatic = true; project = next; applyingAutomatic = false
+        schedulePlan()
+        showUpdatedCoverSheet()
+    }
+
+    var workflowOrientation:Orientation { project.sharedSheetOrientation }
     func selectWorkflowOrientation(_ orientation:Orientation) {
         var next = project
         var state = next.autoLayout ?? .legacy
@@ -2192,6 +2206,7 @@ extension Workspace {
         next.autoLayout = state; next.sheet.orientation = orientation
         applyingAutomatic = true; project = next; applyingAutomatic = false
         schedulePlan()
+        showUpdatedCoverSheet()
     }
     var workflowOrientationSummary:String {
         let size = currentSheet?.size ?? project.sheet.size

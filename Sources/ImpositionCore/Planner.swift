@@ -43,13 +43,15 @@ public enum ImpositionPlanner {
         }
         var project = source
         if let profile = source.activeMachineProfile {
-            guard profile.isValid else {
+            guard source.machineProfile?.isValid == true else {
                 return ImpositionPlan(issues: [ValidationIssue(.error, .invalidInput, "Makine profili ölçüleri geçersiz.")])
             }
             guard profile.hasManualLayout else {
                 return ImpositionPlan(issues: [ValidationIssue(.error, .exceedsSheet, "Makine diziliminde sütun ve satır sayıları 1–200 arasında olmalıdır.")])
             }
             project = source.applyingMachineProfile(profile)
+        } else if source.machineProfile != nil && !source.bookCoverTemplate && (source.isBooklet || source.isLeafBinding) {
+            project.sheet = source.sharedSheet
         }
         // A folding signature is contiguous paper. Flat-job trim gutters must
         // never open a gap at a fold, including legacy saved positive values.

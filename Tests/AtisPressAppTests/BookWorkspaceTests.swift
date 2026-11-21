@@ -117,15 +117,20 @@ final class BookWorkspaceTests: XCTestCase {
         reopened.coverPreparation.bleed = 1
         reopened.coverPreparation.crop = false
         reopened.coverPreviewOutput = .spread
-        reopened.coverSheetSpec = SheetSpec(size:Size(240,170),gripperWidth:8,gutter:5,orientation:.landscape)
+        let controls = ContextBindings(model:reopened)
+        controls.sheetDimension(\.width).wrappedValue = 240
+        controls.sheetDimension(\.height).wrappedValue = 170
+        controls.orientation.wrappedValue = .landscape
+        reopened.updateCoverImposition { $0.gap = 5 }
         XCTAssertEqual(reopened.coverPreviewOutput,.sheet)
         XCTAssertEqual(reopened.coverPreparationPlan(.sheet).sheets.first?.size,Size(240,170))
         reopened.coverPreparation.grid.columns = 1
         reopened.coverPreparation.grid.rows = 1
         reopened.coverPreparation.grid.x = 2
         XCTAssertEqual(reopened.project.pages,pages)
-        XCTAssertEqual(reopened.plan.sheets,interior)
-        XCTAssertFalse(reopened.planning)
+        try await settle(reopened)
+        let updatedInterior = reopened.plan.sheets
+        XCTAssertEqual(updatedInterior,ImpositionPlanner.plan(reopened.project).sheets)
         XCTAssertTrue(reopened.coverPreparationPlan(.sheet).canExport)
         XCTAssertFalse(reopened.coverPreparationMarks(.sheet).crop)
         try reopened.saveProject()
@@ -134,8 +139,67 @@ final class BookWorkspaceTests: XCTestCase {
         XCTAssertEqual(loaded.project.coverPreparation,reopened.project.coverPreparation)
         XCTAssertEqual(loaded.coverPreparationPlan(.spread).sheets,reopened.coverPreparationPlan(.spread).sheets)
         XCTAssertEqual(loaded.coverPreparationPlan(.sheet).sheets,reopened.coverPreparationPlan(.sheet).sheets)
-        XCTAssertEqual(loaded.plan.sheets,interior)
+        XCTAssertEqual(loaded.plan.sheets,updatedInterior)
         XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:url)).version,ProjectDocument.currentVersion)
+    }
+
+    func testCoverPreparationSharedControlsSyncThroughTabsAndLegacyMigration() async throws {
+        let folder = try folder()
+        let url = try fixture(folder,"stock.pdf",count:4,size:Size(100,140))
+        let suite = "CoverStock."+UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName:suite))
+        defer { defaults.removePersistentDomain(forName:suite) }
+        let model = model(uiDefaults:defaults)
+        model.open(url); try await settle(model)
+        let toolbar = ContextBindings(model:model)
+        model.ui.jump(.coverPreparation)
+        toolbar.sheet.wrappedValue = "70×100"
+        toolbar.orientation.wrappedValue = .landscape
+        XCTAssertEqual(model.coverPreparationPlan(.sheet).sheets.first?.size,Size(1000,700))
+        try await settle(model)
+        XCTAssertEqual(model.currentSheet?.size,Size(1000,700))
+        XCTAssertEqual(model.coverPreparation.effectiveSheet(for:model.project).orientation,.landscape)
+        model.ui.jump(.job)
+        model.ui.jump(.coverPreparation)
+        XCTAssertEqual(toolbar.orientation.wrappedValue,.landscape)
+        model.selectWorkflowOrientation(.portrait)
+        XCTAssertEqual(toolbar.orientation.wrappedValue,.portrait)
+        XCTAssertEqual(model.coverPreparationPlan(.sheet).sheets.first?.size,Size(700,1000))
+        try await settle(model)
+        XCTAssertEqual(model.currentSheet?.size,Size(700,1000))
+        toolbar.orientation.wrappedValue = .auto
+        XCTAssertTrue(model.coverPreparationPlan(.sheet).canExport)
+
+        toolbar.machine.wrappedValue = MachineProfile.heidelberg.id
+        XCTAssertEqual(model.project.machineProfile?.id,MachineProfile.heidelberg.id)
+        XCTAssertEqual(model.coverPreparation.effectiveSheet(for:model.project).size,Size(700,1000))
+        model.selectMachineProfile(nil)
+        XCTAssertNil(toolbar.machine.wrappedValue)
+        model.setWorkflowSheetDimension(\.width,812.5)
+        XCTAssertEqual(toolbar.sheetDimension(\.width).wrappedValue,812.5)
+        XCTAssertEqual(toolbar.sheet.wrappedValue,"Özel ölçü…")
+        XCTAssertEqual(model.coverPreparationPlan(.spread).sheets.first?.front.slots.compactMap(\.sourcePageNumber),[4,1])
+        try await settle(model)
+        let file = folder.appendingPathComponent("stock.atispress")
+        try model.saveProject(as:file)
+        let restored = self.model(uiDefaults:defaults)
+        try await restored.loadProject(at:file); try await settle(restored)
+        XCTAssertEqual(restored.project.sharedSheet,model.project.sharedSheet)
+        XCTAssertEqual(restored.coverPreparationPlan(.sheet).sheets,model.coverPreparationPlan(.sheet).sheets)
+
+        var legacy = model.state
+        var cover = CoverPreparationSettings()
+        cover.sheet = SheetSpec(size:Size(455,620),gutter:7,orientation:.landscape)
+        cover.useProjectMachine = false
+        cover.machine = MachineProfile.heidelberg
+        legacy.project.coverPreparation = cover
+        let migrated = try ProjectDocument.decode(ProjectDocument(version:31,state:legacy).encoded()).state.project
+        XCTAssertEqual(migrated.sharedSheet.size,Size(455,620))
+        XCTAssertEqual(migrated.sharedSheetOrientation,.landscape)
+        XCTAssertEqual(migrated.machineProfile?.id,MachineProfile.heidelberg.id)
+        XCTAssertEqual(migrated.coverPreparation?.gap,7)
+        XCTAssertNil(migrated.coverPreparation?.sheet)
+        XCTAssertNil(migrated.coverPreparation?.machine)
     }
 
     func testCoverPreparationCanvasDragSnapsInRotatedSheetCoordinates() async throws {

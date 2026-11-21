@@ -17,6 +17,16 @@ import ImpositionCore
     var orientation:Binding<Orientation> {
         Binding(get:{model.workflowOrientation},set:{value in edit {model.selectWorkflowOrientation(value)}})
     }
+    var machine: Binding<UUID?> {
+        Binding(get:{ model.project.machineProfile?.id },set:{ id in
+            edit { model.selectMachineProfile(model.sharedMachineChoices.first { $0.id == id }) }
+        })
+    }
+    func sheetDimension(_ path: WritableKeyPath<Size,Double>) -> Binding<Double> {
+        Binding(get:{ model.project.sharedSheet.size[keyPath:path] },set:{ value in
+            edit { model.setWorkflowSheetDimension(path,value) }
+        })
+    }
     var production:Binding<ProductionType> {
         Binding(get:{model.project.autoLayout?.production ?? .digital},set:{value in edit {model.setProduction(value)}})
     }
@@ -62,13 +72,14 @@ import ImpositionCore
 
 enum ContextKind:Equatable {case flat,book,serial,job,split,guides}
 enum ContextControl:String,Identifiable {
-    case sheet,orientation,production,quantity,bleed,crop,arrangement,binding,signature,cover
+    case sheet,orientation,machine,production,quantity,bleed,crop,arrangement,binding,signature,cover
     case field,kind,font,size,color,x,y,rotation,center,waste,dimensions,split,guides
     var id:String {rawValue}
     var title:String {
         switch self {
         case .sheet:return "Tabaka"
         case .orientation:return "Yön"
+        case .machine:return "Makine"
         case .production:return "Üretim"
         case .quantity:return "Adet"
         case .bleed:return "Taşma payı"
@@ -96,6 +107,7 @@ enum ContextControl:String,Identifiable {
         switch self {
         case .sheet:return 205
         case .orientation:return 290
+        case .machine:return 235
         case .production:return 230
         case .quantity:return 215
         case .bleed:return 250
@@ -160,6 +172,7 @@ struct ContextBar:View {
     @State private var customSheet=false
     private var values:ContextBindings {ContextBindings(model:model)}
     private var controls:[ContextControl] {
+        if model.ui.activePanel == .coverPreparation, model.source != nil { return [.sheet,.orientation,.machine] }
         var result=ContextPresentation.controls(ContextPresentation.kind(model))
         if ContextPresentation.kind(model) == .job && model.project.binding != .saddleStitch && (model.project.isBooklet || model.project.isLeafBinding) {
             result.insert(.cover,at:0)
@@ -171,7 +184,7 @@ struct ContextBar:View {
     }
     var body:some View {
         GeometryReader { geometry in
-            let hasControls = model.project.hasPanelItems
+            let hasControls = model.project.hasPanelItems || (model.ui.activePanel == .coverPreparation && model.source != nil)
             let layout = ContextPresentation.layout(hasControls ? controls : [], width: geometry.size.width)
             HStack(spacing:8) {
                 if hasControls {
@@ -213,22 +226,28 @@ struct ContextBar:View {
     @ViewBuilder private func editor(_ control:ContextControl) -> some View {
         switch control {
         case .sheet:
-            Picker("Tabaka",selection:Binding(get:{values.sheet.wrappedValue},set:{value in
-                values.sheet.wrappedValue=value
-                if value=="Özel ölçü…" {customSheet=true}
-            })) {ForEach(WorkflowPresentation.sheetChips,id:\.self) {Text($0).tag($0)}}.labelsHidden()
-                .popover(isPresented:$customSheet) {
-                    VStack {
-                        DimensionInput("Genişlik",value:sheetDimension(\.width),range:20...3000)
-                        DimensionInput("Yükseklik",value:sheetDimension(\.height),range:20...3000)
-                    }.padding().frame(width:280)
+            HStack(spacing:4) {
+                Picker("Tabaka",selection:Binding(get:{values.sheet.wrappedValue},set:{value in
+                    values.sheet.wrappedValue=value
+                    if value=="Özel ölçü…" {customSheet=true}
+                })) {ForEach(WorkflowPresentation.sheetChips,id:\.self) {Text($0).tag($0)}}.labelsHidden()
+                if values.sheet.wrappedValue == "Özel ölçü…" {
+                    Button { customSheet = true } label: { Image(systemName:"ruler") }
+                        .accessibilityLabel("Tabaka ölçülerini düzenle")
                 }
+            }.popover(isPresented:$customSheet) {
+                VStack {
+                    DimensionInput("Genişlik",value:values.sheetDimension(\.width),range:1...10_000)
+                    DimensionInput("Yükseklik",value:values.sheetDimension(\.height),range:1...10_000)
+                }.padding().frame(width:280)
+            }
         case .orientation:
             Picker("Yön",selection:values.orientation) {
                 Text("Otomatik").tag(Orientation.auto)
                 Text("Yatay").tag(Orientation.landscape)
                 Text("Dikey").tag(Orientation.portrait)
             }.labelsHidden().pickerStyle(.segmented).accessibilityLabel("Yön, otomatik, dikey veya yatay")
+        case .machine: SharedMachinePicker(model:model).labelsHidden()
         case .production:
             Picker("Üretim",selection:values.production) {Text("Dijital").tag(ProductionType.digital);Text("Ofset").tag(ProductionType.offset)}.labelsHidden().pickerStyle(.segmented)
         case .quantity:
@@ -270,12 +289,6 @@ struct ContextBar:View {
         case .guides:Button("Kılavuz çizgileri…") {model.showingSourceGuides=true}.disabled(model.preparationInput==nil)
         }
     }
-    private func sheetDimension(_ path:WritableKeyPath<Size,Double>) -> Binding<Double> {
-        Binding(get:{model.project.sheet.size[keyPath:path]},set:{value in values.edit {
-            model.markManual(.sheetSize)
-            model.project.sheet.size[keyPath:path]=min(3000,max(20,value))
-        }})
-    }
     @ViewBuilder private func serialEditor(_ control:ContextControl,field:SerialField) -> some View {
         switch control {
         case .kind:
@@ -313,5 +326,27 @@ struct ContextBar:View {
                 binding.wrappedValue = .cmyk(c.cyanComponent,c.magentaComponent,c.yellowComponent,c.blackComponent)
             } else if let c=ns.usingColorSpace(.sRGB) {binding.wrappedValue = .rgb(c.redComponent,c.greenComponent,c.blueComponent)}
         })
+    }
+}
+
+
+extension Workspace {
+    var sharedMachineChoices: [MachineProfile] {
+        if let selected = project.machineProfile, !machineProfiles.contains(where:{ $0.id == selected.id }) {
+            return machineProfiles+[selected]
+        }
+        return machineProfiles
+    }
+}
+
+struct SharedMachinePicker: View {
+    @ObservedObject var model: Workspace
+    var body: some View {
+        Picker("Makine",selection:ContextBindings(model:model).machine) {
+            Text("Makine yok / Serbest").tag(nil as UUID?)
+            ForEach(model.sharedMachineChoices) { profile in
+                Text(profile.name).tag(Optional(profile.id))
+            }
+        }
     }
 }
