@@ -53,9 +53,23 @@ public struct BookSettings: Equatable, Codable, Sendable {
     public var coverPDFPages: [Int] = []
     /// Prior cover links remain in the catalog; none of their pages become interior artwork.
     public var auxiliaryPages: [Int] = []
+    /// Legacy projects retain their stock-derived width until this value is edited.
+    public var spineWidth: Double?
+    public var automaticCover: Bool?
+    public var separateSaddleCover: Bool?
+    public var spineContent: SpineContent?
+
+    public func spine(for binding: BindingMethod, pageCount: Int) -> Double {
+        guard binding != .saddleStitch else { return 0 }
+        if let spineWidth { return spineWidth }
+        guard binding == .perfectBound, let thickness = interiorPaper.millimetres else { return 0 }
+        return MeasuredSpineCalculator(coverAllowance: coverAllowance, adhesiveAllowance: adhesiveAllowance)
+            .thickness(pageCount: pageCount, stockCaliper: thickness)
+    }
     public init() {}
     public var isValid: Bool {
-        interiorPaper.isValid && coverPaper.isValid &&
+        (spineWidth.map { (0...1000).contains($0) } ?? true) &&
+        (spineContent?.isValid ?? true) &&
         [coverAllowance,adhesiveAllowance,leftFlap,rightFlap].allSatisfy { $0.isFinite && (0...500).contains($0) }
     }
 }
@@ -128,18 +142,25 @@ extension Project {
         guard let book else { return CoverSelection() }
         let domain = bookCoverPages
         var selection = book.selection
-        guard coverMode != .excluded else { return selection }
+        guard coverMode != .excluded || book.automaticCover == true else { return selection }
         selection.front = selection.front ?? domain.first?.number
         if book.coverArtwork == .spread && coverMode == .separate {
             selection.insideFront = selection.insideFront ?? (domain.count>1 ? domain[1].number : 0)
             selection.insideBack = 0; selection.back = 0
         } else {
-            selection.insideFront = selection.insideFront ?? (domain.count>=4 ? domain[1].number : 0)
-            selection.insideBack = selection.insideBack ?? (domain.count>=4 ? domain[domain.count-2].number : 0)
+            selection.insideFront = selection.insideFront ?? ((book.automaticCover != true || coverMode == .separate) && domain.count>=4 ? domain[1].number : 0)
+            selection.insideBack = selection.insideBack ?? ((book.automaticCover != true || coverMode == .separate) && domain.count>=4 ? domain[domain.count-2].number : 0)
             selection.back = selection.back ?? domain.last?.number
         }
         return selection
     }
+    public var automaticCoverMode: CoverMode {
+        guard let book, book.automaticCover == true else { return coverMode }
+        if book.coverSourceID != nil { return .separate }
+        if binding == .saddleStitch && book.separateSaddleCover != true { return .included }
+        return pages.filter { !book.auxiliaryPages.contains($0.number) }.count >= 3 ? .excluded : .included
+    }
+
     public var bookInteriorPages: [SourcePage] {
         guard let book else { return pages }
         let candidates = pages.filter { !book.auxiliaryPages.contains($0.number) && !book.coverPDFPages.contains($0.number) }

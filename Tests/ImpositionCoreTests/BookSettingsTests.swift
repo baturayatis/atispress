@@ -77,9 +77,9 @@ final class BookSettingsTests: XCTestCase {
         p.book?.selection.back = 999
         XCTAssertTrue(ImpositionPlanner.plan(p).issues.contains { $0.message.contains("etkin kaynakta yok") })
         p = project(.perfectBound); p.book?.interiorPaper.microns = nil
-        let missing = ImpositionPlanner.plan(p); XCTAssertFalse(missing.canExport); XCTAssertFalse(missing.sheets.isEmpty)
+        let missing = ImpositionPlanner.plan(p); XCTAssertTrue(missing.canExport); XCTAssertFalse(missing.sheets.isEmpty)
         p = project(); p.book?.creepEnabled = true; p.book?.coverPaper.microns = nil
-        XCTAssertFalse(ImpositionPlanner.plan(p).canExport)
+        XCTAssertTrue(ImpositionPlanner.plan(p).canExport)
         p = project(.perfectBound); p.book?.creepEnabled = true
         XCTAssertFalse(ImpositionPlanner.plan(p).canExport)
     }

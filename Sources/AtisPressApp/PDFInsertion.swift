@@ -64,6 +64,19 @@ extension Workspace {
         panel.title="Sayfalara PDF ekle"
         panel.begin { [weak self] response in
             guard response == .OK,let self else {return}
+            if let url = panel.urls.first, panel.urls.count == 1, self.source != nil,
+               self.project.isBooklet || self.project.isLeafBinding {
+                let choice = NSAlert()
+                choice.messageText = "PDF nasıl eklensin?"
+                choice.addButton(withTitle:"Sayfalara ekle")
+                choice.addButton(withTitle:"Bu PDF kapaktır")
+                choice.addButton(withTitle:"Vazgeç")
+                switch choice.runModal() {
+                case .alertSecondButtonReturn: self.loadCoverPDF(url, automatic:true); return
+                case .alertThirdButtonReturn: return
+                default: break
+                }
+            }
             self.preparePageInsertion(panel.urls,anchor:row ?? self.order.first(where:{self.selectedPages.contains($0)}))
         }
     }

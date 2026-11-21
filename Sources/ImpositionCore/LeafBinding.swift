@@ -55,7 +55,9 @@ public enum LeafPlanner {
         var covers: [SourcePage] = []
         let book = source.book ?? BookSettings()
         let domain = source.book == nil ? source.pages : source.bookCoverPages
-        if source.coverMode != .included {
+        if source.coverMode != .included && book.automaticCover == true {
+            body = source.bookInteriorPages
+        } else if source.coverMode != .included {
             let front = book.selection.front ?? domain.first?.number
             let back = book.selection.back ?? domain.last?.number
             let selected = [front,back].compactMap { $0 }
@@ -68,6 +70,9 @@ public enum LeafPlanner {
             if source.coverMode == .separate && book.coverSourceID == nil {
                 result.issues.append(ValidationIssue(.error,.bookSettings,"Ayrı kapak PDF’sini yükleyin.")); return result
             }
+        }
+        if body.isEmpty && book.automaticCover == true && source.coverMode != .included {
+            return BookPlanner.plan(source,leafBody:result)
         }
         guard !body.isEmpty else {
             result.issues.append(ValidationIssue(.error,.invalidInput,"İç blok için en az bir sayfa gerekli.")); return result
@@ -146,6 +151,9 @@ public enum LeafPlanner {
             }
         }
         impose(body,cover:false)
+        if book.automaticCover == true && source.coverMode != .included {
+            return BookPlanner.plan(source, leafBody: result)
+        }
         // Front and back covers are independent front-only leaves with blank insides.
         for cover in covers { impose([cover],cover:true) }
         if source.settings.bleed>0 && !source.settings.generatedBleed.enabled {

@@ -150,3 +150,19 @@ public final class PDFEdgeSampleCache: @unchecked Sendable {
         return samples
     }
 }
+
+extension EdgeStrip {
+    func drawExtension(x: Double, width: Double, trim: CGRect, bleed: CGRect, in context: CGContext) {
+        if let color = uniformColor(tolerance:0) {
+            context.setFillColor(PDFSpine.color(color))
+            context.fill(CGRect(x:x,y:bleed.minY,width:width,height:bleed.height))
+            return
+        }
+        context.interpolationQuality = .none
+        context.draw(edgePixels,in:CGRect(x:x,y:trim.minY,width:width,height:trim.height))
+        context.setFillColor(PDFSpine.color(firstColor))
+        context.fill(CGRect(x:x,y:trim.maxY,width:width,height:max(0,bleed.maxY-trim.maxY)))
+        context.setFillColor(PDFSpine.color(lastColor))
+        context.fill(CGRect(x:x,y:bleed.minY,width:width,height:max(0,trim.minY-bleed.minY)))
+    }
+}

@@ -60,6 +60,13 @@ public enum ImpositionPlanner {
         if let auto = project.autoLayout, !auto.trimTolerance.isFinite || !(0...1).contains(auto.trimTolerance) {
             return ImpositionPlan(issues: [ValidationIssue(.error,.invalidInput,"Tam sayfa toleransı 0–1 mm aralığında olmalıdır.")])
         }
+        if project.book?.automaticCover == true && (project.isBooklet || project.isLeafBinding) {
+            project.coverMode = project.automaticCoverMode
+            if project.coverMode == .included {
+                project.pages.removeAll { project.book?.auxiliaryPages.contains($0.number) == true }
+                if !(project.binding == .saddleStitch && project.book?.creepEnabled == true) { project.book = nil }
+            }
+        }
         var result = project.isLeafBinding ? LeafPlanner.plan(project) : project.isBooklet && project.book != nil ? BookPlanner.plan(project) : layoutPlan(project)
         if !project.isLeafBinding && project.binding != .gang && !(project.isBooklet && project.book != nil) { addFitDiagnostics(project,to: &result) }
         for index in result.sheets.indices {

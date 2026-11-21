@@ -31,30 +31,11 @@ struct LeafInspectorView: View {
                     Text("Delik kılavuzları kesim kenarının dışındaki boş kenara basılır; taşma veya komşu baskı içeriği üzerine basılmaz. Delik dizisi kenar boyunca ortalanır.").font(.system(size:12))
                 }
                 }
-                if section==nil || section==1 {
-                Picker("Kapak modu",selection:$model.project.coverMode) {
-                    Text("Dahil").tag(CoverMode.included)
-                    Text("Ayrı bas").tag(CoverMode.excluded)
-                    Text("Ayrı PDF").tag(CoverMode.separate)
-                }.pickerStyle(.segmented).inspectorTarget("coverMode").inspectorSetting(model,"Kapak modu",SettingGuidance.detail("Kapak modu"))
-                if model.project.coverMode != .included {
-                    if model.project.coverMode == .separate { if model.project.sourcePreparation?.hasPreparedProducts != true {Button("Kapak PDF yükle…",action:model.chooseCoverPDF)} }
-                    coverPicker("Ön kapak",\.front)
-                    coverPicker("Arka kapak",\.back)
-                    Text("Kapaklar ayrı yaprak olarak basılır; iç yüzleri boştur. Aynı cilt payı uygulanır.").font(.system(size:12))
-                }
-                }
                 ForEach(Array(model.plan.sheets.compactMap(\.leafInfo).filter { !$0.cover }.prefix(1).enumerated()),id:\.offset) { _,info in Text(TRFormat.presentation(info.summary)).font(.system(size:12)) }
             }.textFieldStyle(.roundedBorder).padding(5)
         }
     }
     private func input(_ title: String,_ value: Binding<Double?>) -> some View {
         HStack { Text(title).frame(maxWidth:.infinity,alignment:.leading); DimensionInput(title,value:Binding(get:{ value.wrappedValue ?? 0 },set:{ value.wrappedValue = $0 }),range:0...1000) }.inspectorSetting(model,title,SettingGuidance.detail(title))
-    }
-    private func coverPicker(_ title: String,_ key: WritableKeyPath<CoverSelection,Int?>) -> some View {
-        Picker(title,selection:Binding(get:{ model.bookSettings.selection[keyPath:key] ?? -1 },set:{ model.bookSettings.selection[keyPath:key] = $0<0 ? nil : $0 })) {
-            Text("Otomatik (ilk / son)").tag(-1)
-            ForEach(model.project.book == nil ? model.project.pages : model.bookCoverDomain,id:\.number) { p in Text(model.coverPageLabel(p.number)).tag(p.number) }
-        }
     }
 }

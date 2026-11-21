@@ -42,6 +42,11 @@ extension ImpositionPlanner {
         func resolve(_ side:Side)->Side {
             var next=side
             for index in next.slots.indices {
+                if var spine = next.slots[index].spineArtwork {
+                    spine.backPage = spine.backPage.flatMap { map[$0]?.sourcePage }
+                    spine.frontPage = spine.frontPage.flatMap { map[$0]?.sourcePage }
+                    next.slots[index].spineArtwork = spine
+                }
                 guard let id=next.slots[index].sourcePageNumber,let item=map[id] else {continue}
                 next.slots[index].sourcePageNumber=selected.contains(id) ? item.sourcePage:nil
                 next.slots[index].insertedBlank=item.sourcePage == nil || !selected.contains(id)

@@ -24,9 +24,12 @@ final class WorkflowCardTests:XCTestCase {
         for match in overlayRegex.matches(in:combined,range:NSRange(location:0,length:ns.length)) { after.insert("model."+ns.substring(with:match.range(at:1))) }
         let keyPathRegex = try NSRegularExpression(pattern:#"\\\.([A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)*)"#)
         for match in keyPathRegex.matches(in:combined,range:NSRange(location:0,length:ns.length)) { after.insert("keyPath."+ns.substring(with:match.range(at:1))) }
-        // Vector reflection no longer uses the edge-stretch uniformity threshold.
+        // Cover mode is automatic. The calculator and creep editor now bind directly
+        // to the same book fields, without the old model-level summary expressions.
         let before = Set(WorkflowSettingsBefore.byEditor.values.flatMap { $0 })
-            .subtracting(["model.editableGeneratedBleed.tolerance"])
+            .subtracting(["model.editableGeneratedBleed.tolerance", "coverMode",
+                          "model.bookSettings.adhesiveAllowance", "model.bookSettings.coverAllowance",
+                          "model.bookSettings.coverPaper.millimetres", "model.bookSettings.interiorPaper.millimetres"])
         XCTAssertTrue(before.isSubset(of:after),"Lost setting keys: \(before.subtracting(after).sorted())")
         XCTAssertEqual(WorkflowSettingsBefore.byEditor.values.reduce(0) { $0+$1.count },257)
         // Follow editor references from the actual inspector, not from the inventory.

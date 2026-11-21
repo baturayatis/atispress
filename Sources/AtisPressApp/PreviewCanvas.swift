@@ -109,6 +109,8 @@ final class SheetCanvasView: NSView {
     var moveGangBlock: ((UUID,Point) -> Void)?
     var beginEdit: (() -> Void)?
     var endEdit: (() -> Void)?
+    private var spineDrag: (position: SpineContent.Position, inverse: CGAffineTransform, start: CGPoint, offset: Point)?
+    private var moveSpine: ((SpineContent.Position,Point) -> Void)?
     private var gangDrag: (id: UUID,origin: Point,start: CGPoint,flipX: Bool,flipY: Bool)?
     private var originX: CGFloat = 32
     private var originY: CGFloat = 32
@@ -182,7 +184,10 @@ final class SheetCanvasView: NSView {
         let scale = max(0.01,enclosingScrollView?.magnification ?? 1)
         let visible = visibleRect.insetBy(dx: -40,dy: -40)
         let serials: [any PDFSlotOverlay] = [GangSerialOverlay(sheet: sheet)]
-        let extensions: [any PDFSlotOverlay] = (generatedOverlay.map { [$0 as any PDFSlotOverlay] } ?? [])+slotOverlays+serials
+        var extensions: [any PDFSlotOverlay] = (generatedOverlay.map { [$0 as any PDFSlotOverlay] } ?? [])+slotOverlays+serials
+        if let source, let vectorDocument, side.slots.contains(where:{ $0.spineArtwork != nil }) {
+            extensions.append(PDFSpineOverlay(document:vectorDocument,samples:source.edgeSamples,tone:tone))
+        }
         if let document = vectorDocument, let generatedOverlay {
             try? PDFPlanRenderer.drawMirrorBleed(side,document: document,in: context,sheetIndex: sheetIndex,kind: sideKind,
                                                 repetition: repetition,overlays: [generatedOverlay])
@@ -318,6 +323,22 @@ final class SheetCanvasView: NSView {
         window?.makeFirstResponder(self)
         let viewPoint = convert(event.locationInWindow,from: nil)
         let point = CGPoint(x: (viewPoint.x-originX)/pointsPerMM,y: (viewPoint.y-originY)/pointsPerMM)
+        if moveSpine != nil {
+            for slot in side.slots.reversed() {
+                guard let content = slot.spineArtwork?.content, content.mode == .text else { continue }
+                let inverse = PDFPreviewDrawing.slotTransform(slot).inverted()
+                let local = point.applying(inverse)
+                for position in SpineContent.Position.allCases.reversed() {
+                    guard let block = content.blocks[position], !block.text.isEmpty,
+                          let layout = PDFSpine.layout(block,at:position,in:PDFPreviewDrawing.localTrim(slot)),
+                          layout.bounds.insetBy(dx:-0.75,dy:-0.75).contains(local) else { continue }
+                    beginEdit?()
+                    spineDrag = (position,inverse,local,Point(block.x,block.y))
+                    NSCursor.closedHand.push()
+                    return
+                }
+            }
+        }
         if let sheet {
             for serial in sheet.serialPlacements(side: side,kind: sideKind,repetition: repetition).reversed() {
                 let slot = side.slots[serial.slotIndex]
@@ -345,6 +366,13 @@ final class SheetCanvasView: NSView {
         dragPoint = event.locationInWindow; NSCursor.closedHand.push()
     }
     override func mouseDragged(with event: NSEvent) {
+        if let spineDrag {
+            let p = convert(event.locationInWindow,from:nil)
+            let local = CGPoint(x:(p.x-originX)/pointsPerMM,y:(p.y-originY)/pointsPerMM).applying(spineDrag.inverse)
+            moveSpine?(spineDrag.position,Point(spineDrag.offset.x+local.x-spineDrag.start.x,
+                                               spineDrag.offset.y+local.y-spineDrag.start.y))
+            return
+        }
         if let gangDrag {
             let scale = pointsPerMM*(enclosingScrollView?.magnification ?? 1)
             let q = event.locationInWindow
@@ -371,14 +399,15 @@ final class SheetCanvasView: NSView {
         scroll.reflectScrolledClipView(scroll.contentView); dragPoint = now; needsDisplay = true
     }
     override func mouseUp(with event: NSEvent) {
-        if serialDrag != nil || gangDrag != nil { endEdit?() }
-        if dragPoint != nil || serialDrag != nil || gangDrag != nil { NSCursor.pop() }; dragPoint = nil; serialDrag = nil; gangDrag = nil; dragPosition = nil; needsDisplay = true
+        if serialDrag != nil || gangDrag != nil || spineDrag != nil { endEdit?() }
+        if dragPoint != nil || serialDrag != nil || gangDrag != nil || spineDrag != nil { NSCursor.pop() }; spineDrag = nil; dragPoint = nil; serialDrag = nil; gangDrag = nil; dragPosition = nil; needsDisplay = true
     }
     override func keyDown(with event:NSEvent) {
         guard let id = selectedSerial,let position = serialPosition?(id),let delta = SerialInteraction.nudge(event.keyCode,shift:event.modifierFlags.contains(.shift)) else { super.keyDown(with:event); return }
         beginEdit?(); moveSerial?(id,Point(position.x+delta.x,position.y+delta.y)); endEdit?(); needsDisplay = true
     }
     func connectSerialEditing(_ model:Workspace) {
+        moveSpine = { [weak model] in model?.moveSpineBlock($0,to:$1) }
         selectedSerial = model.selectedSerialID
         selectSerial = { [weak model] in model?.selectSerial($0) }
         moveSerial = { [weak model] in model?.moveSerialField($0,to:$1,snap:false) }

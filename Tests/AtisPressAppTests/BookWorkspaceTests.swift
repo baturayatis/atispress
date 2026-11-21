@@ -36,6 +36,96 @@ final class BookWorkspaceTests: XCTestCase {
         workspace.project.settings.signatureSize = .eight
         try await settle(workspace)
     }
+    func testModernCoverSpineBindingImportReplacementRemovalAndRoundTrip() async throws {
+        let folder = try folder()
+        let body = try fixture(folder,"body.pdf",count:10,size:Size(50,70))
+        let cover = try fixture(folder,"spread.pdf",count:1,size:Size(108,70))
+        let replacement = try fixture(folder,"panels.pdf",count:2,size:Size(50,70))
+        let workspace = model()
+        workspace.open(body); try await settle(workspace)
+        workspace.setProductionBinding(.perfectBound)
+        workspace.project.sheet = SheetSpec(preset:.cm50x70)
+        try await settle(workspace)
+        XCTAssertEqual(workspace.spineWidth,0)
+        XCTAssertEqual(workspace.coverSheetTitle(at:0),"Kapak 1")
+        XCTAssertTrue(workspace.canExportNow)
+        XCTAssertEqual(InspectorPanel.montage.groups(for:workspace.project).filter {
+            [.cover,.bookPaper,.spine].contains($0)
+        },[.cover])
+        XCTAssertEqual(ContextControl.cover.title,"Sırt (mm)")
+        XCTAssertTrue(ContextPresentation.controls(.book).contains(.cover))
+
+        let context = ContextBindings(model:workspace)
+        context.spine.wrappedValue = 8
+        XCTAssertEqual(workspace.spineWidth,8)
+        workspace.spineWidth = 7
+        XCTAssertEqual(context.spine.wrappedValue,7)
+        context.spine.wrappedValue = 8
+        workspace.spineContent.mode = .text
+        var block = SpineContent.TextBlock()
+        block.text = "ĞÜÇ İŞ"
+        block.autoFit = true
+        workspace.spineContent.blocks[.middle] = block
+        workspace.beginUndoGroup()
+        workspace.moveSpineBlock(.middle,to:Point(1.2,-2.4))
+        workspace.endUndoGroup()
+        XCTAssertEqual(workspace.spineContent.blocks[.middle]?.x,1)
+        XCTAssertEqual(workspace.spineContent.blocks[.middle]?.y,-2)
+        workspace.undoEdit()
+        XCTAssertEqual(workspace.spineContent.blocks[.middle],block)
+        try await settle(workspace)
+
+        workspace.loadCoverPDF(cover,automatic:true); try await settle(workspace)
+        XCTAssertTrue(workspace.canExportNow,"\(workspace.plan.issues)")
+        XCTAssertEqual(workspace.bookSettings.coverArtwork,.spread)
+        XCTAssertEqual(workspace.pageSourceRecords.map(\.reference.fileName),["body.pdf","spread.pdf"])
+        XCTAssertNil(workspace.plan.sheets.first?.front.slots.first?.spineArtwork)
+        workspace.loadCoverPDF(replacement,automatic:true); try await settle(workspace)
+        XCTAssertEqual(workspace.bookSettings.coverArtwork,.panels)
+        XCTAssertEqual(workspace.pageSourceRecords.map(\.reference.fileName),["body.pdf","panels.pdf"])
+        XCTAssertTrue(workspace.canExportNow,"\(workspace.plan.issues)")
+        XCTAssertNotNil(workspace.plan.sheets.first?.front.slots.first { $0.spineArtwork != nil })
+        let url = folder.appendingPathComponent("spine.atispress")
+        try workspace.saveProject(as:url)
+        let reopened = model()
+        try await reopened.loadProject(at:url); try await settle(reopened)
+        XCTAssertEqual(reopened.plan.sheets,workspace.plan.sheets)
+        XCTAssertEqual(reopened.spineContent,workspace.spineContent)
+        XCTAssertEqual(ContextBindings(model:reopened).spine.wrappedValue,8)
+
+        try await reopened.removePageSource(XCTUnwrap(reopened.bookSettings.coverSourceID))
+        try await settle(reopened)
+        XCTAssertEqual(reopened.pageSourceRecords.map(\.reference.fileName),["body.pdf"])
+        XCTAssertNil(reopened.bookSettings.coverSourceID)
+        XCTAssertEqual(reopened.project.automaticCoverMode,.excluded)
+        XCTAssertTrue(reopened.canExportNow,"\(reopened.plan.issues)")
+        XCTAssertEqual(reopened.plan.sheets.first?.front.slots.compactMap(\.sourcePageNumber),[10,1])
+    }
+
+    func testSchema27MeasuredSpineRetainsCoverModeAndPlan() async throws {
+        let folder = try folder()
+        let pdf = try fixture(folder,"legacy-measured.pdf",count:12,size:Size(50,70))
+        let workspace = model()
+        try await prepare(workspace,pdf,binding:.perfectBound)
+        workspace.bookSettings.leftFlap = 4
+        workspace.bookSettings.coverAllowance = 0.3
+        try await settle(workspace)
+        let file = folder.appendingPathComponent("old.atispress")
+        try workspace.saveProject(as:file)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with:Data(contentsOf:file)) as? [String:Any])
+        json["version"] = 27
+        try JSONSerialization.data(withJSONObject:json).write(to:file)
+        let reopened = model()
+        try await reopened.loadProject(at:file); try await settle(reopened)
+        XCTAssertEqual(reopened.project.coverMode,workspace.project.coverMode)
+        XCTAssertEqual(reopened.plan.sheets,workspace.plan.sheets)
+        XCTAssertEqual(reopened.spineWidth,0.78,accuracy:0.00001)
+        XCTAssertEqual(reopened.spineContent.mode,.empty)
+        XCTAssertFalse(reopened.isModified)
+        try reopened.saveProject()
+        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:file)).version,28)
+    }
+
     func testSchemaTenRoundtripEveryBookSettingAndSharedPlan() async throws {
         let folder = try folder(),pdf = try fixture(folder,"book.pdf",count:20,size:Size(50,70)),workspace = model()
         try await prepare(workspace,pdf,binding:.perfectBound)
@@ -116,7 +206,7 @@ final class BookWorkspaceTests: XCTestCase {
         let before = on.bookInfo?.summary; workspace.bookSettings.coverPaper.microns = 700; try await settle(workspace)
         XCTAssertNotEqual(workspace.currentSheet?.bookInfo?.summary,before)
         workspace.bookSettings.interiorPaper.microns = nil; try await settle(workspace)
-        XCTAssertFalse(workspace.canExportNow); XCTAssertTrue(workspace.currentSheet?.bookInfo?.summary.contains("hesaplanamadı") == true)
+        XCTAssertTrue(workspace.canExportNow); XCTAssertTrue(workspace.currentSheet?.bookInfo?.summary.contains("hesaplanamadı") == true)
     }
     func testNewProjectImport106A5ThenBookletOnManualA4HasNoFoldGutter() async throws {
         let folder = try folder(),pdf = try fixture(folder,"new-A5-106.pdf",count:106,size:.init(148,210))

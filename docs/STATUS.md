@@ -13,6 +13,16 @@
 - İş Şablonu, isteğe bağlı ebat uyarısı ve JSON içe/dışa aktarma.
 - Alt trim ve yatay kesim işareti maşa çizgisinde. Önizleme ve PDF aynı geometriyi kullanır.
 
+## Kapak ve Sırt · şema 28
+
+- Yeni cilt işlerinde kapak seçimi otomatik. Sırt payı, kapak grubu ve üst
+  çubukta ortak alandan düzenlenir. İsteğe bağlı hesap makinesi bu alana yazar.
+- Kapak açılımı ve sırt içeriği, önizleme ile PDF için aynı slotları kullanır.
+  Düz renk ve tek renkli kenarlar vektördür. Değişken kenar için ince örnek
+  şeridi uzatılır. Taşan yazı ve kullanılamayan yazı biçimi çıktıyı durdurur.
+- Eski projelerde kayıtlı kapak modu ve kâğıttan hesaplanan sırt korunur.
+  Kalınlık bilgisi eksikse sırt 0 mm olur ve creep uygulanmadan çıktı alınabilir.
+
 ## Önceki durum
 
 15 Kasım 2026 · Dal: `sayfa-bol` · Proje şeması: **19**.

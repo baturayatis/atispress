@@ -312,7 +312,8 @@ final class AllSheetsDocument: NSView {
         }
     }
     private func headerText(_ location:PreviewSheetLocation,sheet:Sheet) -> String {
-        (["Tabaka \(geometry.firstNumbers[location.sheet]+location.repetition+1) · \(location.side == .front ? "Ön yüz" : "Arka yüz")" + (geometry.backs[location.sheet] ? "" : " · Arka yüz yok")]+sheet.serialRangeLabels+[sheet.front.slots.compactMap(\.rescale).first?.summary].compactMap { $0 }).map(TRFormat.presentation).joined(separator:" · ")
+        let title = model?.coverSheetTitle(at:location.sheet) ?? "Tabaka \(geometry.firstNumbers[location.sheet]+location.repetition+1)"
+        return (["\(title) · \(location.side == .front ? "Ön yüz" : "Arka yüz")" + (geometry.backs[location.sheet] ? "" : " · Arka yüz yok")]+sheet.serialRangeLabels+[sheet.front.slots.compactMap(\.rescale).first?.summary].compactMap { $0 }).map(TRFormat.presentation).joined(separator:" · ")
     }
 
 }

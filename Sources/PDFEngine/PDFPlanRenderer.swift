@@ -38,7 +38,7 @@ public struct PDFRenderOptions: Equatable, Sendable, Codable {
     public func shows(_ kind: MarkKind) -> Bool {
         switch kind {
         case .crop,.sharedCut: return crop
-        case .internalCut: return false
+        case .internalCut,.spineFold: return false
         case .fold: return fold
         case .bleed: return bleed
         case .safeArea: return safeArea
@@ -162,8 +162,12 @@ public enum PDFPlanRenderer {
     /// Context units are sheet millimetres. Only document content and selected plan marks are drawn.
     public static func drawSide(_ side: Side,sheet: Sheet,document: CGPDFDocument,in context: CGContext,
                                 sheetIndex: Int,kind: SideKind,repetition: Int,options: PDFRenderOptions,
-                                overlays: [any PDFSlotOverlay] = [],controlMarks: ExportMarks = .none,tone: ArtworkTone? = nil) throws {
-        let serials: [any PDFSlotOverlay] = [GangSerialOverlay(sheet: sheet)]
+                                overlays: [any PDFSlotOverlay] = [],controlMarks: ExportMarks = .none,tone: ArtworkTone? = nil,
+                                edgeSamples: PDFEdgeSampleCache? = nil) throws {
+        var serials: [any PDFSlotOverlay] = [GangSerialOverlay(sheet: sheet)]
+        if side.slots.contains(where:{ $0.spineArtwork != nil }) {
+            serials.append(PDFSpineOverlay(document:document,samples:edgeSamples ?? PDFEdgeSampleCache(),tone:tone))
+        }
         try drawMirrorBleed(side,document: document,in: context,sheetIndex: sheetIndex,kind: kind,
                             repetition: repetition,overlays: overlays)
         for (index,slot) in side.slots.enumerated() {
@@ -199,7 +203,7 @@ public enum PDFPlanRenderer {
             let color: CGColor
             switch mark.kind {
             case .crop,.sharedCut,.internalCut: color = CGColor(gray: 0,alpha: 1)
-            case .fold,.pageLabel: color = CGColor(red: 0,green: 0.35,blue: 0.85,alpha: 1)
+            case .fold,.spineFold,.pageLabel: color = CGColor(red: 0,green: 0.35,blue: 0.85,alpha: 1)
             case .bleed: color = CGColor(red: 0.9,green: 0.08,blue: 0.1,alpha: 1)
             case .safeArea: color = CGColor(red: 0,green: 0.55,blue: 0.2,alpha: 1)
             case .margin,.gripper: color = CGColor(red: 0.85,green: 0.4,blue: 0,alpha: 1)

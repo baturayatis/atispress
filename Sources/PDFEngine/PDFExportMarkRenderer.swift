@@ -25,7 +25,7 @@ public enum PDFExportMarkRenderer {
         for mark in side.marks {
             let selected: Bool
             switch mark.kind {
-            case .internalCut: selected = true
+            case .internalCut,.spineFold: selected = true
             case .crop: selected = settings.crop || settings.fullCut
             case .sharedCut: selected = sheet.gangLayout == nil ? settings.crop || settings.fullCut : settings.fullCut
             case .fold: selected = settings.fold
@@ -117,7 +117,7 @@ public enum PDFExportMarkRenderer {
         return result
     }
     public static func draw(side: Side,sheet: Sheet,in context: CGContext,settings: ExportMarks,info: String,kind: SideKind = .front) {
-        guard !side.punchMarks.isEmpty || side.marks.contains(where: { $0.kind == .internalCut }) || settings.crop || settings.fold || settings.bleed || settings.safeArea || settings.pageNumbers || settings.sheetInfo || settings.fullCut || settings.colorBar || settings.registrationTargets else { return }
+        guard !side.punchMarks.isEmpty || side.marks.contains(where: { $0.kind == .internalCut || $0.kind == .spineFold }) || settings.crop || settings.fold || settings.bleed || settings.safeArea || settings.pageNumbers || settings.sheetInfo || settings.fullCut || settings.colorBar || settings.registrationTargets else { return }
         context.saveGState(); defer { context.restoreGState() }
         let width = max(0.01,settings.lineWidth.isFinite ? settings.lineWidth : 0.25)/PDFPreviewDrawing.pointsPerMM
         let color = CGColor(colorSpace: CGColorSpaceCreateDeviceCMYK(),components:

@@ -17,6 +17,25 @@ In an environment that prevents nested `sandbox-exec` (including the current
 agent environment), use `swift build --disable-sandbox` and
 `swift test --disable-sandbox`. Xcode can also open `Package.swift` directly.
 
+## Kapak ve Sırt
+
+**Montaj → Kapak ve Sırt** bölümündeki **Sırt payı (mm)** ile üst çubuktaki
+**Sırt (mm)** aynı değeri düzenler. Yeni işte varsayılan 0 mm’dir. Tutkallı,
+dikişli, spiral ve Wire-O işlerinde ilk ve son sayfa kapak olur. Açılım
+**Kapak 1** olarak görünür. Tel dikişte sırt yoktur. Kapak ayrı kâğıda
+basılacaksa **Kapak farklı kâğıda basılacak (ayrı tabaka)** seçeneğini açın.
+
+Tek bir PDF eklerken **Bu PDF kapaktır** seçeneği dosyayı kapak olarak
+bağlar. Tek sayfalı kapak PDF’si hazır açılım olarak kullanılır ve ölçüsü
+kontrol edilir. **Daha fazla** bölümünden kapak yüzlerini, kulakları veya
+tel dikiş kaydırmasını düzenleyin. **Kalınlıktan hesapla…** ile hesaplanan
+sonuç yalnız sırt payına yazılır. Kâğıt kalınlığı girmeden çıktı alınabilir.
+
+Pozitif sırtta CMYK renk, kapak kenarı uzatma veya üç yazı alanı seçilebilir.
+Önizlemede yazıyı sürükleyince konum 1 mm’ye yuvarlanır. Yazı taşarsa
+**Sığdır** düğmesini kullanın veya ölçüleri düzeltin. Proje şeması 28’dir.
+Önceki projeler kayıtlı kapak modunu ve hesaplanan sırt geometrisini korur.
+
 ## Takım Düzeni
 
 Çok sayfalı bir PDF açınca **Takım olarak diz** seçeneği, sayfaları aynı
@@ -149,7 +168,7 @@ kapsamı ve elle kontrol listesi [docs/STATUS.md](docs/STATUS.md) içindedir.
 Bu sürüm **0.5.0 (build 7)**. Sürüm kaynağı
 `packaging/Info.plist`; Hakkında, tanı bilgisi ve güncelleme karşılaştırması
 aynı paket sürümünü kullanır. `swift run` için de 0.5.0 / 7 yedeği bulunur.
-Proje dosyası şeması bağımsızdır ve **26**’dır; eski projeler açılır.
+Proje dosyası şeması bağımsızdır ve **28**’dir; eski projeler açılır.
 
 **macOS 14 veya üzeri** gerekir. Intel ve Apple Silicon Mac’ler aynı universal
 uygulamayı kullanır.

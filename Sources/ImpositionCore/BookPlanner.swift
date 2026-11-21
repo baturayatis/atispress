@@ -5,6 +5,10 @@ public enum BookPlanner {
         Size(2*trim.width+spine+leftFlap+rightFlap,trim.height)
     }
     public static func plan(_ original: Project) -> ImpositionPlan {
+        plan(original, leafBody: nil)
+    }
+
+    static func plan(_ original: Project, leafBody: ImpositionPlan?) -> ImpositionPlan {
         guard let book = original.book else { return ImpositionPlanner.plan(original) }
         var issues: [ValidationIssue] = []
         func issue(_ text: String,_ severity: ValidationIssue.Severity = .error) { issues.append(ValidationIssue(severity,.bookSettings,text)) }
@@ -12,37 +16,36 @@ public enum BookPlanner {
             var legacy = original; legacy.book = nil; legacy.coverMode = .included; legacy.pages = original.bookInteriorPages
             legacy.internalCutJobs = nil
             var fallback = ImpositionPlanner.plan(legacy)
-            fallback.issues.append(ValidationIssue(.error,.bookSettings,"Kâğıt kalınlığı pozitif, paylar ve kulaklar 0–500 mm olmalıdır; geçersiz değerler uygulanmadı.")); return fallback
+            fallback.issues.append(ValidationIssue(.error,.bookSettings,"Sırt payı 0–1.000 mm, kulaklar ve ek paylar 0–500 mm olmalıdır. Sırt içeriğinin ölçülerini ve renk değerlerini kontrol edin.")); return fallback
         }
-        let selection = original.resolvedCoverSelection,domain = original.bookCoverPages
+        let interiorOnly = book.automaticCover == true && original.coverMode == .included
+        let selection = interiorOnly ? CoverSelection() : original.resolvedCoverSelection
+        let domain = original.bookCoverPages
         let isSpread = original.coverMode == .separate && book.coverArtwork == .spread
         let roles = isSpread ? [selection.front,selection.insideFront] : [selection.front,selection.insideFront,selection.insideBack,selection.back]
         if roles.compactMap({ $0 }).contains(where:{ $0<0 }) { issue("Kapak sayfa numaraları pozitif olmalıdır; boş iç yüz için 0 kullanılır.") }
         let chosen = roles.compactMap { $0 }.filter { $0>0 }
-        if selection.front == nil || selection.front == 0 || (!isSpread && (selection.back == nil || selection.back == 0)) { issue("Ön ve arka kapak sayfalarını seçin.") }
+        if !interiorOnly && (selection.front == nil || selection.front == 0 || (!isSpread && (selection.back == nil || selection.back == 0))) { issue("Ön ve arka kapak sayfalarını seçin.") }
         if original.coverMode == .excluded && (selection.insideFront == nil || selection.insideBack == nil) { issue("İç kapak sayfalarını seçin veya Boş seçeneğini kullanın.") }
         if Set(chosen).count != chosen.count { issue("Bir PDF sayfası birden çok kapak yüzüne atanamaz.") }
         if chosen.contains(where: { number in !domain.contains { $0.number==number } }) { issue("Seçilen kapak sayfası etkin kaynakta yok veya baskı seçimine dahil değil.") }
-        if original.coverMode == .included && domain.count<4 { issue("Dahil kapak için PDF’de en az dört kapak yüzü gerekir.") }
+        if !interiorOnly && original.coverMode == .included && domain.count<4 { issue("Dahil kapak için PDF’de en az dört kapak yüzü gerekir.") }
         if original.coverMode == .separate && (book.coverPDFPages.isEmpty || book.coverSourceID == nil) { issue("Ayrı kapak PDF’sini yükleyin.") }
-        var body = original; body.book = nil; body.coverMode = .included; body.pages = original.bookInteriorPages; body.serialFields = []
+        var body = original; body.book = nil; body.coverMode = .included; body.pages = interiorOnly ? original.pages : original.bookInteriorPages; body.serialFields = []
         body.internalCutJobs = nil
-        var result = ImpositionPlanner.plan(body)
-        if body.pages.isEmpty { issue("Kapaklar ayrıldıktan sonra iç sayfa kalmadı.") }
+        let coverOnly = body.pages.isEmpty && book.automaticCover == true && !interiorOnly
+        var result = leafBody ?? (coverOnly ? ImpositionPlan(generatedBleed:original.settings.generatedBleed) : ImpositionPlanner.plan(body))
+        if body.pages.isEmpty && !coverOnly { issue("Kapaklar ayrıldıktan sonra iç sayfa kalmadı.") }
         let trim = body.pages.first?.trimSize ?? domain.first?.trimSize ?? Size(0,0)
         guard trim.width>0,trim.height>0 else {
             result.issues += issues; return result
         }
         let pageCount = body.pages.count+result.addedBlankPages
-        let spine: Double?
-        if original.binding == .perfectBound {
-            if let caliper = book.interiorPaper.millimetres {
-                spine = MeasuredSpineCalculator(coverAllowance:book.coverAllowance,adhesiveAllowance:book.adhesiveAllowance).thickness(pageCount:pageCount,stockCaliper:caliper)
-            } else { spine = nil; issue("Sırt hesabı için iç kâğıt kalınlığını girin (µm veya gramaj × cilt katsayısı).") }
-        } else { spine = 0 }
-        let spread = spreadSize(trim:trim,spine:spine ?? 0,leftFlap:original.binding == .perfectBound ? book.leftFlap : 0,rightFlap:original.binding == .perfectBound ? book.rightFlap : 0)
+        let spine: Double? = book.spine(for: original.binding, pageCount: pageCount)
+        let hasFlaps = original.binding == .perfectBound || (book.automaticCover == true && original.binding != .saddleStitch)
+        let spread = spreadSize(trim:trim,spine:spine ?? 0,leftFlap:hasFlaps ? book.leftFlap : 0,rightFlap:hasFlaps ? book.rightFlap : 0)
         var maximumCreep = 0.0
-        if book.creepEnabled {
+        if book.creepEnabled && (original.binding == .saddleStitch || book.automaticCover != true) {
             if original.binding != .saddleStitch { issue("Creep yalnız tel dikişte uygulanır; bu ciltleme için kapatın.") }
             else if let inside = book.interiorPaper.millimetres,let cover = book.coverPaper.millimetres {
                 let leaves = max(1,(pageCount+3)/4)
@@ -64,12 +67,12 @@ public enum BookPlanner {
                         result.sheets[index].back = shifted(result.sheets[index].back)
                     }
                 }
-            } else { issue("Creep için iç ve kapak kâğıdı kalınlıklarını girin; kalınlık tahmin edilmez.") }
+            } else { issue("Creep uygulanmadı. Uygulamak için iç ve kapak kâğıdı kalınlıklarını girin.", .warning) }
         }
         var info = BookSheetInfo(section:.interior,interiorPageCount:pageCount,spine:spine,spreadSize:spread,interiorPaper:book.interiorPaper,coverPaper:book.coverPaper,maximumCreep:maximumCreep)
         info.bleed = original.settings.bleed; info.bleedClippedToSheet = original.clipsArtworkToSheet
         info.creepEnabled = book.creepEnabled; info.coverAllowance = book.coverAllowance; info.adhesiveAllowance = book.adhesiveAllowance
-        info.leftFlap = original.binding == .perfectBound ? book.leftFlap : 0; info.rightFlap = original.binding == .perfectBound ? book.rightFlap : 0
+        info.leftFlap = hasFlaps ? book.leftFlap : 0; info.rightFlap = hasFlaps ? book.rightFlap : 0
         for i in result.sheets.indices { result.sheets[i].bookInfo = info }
         for i in result.diagnosticSheets.indices { result.diagnosticSheets[i].bookInfo = info }
         func page(_ number: Int?) -> SourcePage? { number.flatMap { n in domain.first { $0.number==n } } }
@@ -88,7 +91,12 @@ public enum BookPlanner {
             }
         } else if spine != nil {
             for p in [front,insideFront].compactMap({ $0 }) where abs(p.trimSize.width-spread.width)>0.1 || abs(p.trimSize.height-spread.height)>0.1 {
-                issue(String(format:"Kapak PDF sayfa %d: %.2f×%.2f mm; hesaplanan açılım %.2f×%.2f mm (sırt %.3f mm). Ölçek değiştirilmez; hesaplanan açılımda kırpılır.",p.number,p.trimSize.width,p.trimSize.height,spread.width,spread.height,spine ?? 0),.warning)
+                let detail = book.automaticCover == true
+                    ? "Sırt payını veya kapak PDF’sini düzeltin."
+                    : "Ölçek değiştirilmez; hesaplanan açılımda kırpılır."
+                issue(String(format:"Kapak PDF sayfa %d: %.2f×%.2f mm; hesaplanan açılım %.2f×%.2f mm (sırt %.3f mm). %@",
+                             p.number,p.trimSize.width,p.trimSize.height,spread.width,spread.height,spine ?? 0,detail),
+                      book.automaticCover == true ? .error : .warning)
             }
         }
         if let first = front {
@@ -102,9 +110,18 @@ public enum BookPlanner {
             // Cover folds are contiguous: body signature gutter never opens a gap in the spine.
             template.sheet.gutter = 0
             template.internalCutJobs = nil
+            let spineMarks = !isSpread && (spine ?? 0)>0 && book.spineContent?.foldMarks == true
+            if spineMarks {
+                template.exportMarks.fold = true
+                let room = max(3,original.settings.cropMarkLength)+max(0.5,original.settings.cropMarkOffset)+0.2
+                template.sheet.margins.top += room
+                template.sheet.margins.bottom += room
+                template.sheet.margins.left += room
+                template.sheet.margins.right += room
+            }
             let imposed = ImpositionPlanner.plan(template)
             var coverInfo = info; coverInfo.section = .cover
-            let leftFlap = original.binding == .perfectBound ? book.leftFlap : 0,rightFlap = original.binding == .perfectBound ? book.rightFlap : 0
+            let leftFlap = hasFlaps ? book.leftFlap : 0,rightFlap = hasFlaps ? book.rightFlap : 0
             func pieces(inside: Bool) -> [Slot] {
                 var output: [Slot] = []
                 func add(_ p: SourcePage?,_ x: Double,_ width: Double,_ label: String) {
@@ -124,6 +141,9 @@ public enum BookPlanner {
                     add(nil,0,l,"Kulak")
                     add(inside ? insideFront : back,l,trim.width,inside ? "İç ön" : "Arka kapak")
                     add(nil,l+trim.width,spine ?? 0,"Sırt")
+                    if !inside, (spine ?? 0)>0, let content = book.spineContent, content.mode != .empty {
+                        output[output.count-1].spineArtwork = SpineArtwork(content:content, backPage:back?.number, frontPage:front?.number)
+                    }
                     add(inside ? insideBack : front,l+trim.width+(spine ?? 0),trim.width,inside ? "İç arka" : "Ön kapak")
                     add(nil,l+2*trim.width+(spine ?? 0),r,"Kulak")
                 }
@@ -170,6 +190,16 @@ public enum BookPlanner {
                     }
                     let l = inside ? rightFlap : leftFlap
                     for x in Set([l,l+trim.width,l+trim.width+(spine ?? 0),spread.width-(inside ? leftFlap : rightFlap)]).sorted() where x>0 && x<spread.width {
+                        if !isSpread && (spineMarks || book.automaticCover == true) && x >= l+trim.width && x <= l+trim.width+(spine ?? 0) {
+                            if spineMarks {
+                                let offset = original.settings.bleed+max(0.5,original.settings.cropMarkOffset)
+                                let length = max(3,original.settings.cropMarkLength)
+                                for (a,b) in [(-offset-length,-offset),(spread.height+offset,spread.height+offset+length)] {
+                                    output.marks.append(Mark(kind:.spineFold,start:transformed(Point(x,a),by:whole),end:transformed(Point(x,b),by:whole)))
+                                }
+                            }
+                            continue
+                        }
                         output.marks.append(Mark(kind:.fold,start:transformed(Point(x,0),by:whole),end:transformed(Point(x,spread.height),by:whole)))
                     }
                 }
@@ -187,6 +217,7 @@ public enum BookPlanner {
                 result.sheets.append(sheet)
             }
             for var sheet in imposed.diagnosticSheets {
+                if book.automaticCover == true { sheet.front = assembled(sheet.front); sheet.back = assembled(sheet.back) }
                 sheet.bookInfo = coverInfo; result.diagnosticSheets.append(sheet)
             }
             for var i in imposed.issues {

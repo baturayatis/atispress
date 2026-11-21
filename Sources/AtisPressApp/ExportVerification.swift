@@ -37,7 +37,7 @@ struct ExportVerification:Sendable {
                     guard let consumer = CGDataConsumer(data:data),let context = CGContext(consumer:consumer,mediaBox:&media,nil) else { throw PDFExportError.cannotCreatePDF }
                     context.beginPDFPage(nil); context.scaleBy(x:72/25.4,y:72/25.4)
                     let generated:[any PDFSlotOverlay] = plan.generatedBleed.enabled || !sheet.generatedBleedByJob.isEmpty ? [GeneratedBleedOverlay(settings:plan.generatedBleed,cache:source.edgeSamples,jobSettings:sheet.generatedBleedByJob)] : []
-                    try PDFPlanRenderer.drawSide(side,sheet:sheet,document:sourceDoc,in:context,sheetIndex:sheetIndex,kind:kind,repetition:repetition,options:.artworkOnly,overlays:generated,tone:plan.tone)
+                    try PDFPlanRenderer.drawSide(side,sheet:sheet,document:sourceDoc,in:context,sheetIndex:sheetIndex,kind:kind,repetition:repetition,options:.artworkOnly,overlays:generated,tone:plan.tone,edgeSamples:source.edgeSamples)
                     PDFExportMarkRenderer.draw(side:side,sheet:sheet,in:context,settings:marks,info:"",kind:kind)
                     context.endPDFPage(); context.closePDF()
                     guard let provider = CGDataProvider(data:data),let expected = CGPDFDocument(provider)?.page(at:1) else { throw PDFExportError.cannotCreatePDF }
@@ -50,7 +50,7 @@ struct ExportVerification:Sendable {
                         return Data(bytes:bitmap.data!,count:width*height*4)
                     }
                     let a = try raster(actual),b = try raster(expected),width = max(1,Int(ceil(sheet.size.width*scale))),height = max(1,Int(ceil(sheet.size.height*scale)))
-                    for (index,slot) in side.slots.enumerated() where slot.sourcePageNumber != nil {
+                    for (index,slot) in side.slots.enumerated() where slot.sourcePageNumber != nil || slot.spineArtwork != nil {
                         let x0 = max(0,Int(ceil((slot.x+0.3)*scale))),x1 = min(width,Int(floor((slot.x+slot.size.width-0.3)*scale)))
                         let y0 = max(0,Int(ceil((slot.y+0.3)*scale))),y1 = min(height,Int(floor((slot.y+slot.size.height-0.3)*scale)))
                         guard x0 < x1,y0 < y1 else { continue }

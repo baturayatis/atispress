@@ -138,10 +138,10 @@ enum InspectorGroup: String, Identifiable, Hashable {
         case .placement: return "Yerleşim ve çevirme"
         case .jobFaces: return "İşe özel yüz eşlemesi"
         case .binding: return "Cilt"
-        case .cover: return "Kapak"
+        case .cover: return "Kapak ve Sırt"
         case .bookPaper: return "Cilt kâğıdı"
         case .spine: return "Sırt ve creep"
-        case .blanks: return "Boş sayfalar"
+        case .blanks: return "Sayfa düzeni"
         case .edges: return "Kenar payları ve maşa"
         case .bleed: return "Taşma payı"
         case .generatedBleed: return "Üretilmiş taşma"
@@ -268,7 +268,7 @@ extension InspectorPanel {
             if project.isLeafBinding { return [.placement, .binding, .cover] }
             if project.isBooklet {
                 let signature: [InspectorGroup] = project.binding == .saddleStitch ? [] : [.binding]
-                return [.placement] + signature + [.cover, .bookPaper, .spine, .blanks]
+                return [.placement] + signature + [.cover, .blanks]
             }
             if project.binding == .stepAndRepeat { return [.products, .placement, .jobFaces] }
             return [.products, .placement]
@@ -284,6 +284,6 @@ extension InspectorPanel {
     }
 
     func initiallyExpanded(_ group: InspectorGroup, for project: Project) -> Bool {
-        groups(for: project).first == group || group == .bleed
+        groups(for: project).first == group || group == .bleed || group == .cover
     }
 }

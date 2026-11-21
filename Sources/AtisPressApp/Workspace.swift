@@ -770,6 +770,11 @@ final class Workspace: ObservableObject {
             var next = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             guard !Task.isCancelled, revision == token else { return }
             next.tone = project.settings.tone
+            let spineIssues = PDFSpine.issues(in:next)
+            if !spineIssues.isEmpty {
+                next.issues += spineIssues
+                next.refreshWarningSummary(project:snapshot)
+            }
             plan = retainingMachinePreview(next, input: snapshot); planning = false
             inspectBindingStrips()
             if normalizeSerials { normalizeSerialDigits() }
@@ -1551,36 +1556,77 @@ extension Workspace {
         guard source != nil,!loading,!exporting,(project.isBooklet || project.isLeafBinding) else { return }
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.pdf]; panel.allowsMultipleSelection = false
         panel.title = "Ayrı kapak PDF’sini seçin"; panel.prompt = "Kapak yükle"
-        panel.begin { [weak self] response in if response == .OK,let url = panel.url { self?.loadCoverPDF(url) } }
+        panel.begin { [weak self] response in if response == .OK,let url = panel.url { self?.loadCoverPDF(url, automatic:true) } }
     }
-    func loadCoverPDF(_ url: URL) {
-        guard let current = source,!loading,!exporting,(project.isBooklet || project.isLeafBinding) else { return }
+    func loadCoverPDF(_ url: URL, automatic: Bool = false) {
+        guard let current = source,canEditPageList,project.sourcePreparation?.hasPreparedProducts != true,
+              (project.isBooklet || project.isLeafBinding) else { return }
         loading = true; error = nil; pdfLoadFailure=nil
         importTask = Task {
             do {
+                let reference = try capturePageSource(url)
                 let cover = try await openPagePDF(url)
                 var assets = gangAssets
                 if assets.isEmpty {
                     let reference = try ProjectSource.capture(current.url,createBookmark:bookmarkCreator)
                     assets = [GangAsset(saved:GangSourceReference(id:UUID(),reference:reference,pageCount:current.pages.count),source:current)]
                 }
+                var next = project
+                var book = bookSettings
+                var removed = Set<Int>()
+                if automatic, let old = assets.firstIndex(where:{ $0.saved.id == book.coverSourceID }) {
+                    let previous = assets
+                    assets.remove(at:old)
+                    var items: [PageListItem] = []
+                    for var item in pageListItems {
+                        var offset = 0
+                        for asset in previous {
+                            let end = offset+asset.saved.pageCount
+                            if let page = item.sourcePage, page > offset, page <= end {
+                                item.sourceID = asset.saved.id
+                                item.localPage = page-offset
+                                break
+                            }
+                            offset = end
+                        }
+                        if item.sourceID == book.coverSourceID { removed.insert(item.id) }
+                        else { items.append(item) }
+                    }
+                    next.pageItems = resolveSourceOffsets(items,assets:assets)
+                }
                 let offset = assets.reduce(0) { $0+$1.saved.pageCount },id = UUID()
-                let reference = try ProjectSource.capture(url,createBookmark:bookmarkCreator)
                 assets.append(GangAsset(saved:GangSourceReference(id:id,reference:reference,pageCount:cover.pages.count),source:cover))
                 let combined = try await PDFSource.combine(assets.map(\.source),displayName:"Kitap ve kapak")
                 try Task.checkCancellation()
                 guard project.isBooklet || project.isLeafBinding else { throw CancellationError() }
-                var next = project,book = next.book ?? BookSettings()
                 let addedPages=combined.pages.filter{$0.number>offset}.map(\.sourcePage)
                 let mapping=try next.appendPageListSources(addedPages)
-                book.coverSourceID = id; book.coverPDFPages = addedPages.compactMap{mapping[$0.number]}
-                book.auxiliaryPages = Array(Set(book.auxiliaryPages+book.coverPDFPages)).sorted()
+                if var items = next.pageItems {
+                    for index in items.indices {
+                        guard let page = items[index].sourcePage, mapping[page] == items[index].id else { continue }
+                        items[index].sourceID = id
+                        items[index].localPage = page-offset
+                    }
+                    next.pageItems = items
+                }
+                book.coverSourceID = id
+                book.coverPDFPages = addedPages.compactMap{mapping[$0.number]}
+                book.auxiliaryPages = Set(book.auxiliaryPages+book.coverPDFPages).subtracting(removed).sorted()
                 book.selection = CoverSelection()
+                if automatic {
+                    if book.automaticCover != true {
+                        book.spineWidth = spineWidth
+                        book.automaticCover = true
+                    }
+                    book.coverArtwork = cover.pages.count == 1 ? .spread : .panels
+                }
                 next.book = book; next.coverMode = .separate
-                let selected = included.union(book.coverPDFPages)
-                let newOrder = order+book.coverPDFPages
+                let selected = included.subtracting(removed).union(book.coverPDFPages)
+                let newOrder = order.filter { !removed.contains($0) }+book.coverPDFPages
                 if next.pageItems != nil {next.pages=next.selectedPageList(order:newOrder,included:selected)}
                 else {next.pages = newOrder.filter { selected.contains($0) }.map { combined.pages[$0-1].sourcePage }}
+                beginUndoGroup()
+                defer { endUndoGroup() }
                 gangAssets = assets; source = combined; sourceReference = nil
                 order = newOrder; included = selected; selectedPages = []
                 project = next; sheetIndex = 0; repetition = 0; schedulePlan(); recordRecentFile(url)
@@ -1977,7 +2023,7 @@ extension Workspace {
             else { project.stepAndRepeat.quantity = newValue }
         }
     }
-    func setProductKind(_ kind:ProductKind) { ui.setProduct(kind,for:projectIdentifier); setMode(kind.binding) }
+    func setProductKind(_ kind:ProductKind) { ui.setProduct(kind,for:projectIdentifier); setProductionBinding(kind.binding) }
     func inspectorSection(for issue:ValidationIssue) -> InspectorSection {
         switch issue.code {
         case .missingBleed,.sharedCutBleed,.insufficientGutter: return .marks
@@ -2185,7 +2231,7 @@ extension Workspace {
     var previewSheetPosition:String {
         let geometry = previewGeometry
         guard geometry.heights.indices.contains(sheetIndex) else { return "Tabaka 0 / 0" }
-        return "Tabaka \(geometry.firstNumbers[sheetIndex]+repetition+1) / \(geometry.repetitions.reduce(0,+))"
+        return coverSheetTitle(at:sheetIndex) ?? "Tabaka \(geometry.firstNumbers[sheetIndex]+repetition+1) / \(geometry.repetitions.reduce(0,+))"
     }
 }
 

@@ -42,13 +42,13 @@ import ImpositionCore
         Binding(get:{model.repeatArrangement},set:{value in edit {model.setRepeatArrangement(value)}})
     }
     var binding:Binding<BindingMethod> {
-        Binding(get:{model.project.binding},set:{value in edit {model.setMode(value)}})
+        Binding(get:{model.project.binding},set:{value in edit {model.setProductionBinding(value)}})
     }
     var signature:Binding<SignatureSize> {
         Binding(get:{model.project.settings.signatureSize},set:{value in edit {model.project.settings.signatureSize=value}})
     }
-    var cover:Binding<CoverMode> {
-        Binding(get:{model.project.coverMode},set:{value in edit {model.setCoverMode(value)}})
+    var spine: Binding<Double> {
+        Binding(get:{model.spineWidth},set:{value in edit {model.spineWidth = value}})
     }
     func serial<Value>(_ id:UUID,_ path:WritableKeyPath<SerialField,Value>,fallback:Value) -> Binding<Value> {
         Binding(get:{model.editableSerialFields.first{$0.id==id}?[keyPath:path] ?? fallback},set:{value in
@@ -76,7 +76,7 @@ enum ContextControl:String,Identifiable {
         case .arrangement:return "Dizilim"
         case .binding:return "Cilt yöntemi"
         case .signature:return "Forma"
-        case .cover:return "Kapak modu"
+        case .cover:return "Sırt (mm)"
         case .field:return "Alan"
         case .kind:return "Tür"
         case .font:return "Yazı tipi"
@@ -102,7 +102,7 @@ enum ContextControl:String,Identifiable {
         case .crop:return 200
         case .binding:return 265
         case .signature:return 210
-        case .cover:return 240
+        case .cover:return 205
         case .font:return 265
         case .field:return 210
         case .kind:return 200
@@ -123,7 +123,7 @@ enum ContextPresentation {
     static func controls(_ kind:ContextKind) -> [ContextControl] {
         switch kind {
         case .flat:return [.sheet,.orientation,.production,.quantity,.bleed,.crop]
-        case .book:return [.binding,.signature,.cover,.sheet,.orientation,.production,.bleed]
+        case .book:return [.binding,.cover,.signature,.sheet,.orientation,.production,.bleed]
         case .serial:return [.field,.kind,.font,.size,.color,.x,.y,.rotation,.center]
         case .job:return [.quantity,.waste,.dimensions]
         case .split:return [.split]
@@ -161,6 +161,10 @@ struct ContextBar:View {
     private var values:ContextBindings {ContextBindings(model:model)}
     private var controls:[ContextControl] {
         var result=ContextPresentation.controls(ContextPresentation.kind(model))
+        if ContextPresentation.kind(model) == .job && model.project.binding != .saddleStitch && (model.project.isBooklet || model.project.isLeafBinding) {
+            result.insert(.cover,at:0)
+        }
+        if ContextPresentation.kind(model) == .book && model.project.binding == .saddleStitch {result.removeAll{$0 == .cover}}
         if ContextPresentation.kind(model) == .book && model.project.isLeafBinding {result.removeAll{$0 == .signature}}
         if let selected=model.editableSerialFields.first(where:{$0.id==model.selectedSerialID}),selected.kind != .text,!selected.codeSettings.humanReadable {result.removeAll{$0 == .font}}
         return result
@@ -252,7 +256,7 @@ struct ContextBar:View {
                 Text("16 sayfa").tag(SignatureSize.sixteen);Text("32 sayfa").tag(SignatureSize.thirtyTwo)
             }.labelsHidden()
         case .cover:
-            Picker("Kapak modu",selection:values.cover) {Text("Dahil").tag(CoverMode.included);Text("Ayrı bas").tag(CoverMode.excluded);Text("Ayrı PDF").tag(CoverMode.separate)}.labelsHidden()
+            DimensionInput("Sırt (mm)",value:values.spine,unit:"",range:0...1000)
         case .waste:TextField("Fire (%)",value:values.waste,format:.number.locale(TRFormat.locale)).textFieldStyle(.roundedBorder)
         case .dimensions:
             Button("Ebadı değiştir…") {model.openScaleWindow()}.disabled(model.scalingRows.isEmpty)

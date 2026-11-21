@@ -92,6 +92,18 @@ extension Workspace {
         items=resolveSourceOffsets(items,assets:assets)
         let ids=Set(items.map(\.id)),combined=try await PDFSource.combine(assets.map(\.source))
         var next=project;next.pageItems=items
+        if var book = next.book {
+            book.auxiliaryPages = book.auxiliaryPages.filter { ids.contains($0) }
+            if book.coverSourceID == id {
+                book.coverSourceID = nil
+                book.coverPDFPages = []
+                book.coverArtwork = .panels
+                book.selection = CoverSelection()
+                book.automaticCover = true
+            }
+            next.book = book
+            next.coverMode = next.automaticCoverMode
+        }
         commitPagePDFInsertion(next,assets:assets,combined:combined,order:order.filter{ids.contains($0)},included:included.intersection(ids),selection:[])
     }
 }

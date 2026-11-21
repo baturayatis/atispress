@@ -5,7 +5,7 @@ extension Sheet {
     public func hasContent(on kind: SideKind) -> Bool {
         if kind == .back && requiresDuplexBack { return true }
         let face = kind == .front ? front : back
-        if face.slots.contains(where: { $0.sourcePageNumber != nil || $0.insertedBlank }) { return true }
+        if face.slots.contains(where: { $0.sourcePageNumber != nil || $0.insertedBlank || $0.spineArtwork != nil }) { return true }
         return !serialPlacements(side: face,kind: kind,repetition: 0).isEmpty
     }
 }

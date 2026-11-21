@@ -112,7 +112,7 @@ struct WorkspaceView: View {
                                 Text("Tabaka \(index+1) · \(layout.copiesPerSheet) adet").fontWeight(.semibold)
                                 Text("\(sheet.hasContent(on:.back) ? "ön ve arka" : "tek yüz") · \(layout.columns)×\(layout.rows)").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
                             } else {
-                                Text("\(sheet.leafInfo == nil ? (sheet.bookInfo?.label ?? "Tabaka") : (sheet.leafInfo!.cover ? "Kapak" : "Yaprak tabakası")) \(index+1)").fontWeight(.medium)
+                                Text(model.coverSheetTitle(at:index) ?? "\(sheet.leafInfo == nil ? (sheet.bookInfo?.label ?? "Tabaka") : "Yaprak tabakası") \(index+1)").fontWeight(.medium)
                                 if let leaf = sheet.leafInfo { Text(TRFormat.presentation(leaf.summary)).font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1) }
                                 else {
                                     Text("\(TRFormat.dimension(sheet.size.width)) × \(TRFormat.dimension(sheet.size.height)) mm · \(sheet.bookInfo?.section == .cover ? "Kapak" : "Forma "+signatures)")

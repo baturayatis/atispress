@@ -44,7 +44,7 @@ public enum PDFExporter {
     }
     public static func export(plan: ImpositionPlan,source: PDFSource,destination: PDFExportDestination,
                               marks: ExportMarks = ExportMarks(),jobName: String = "",sheetInfo: SheetInfoSettings = SheetInfoSettings(),production: ProductionType = .digital,includeBlankBacks: Bool = true,overlays: [any PDFSlotOverlay] = []) throws -> PDFExportResult {
-        guard plan.canExport, plan.diagnosticSheets.isEmpty, plan.generatedBleed.isValid, !plan.sheets.isEmpty else { throw PDFExportError.invalidPlan }
+        guard plan.canExport, PDFSpine.issues(in:plan).isEmpty, plan.diagnosticSheets.isEmpty, plan.generatedBleed.isValid, !plan.sheets.isEmpty else { throw PDFExportError.invalidPlan }
         for sheet in plan.sheets { try validate(sheet) }
         let date = Date()
         let dateLabel = marks.sheetInfo && sheetInfo.date ? PDFSheetInfoContext.formattedDate(date) : ""
@@ -65,7 +65,7 @@ public enum PDFExporter {
             sheetCount += sheet.repeatCount
             omittedBacks = omittedBacks || !hasBack
             for warning in PDFColorControlRenderer.geometry(sheet: sheet,settings: marks).warnings where !notes.contains(warning) { notes.append(warning) }
-            for side in [sheet.front] + (faces == 2 ? [sheet.back] : []) where side.marks.contains(where: { $0.kind == .internalCut }) {
+            for side in [sheet.front] + (faces == 2 ? [sheet.back] : []) where side.marks.contains(where: { $0.kind == .internalCut || $0.kind == .spineFold }) {
                 let warnings = PDFExportMarkRenderer.geometry(side: side, sheet: sheet, settings: internalCutOnly).warnings
                 for warning in warnings where !notes.contains(warning) { notes.append(warning) }
             }
@@ -132,13 +132,13 @@ public enum PDFExporter {
         }
         switch destination {
         case .singlePDF:
-            try write(stagedFile(0),document: document,plan: plan,marks: marks,jobName: jobName,sheetInfo: sheetInfo,production: production,date: date,dateLabel: dateLabel,keepBlankBacks: keepBlankBacks,overlays: effectiveOverlays,only: nil)
+            try write(stagedFile(0),document: document,edgeSamples: source.edgeSamples,plan: plan,marks: marks,jobName: jobName,sheetInfo: sheetInfo,production: production,date: date,dateLabel: dateLabel,keepBlankBacks: keepBlankBacks,overlays: effectiveOverlays,only: nil)
         case .perSheet:
             var physical = 0
             for (index,sheet) in plan.sheets.enumerated() {
                 for repetition in 0..<sheet.repeatCount {
                     try Task.checkCancellation()
-                    try write(stagedFile(physical),document: document,plan: plan,marks: marks,jobName: jobName,sheetInfo: sheetInfo,production: production,date: date,dateLabel: dateLabel,keepBlankBacks: keepBlankBacks,overlays: effectiveOverlays,only: (index,repetition))
+                    try write(stagedFile(physical),document: document,edgeSamples: source.edgeSamples,plan: plan,marks: marks,jobName: jobName,sheetInfo: sheetInfo,production: production,date: date,dateLabel: dateLabel,keepBlankBacks: keepBlankBacks,overlays: effectiveOverlays,only: (index,repetition))
                     physical += 1
                 }
             }
@@ -161,7 +161,7 @@ public enum PDFExporter {
         }
         return PDFExportResult(files: published,pageCount: pageCount,sheetCount: sheetCount,notes: notes + (omittedBacks ? ["Arka yüz boş: çıktıya eklenmedi."] : []))
     }
-    private static func write(_ url: URL,document: CGPDFDocument,plan: ImpositionPlan,marks: ExportMarks,jobName: String,sheetInfo: SheetInfoSettings,production: ProductionType,date: Date,dateLabel: String,keepBlankBacks: Bool,
+    private static func write(_ url: URL,document: CGPDFDocument,edgeSamples: PDFEdgeSampleCache,plan: ImpositionPlan,marks: ExportMarks,jobName: String,sheetInfo: SheetInfoSettings,production: ProductionType,date: Date,dateLabel: String,keepBlankBacks: Bool,
                               overlays: [any PDFSlotOverlay],only: (Int,Int)?) throws {
         guard let consumer = CGDataConsumer(url: url as CFURL),
               let context = CGContext(consumer: consumer,mediaBox: nil,[kCGPDFContextCreator:"AtışPress"] as CFDictionary) else {
@@ -187,7 +187,7 @@ public enum PDFExporter {
                         context.scaleBy(x: PDFPreviewDrawing.pointsPerMM,y: PDFPreviewDrawing.pointsPerMM)
                         context.clip(to: CGRect(x: 0,y: 0,width: sheet.size.width,height: sheet.size.height))
                         try PDFPlanRenderer.drawSide(side,sheet: sheet,document: document,in: context,sheetIndex: index,
-                                                     kind: kind,repetition: repetition,options: .artworkOnly,overlays: overlays,tone: plan.tone)
+                                                     kind: kind,repetition: repetition,options: .artworkOnly,overlays: overlays,tone: plan.tone,edgeSamples: edgeSamples)
                         let info = marks.sheetInfo ? PDFSheetInfoContext(jobName: sheet.gangJobNames ?? jobName,date: date,
                             sheetNumber: firstPhysical+repetition,
                             totalSheets: totalSheets,side: kind,production: production).text(settings: sheetInfo,sheet: sheet,dateLabel: dateLabel) : ""

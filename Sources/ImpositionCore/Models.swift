@@ -318,6 +318,7 @@ public struct Slot: Equatable, Sendable {
     public var artworkOffset = Point(0,0)
     public var bookLeafIndex: Int? = nil
     public var bookPanelIsLeft: Bool? = nil
+    public var spineArtwork: SpineArtwork? = nil
     public var bookRegion: String? = nil
     public var gangJobID: UUID? = nil
     public var gangBlockID: UUID? = nil
@@ -347,7 +348,7 @@ public struct Slot: Equatable, Sendable {
     public var x: Double { origin.x }
     public var y: Double { origin.y }
 }
-public enum MarkKind: Sendable { case crop, fold, bleed, safeArea, pageLabel, margin, gripper, sharedCut, internalCut }
+public enum MarkKind: Sendable { case crop, fold, bleed, safeArea, pageLabel, margin, gripper, sharedCut, internalCut, spineFold }
 public struct Mark: Equatable, Sendable {
     public var kind: MarkKind
     public var start: Point
