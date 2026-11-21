@@ -28,12 +28,14 @@ public struct SpineContent: Codable, Equatable, Sendable {
     public var blocks: [Position:TextBlock] = [:]
     public init() {}
 
-    public var isValid: Bool {
-        func validColor(_ color: BleedColor) -> Bool {
-            guard case .cmyk = color else { return false }
+    public var isValid: Bool { isValid(allowRGB:false) }
+
+    func isValid(allowRGB: Bool) -> Bool {
+        func validColor(_ color: BleedColor, rgb: Bool = false) -> Bool {
+            guard rgb || color.components.count == 4 else { return false }
             return color.components.allSatisfy { (0...1).contains($0) }
         }
-        return validColor(color) && blocks.values.allSatisfy {
+        return validColor(color,rgb:allowRGB) && blocks.values.allSatisfy {
             validColor($0.color) && (0.01...1000).contains($0.size) &&
                 abs($0.x) <= 10_000 && abs($0.y) <= 10_000
         }
@@ -45,6 +47,24 @@ public struct SpineArtwork: Equatable, Sendable {
     public var backPage: Int?
     public var frontPage: Int?
     public var vectorExtension = false
+    public var logo: SpineLogo?
+}
+
+public struct SpineLogo: Codable, Equatable, Sendable {
+    public enum Format: String, Codable, Sendable { case pdf, png, convertedSVG }
+    public let id: UUID
+    public let name: String
+    public let format: Format
+    public let data: Data
+    public var width: Double
+    public var rotation = 0.0
+    public var x = 0.0
+    public var y = 0.0
+
+    public init(name: String, format: Format, data: Data, width: Double) {
+        self.id = UUID()
+        self.name = name; self.format = format; self.data = data; self.width = width
+    }
 }
 
 public struct SpineCalculation {

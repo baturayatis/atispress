@@ -49,7 +49,7 @@ final class BookWorkspaceTests: XCTestCase {
         let url = folder.appendingPathComponent("cover.atispress")
         try workspace.saveProject(as:url)
         var old = try XCTUnwrap(JSONSerialization.jsonObject(with:Data(contentsOf:url)) as? [String:Any])
-        old["version"] = 28
+        old["version"] = 29
         try JSONSerialization.data(withJSONObject:old).write(to:url)
         let suite = "atispress-cover-preparation-"+UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName:suite))
@@ -68,6 +68,25 @@ final class BookWorkspaceTests: XCTestCase {
         reopened.coverPreparation.spineWidth = 6
         reopened.coverPreparation.colorMode = .manual
         reopened.coverPreparation.color = .cmyk(0,0.3,0.8,0.1)
+        reopened.coverPreparation.colorMode = .picked
+        reopened.coverPreparation.pickedColor = .rgb(0.15,0.25,0.4)
+        var text = SpineContent.TextBlock()
+        text.text = "İğne ve Çığ"
+        text.autoFit = true
+        reopened.coverPreparation.spineText = [.top:text]
+        let logoFile = try fixture(folder,"logo.pdf",count:1,size:Size(10,10))
+        reopened.coverPreparation.spineLogo = try XCTUnwrap(PDFSpine.makeLogo(name:"logo.pdf",format:.pdf,
+            data:Data(contentsOf:logoFile),in:CGRect(x:0,y:0,width:6,height:70)))
+        reopened.beginUndoGroup()
+        reopened.movePreparedSpine(nil,to:Point(0.2,5.8))
+        reopened.movePreparedSpine(.top,to:Point(0.2,-1.3))
+        reopened.endUndoGroup()
+        XCTAssertEqual(reopened.coverPreparation.spineLogo?.y,6)
+        XCTAssertEqual(reopened.coverPreparation.spineText?[.top]?.y,-1)
+        reopened.undoEdit()
+        try await settle(reopened)
+        XCTAssertEqual(reopened.coverPreparation.spineLogo?.y,0)
+        XCTAssertEqual(reopened.coverPreparation.spineText?[.top]?.y,0)
         reopened.coverPreparation.bleed = 1
         reopened.coverPreparation.crop = false
         reopened.coverSheetSpec = SheetSpec(size:Size(240,170),gripperWidth:8,gutter:5,orientation:.landscape)
@@ -86,7 +105,7 @@ final class BookWorkspaceTests: XCTestCase {
         XCTAssertEqual(loaded.coverPreparationPlan(.spread).sheets,reopened.coverPreparationPlan(.spread).sheets)
         XCTAssertEqual(loaded.coverPreparationPlan(.sheet).sheets,reopened.coverPreparationPlan(.sheet).sheets)
         XCTAssertEqual(loaded.plan.sheets,interior)
-        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:url)).version,29)
+        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:url)).version,ProjectDocument.currentVersion)
     }
 
     func testModernCoverSpineBindingImportReplacementRemovalAndRoundTrip() async throws {

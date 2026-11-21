@@ -32,12 +32,11 @@ struct CoverPreparationView: View {
                     Text("Açılım: "+TRFormat.size(size.width,size.height)).monospacedDigit()
                 }
                 if model.coverPreparation.spineWidth > 0 {
-                    Picker("Sırt rengi",selection:$model.coverPreparation.colorMode) {
-                        Text("Otomatik").tag(CoverPreparationSettings.SpineColorMode.automatic)
-                        Text("Elle seç").tag(CoverPreparationSettings.SpineColorMode.manual)
-                    }
-                    if model.coverPreparation.colorMode == .manual {
-                        SpineCMYKPicker(color:$model.coverPreparation.color)
+                    let back = source.pages.first { $0.number == model.coverPreparation.back } ?? source.pages.last
+                    let trim = CGRect(x:0,y:0,width:model.coverPreparation.spineWidth,height:back?.trimSize.height ?? 0)
+                    PreparedSpineEditor(model:model,trim:trim)
+                    if let issue = spread.issues.first(where:{ $0.severity == .error }) {
+                        Text(issue.message).foregroundStyle(DesignSystem.warning)
                     }
                 }
                 Button("Kapak PDF'i oluştur") { model.requestCoverPreparationExport(.spread) }
@@ -190,7 +189,8 @@ struct CoverPreparationPreview: View {
             if let sheet = plan.sheets.first {
                 PreviewCanvas(sheet:sheet,side:sheet.front,sheetIndex:0,sideKind:.front,source:model.source,
                               overlays:.artworkOnly,generatedBleed:plan.generatedBleed,highlighted:[],
-                              zoomAction:model.zoomAction,zoomFactor:model.zoomFactor,controlMarks:marks,forceVectorArtwork:true)
+                              zoomAction:model.zoomAction,zoomFactor:model.zoomFactor,controlMarks:marks,forceVectorArtwork:true,movePreparedSpine:model.movePreparedSpine,
+                              beginEdit:model.beginUndoGroup,endEdit:model.endUndoGroup)
                     .id(output)
             } else {
                 ContentUnavailableView(model.source == nil ? "PDF seçin" : "Kapak önizlemesi oluşturulamadı",

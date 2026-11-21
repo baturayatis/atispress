@@ -235,7 +235,12 @@ final class Workspace: ObservableObject {
             coverPlanCache = (source.id,project,[:])
         }
         if let cached = coverPlanCache?.plans[output] { return cached }
-        let result = CoverPreparationPlanner.plan(project,pages:source.pages.map(\.sourcePage),output:output)
+        var result = CoverPreparationPlanner.plan(project,pages:source.pages.map(\.sourcePage),output:output)
+        result.issues += PDFSpine.issues(in:result)
+        if let warning = PDFSpine.automaticEdgeWarning(in:result,source:source) {
+            result.issues.append(ValidationIssue(.error,.bookSettings,warning))
+        }
+        result.refreshWarningSummary()
         coverPlanCache?.plans[output] = result
         return result
     }

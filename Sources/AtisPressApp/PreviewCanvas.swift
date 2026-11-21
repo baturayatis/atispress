@@ -25,6 +25,7 @@ struct PreviewCanvas: NSViewRepresentable {
     var moveSerial: ((UUID,Point) -> Void)? = nil
     var controlMarks = ExportMarks.none
     var forceVectorArtwork = false
+    var movePreparedSpine: ((SpineContent.Position?,Point) -> Void)? = nil
     var moveGangBlock: ((UUID,Point) -> Void)? = nil
     var beginEdit: (() -> Void)? = nil
     var endEdit: (() -> Void)? = nil
@@ -62,6 +63,7 @@ struct PreviewCanvas: NSViewRepresentable {
         if let zoomModel { canvas.connectSerialEditing(zoomModel) }
         canvas.focusArea = focusArea
         canvas.forceVectorArtwork = forceVectorArtwork
+        canvas.movePreparedSpine = movePreparedSpine
         canvas.repetition = repetition; canvas.selectedSerial = selectedSerial
         canvas.selectSerial = selectSerial; canvas.moveSerial = moveSerial; canvas.moveGangBlock = moveGangBlock; canvas.beginEdit = beginEdit; canvas.endEdit = endEdit
         canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed,controlMarks: controlMarks,bleedAmount:bleedAmount,info:printedInfo,tone:tone)
@@ -112,7 +114,8 @@ final class SheetCanvasView: NSView {
     var moveGangBlock: ((UUID,Point) -> Void)?
     var beginEdit: (() -> Void)?
     var endEdit: (() -> Void)?
-    private var spineDrag: (position: SpineContent.Position, inverse: CGAffineTransform, start: CGPoint, offset: Point)?
+    private var spineDrag: (move: (Point) -> Void, inverse: CGAffineTransform, start: CGPoint, offset: Point)?
+    var movePreparedSpine: ((SpineContent.Position?,Point) -> Void)?
     private var moveSpine: ((SpineContent.Position,Point) -> Void)?
     private var gangDrag: (id: UUID,origin: Point,start: CGPoint,flipX: Bool,flipY: Bool)?
     private var originX: CGFloat = 32
@@ -327,19 +330,35 @@ final class SheetCanvasView: NSView {
         window?.makeFirstResponder(self)
         let viewPoint = convert(event.locationInWindow,from: nil)
         let point = CGPoint(x: (viewPoint.x-originX)/pointsPerMM,y: (viewPoint.y-originY)/pointsPerMM)
-        if moveSpine != nil {
+        if moveSpine != nil || movePreparedSpine != nil {
             for slot in side.slots.reversed() {
-                guard let content = slot.spineArtwork?.content, content.mode == .text else { continue }
+                guard let artwork = slot.spineArtwork,
+                      artwork.content.mode == .text || artwork.vectorExtension else { continue }
                 let inverse = PDFPreviewDrawing.slotTransform(slot).inverted()
                 let local = point.applying(inverse)
-                for position in SpineContent.Position.allCases.reversed() {
-                    guard let block = content.blocks[position], !block.text.isEmpty,
-                          let layout = PDFSpine.layout(block,at:position,in:PDFPreviewDrawing.localTrim(slot)),
-                          layout.bounds.insetBy(dx:-0.75,dy:-0.75).contains(local) else { continue }
+                let trim = PDFPreviewDrawing.localTrim(slot)
+                func startMove(_ x: Double,_ y: Double,_ move: @escaping (Point) -> Void) {
                     beginEdit?()
-                    spineDrag = (position,inverse,local,Point(block.x,block.y))
+                    spineDrag = (move,inverse,local,Point(x,y))
                     NSCursor.closedHand.push()
+                }
+                if let logo = artwork.logo, let movePreparedSpine,
+                   let bounds = PDFSpine.logoBounds(logo,in:trim), bounds.insetBy(dx:-0.75,dy:-0.75).contains(local) {
+                    startMove(logo.x,logo.y) { movePreparedSpine(nil,$0) }
                     return
+                }
+                for position in SpineContent.Position.allCases.reversed() {
+                    guard let block = artwork.content.blocks[position], !block.text.isEmpty,
+                          let layout = PDFSpine.layout(block,at:position,in:trim),
+                          layout.bounds.insetBy(dx:-0.75,dy:-0.75).contains(local) else { continue }
+                    if artwork.vectorExtension, let movePreparedSpine {
+                        startMove(block.x,block.y) { movePreparedSpine(position,$0) }
+                        return
+                    }
+                    if let moveSpine {
+                        startMove(block.x,block.y) { moveSpine(position,$0) }
+                        return
+                    }
                 }
             }
         }
@@ -373,8 +392,8 @@ final class SheetCanvasView: NSView {
         if let spineDrag {
             let p = convert(event.locationInWindow,from:nil)
             let local = CGPoint(x:(p.x-originX)/pointsPerMM,y:(p.y-originY)/pointsPerMM).applying(spineDrag.inverse)
-            moveSpine?(spineDrag.position,Point(spineDrag.offset.x+local.x-spineDrag.start.x,
-                                               spineDrag.offset.y+local.y-spineDrag.start.y))
+            spineDrag.move(Point(spineDrag.offset.x+local.x-spineDrag.start.x,
+                                 spineDrag.offset.y+local.y-spineDrag.start.y))
             return
         }
         if let gangDrag {

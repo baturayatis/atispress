@@ -209,3 +209,121 @@ extension BookExportTests {
         XCTAssertEqual(try Data(contentsOf:url),before)
     }
 }
+
+extension BookExportTests {
+    func testCoverPreparationBlackSpineAndNativeColorExport() async throws {
+        let folder = try folder()
+        let url = folder.appendingPathComponent("black.pdf")
+        var rect = CGRect(x:0,y:0,width:50*unit,height:70*unit)
+        let writer = try XCTUnwrap(CGContext(consumer:XCTUnwrap(CGDataConsumer(url:url as CFURL)),mediaBox:&rect,nil))
+        for black in [CGColor(gray:0,alpha:1),PDFSpine.color(.cmyk(0,0,0,1))] {
+            writer.beginPDFPage(nil)
+            writer.setFillColor(black)
+            writer.fill(rect)
+            writer.endPDFPage()
+        }
+        writer.closePDF()
+        let source = try await PDFSource.open(url)
+        let sourcePages = source.pages.map(\.sourcePage)
+        var project = Project(pages:sourcePages,sheet:SheetSpec(size:Size(180,120)))
+        project.coverPreparation = CoverPreparationSettings()
+        project.coverPreparation?.spineWidth = 10.25
+        project.coverPreparation?.pickedColor = .rgb(0.2,0.45,0.8)
+        for mode in [CoverPreparationSettings.SpineColorMode.automatic,.picked,.manual] {
+            project.coverPreparation?.colorMode = mode
+            project.coverPreparation?.color = .cmyk(0,1,0,0)
+            let plan = CoverPreparationPlanner.plan(project,pages:sourcePages,output:.spread)
+            XCTAssertNil(PDFSpine.automaticEdgeWarning(in:plan,source:source))
+            let out = folder.appendingPathComponent("\(mode).pdf")
+            _ = try PDFExporter.export(plan:plan,source:source,destination:.singlePDF(out),marks:.none)
+            let pdf = try XCTUnwrap(CGPDFDocument(out as CFURL))
+            let page = try XCTUnwrap(pdf.page(at:1))
+            XCTAssertEqual(Self.images(page.dictionary),0)
+            let bitmap = try XCTUnwrap(CGContext(data:nil,width:442,height:280,bitsPerComponent:8,bytesPerRow:0,
+                space:CGColorSpace(name:CGColorSpace.sRGB)!,bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue))
+            bitmap.scaleBy(x:4/unit,y:4/unit)
+            bitmap.drawPDFPage(page)
+            let pixels = try XCTUnwrap(bitmap.data).assumingMemoryBound(to:UInt8.self)
+            func sample(_ column: Int) -> [UInt8] {
+                Array(UnsafeBufferPointer(start:pixels+140*bitmap.bytesPerRow+4*column,count:4))
+            }
+            if mode == .automatic {
+                for x in 195...246 {
+                    let color = sample(x)
+                    XCTAssertEqual(color[3],255,"x=\(x)")
+                    XCTAssertLessThan(max(color[0],color[1],color[2]),45)
+                }
+            } else if mode == .picked {
+                let color = sample(220)
+                XCTAssertEqual(Double(color[0]),51,accuracy:2)
+                XCTAssertEqual(Double(color[1]),115,accuracy:2)
+                XCTAssertEqual(Double(color[2]),204,accuracy:2)
+            } else {
+                let color = sample(220)
+                XCTAssertGreaterThan(color[0],color[1])
+                XCTAssertGreaterThan(color[2],color[1])
+            }
+        }
+    }
+
+    func testCoverPreparationVectorLogoRotationAndTextPreflight() async throws {
+        let folder = try folder()
+        let url = folder.appendingPathComponent("cover.pdf")
+        let logoFile = folder.appendingPathComponent("logo.pdf")
+        try fixture(url,count:3,size:Size(50,70))
+        try fixture(logoFile,count:1,size:Size(30,50),prefix:"LOGO")
+        let source = try await PDFSource.open(url)
+        let pages = source.pages.map(\.sourcePage)
+        let trim = CGRect(x:0,y:0,width:16,height:70)
+        var logo = try XCTUnwrap(PDFSpine.makeLogo(name:"logo.pdf",format:.pdf,data:Data(contentsOf:logoFile),in:trim))
+        logo.width = 6; logo.rotation = 90; logo.x = 1; logo.y = 3
+        let bounds = try XCTUnwrap(PDFSpine.logoBounds(logo,in:trim))
+        XCTAssertEqual(bounds.width,10,accuracy:0.0001)
+        XCTAssertEqual(bounds.height,6,accuracy:0.0001)
+        XCTAssertEqual(bounds.midX,9,accuracy:0.0001)
+        XCTAssertEqual(bounds.midY,38,accuracy:0.0001)
+        var project = Project(pages:pages,sheet:SheetSpec(size:Size(180,125),orientation:.landscape))
+        project.coverPreparation = CoverPreparationSettings()
+        project.coverPreparation?.spineWidth = 16
+        project.coverPreparation?.colorMode = .manual
+        project.coverPreparation?.color = .cmyk(0,0,0,0)
+        project.coverPreparation?.spineLogo = logo
+        var block = SpineContent.TextBlock()
+        block.text = "Çığ İŞ"
+        block.autoFit = true
+        project.coverPreparation?.spineText = [.top:block]
+        for outlines in [true,false] {
+            block.outlines = outlines
+            project.coverPreparation?.spineText = [.top:block]
+            let plan = CoverPreparationPlanner.plan(project,pages:pages,output:.sheet)
+            XCTAssertTrue(PDFSpine.issues(in:plan).isEmpty)
+            let out = folder.appendingPathComponent("logo-\(outlines).pdf")
+            _ = try PDFExporter.export(plan:plan,source:source,destination:.singlePDF(out),marks:.none)
+            let data = try XCTUnwrap(PDFDocument(url:out))
+            XCTAssertTrue(data.string?.contains("LOGO01") == true)
+            XCTAssertFalse(data.string?.contains("SRC02") == true)
+            XCTAssertEqual(data.string?.contains("Çığ"),!outlines)
+            let cg = try XCTUnwrap(CGPDFDocument(out as CFURL))
+            XCTAssertEqual(Self.images(cg.page(at:1)?.dictionary),0)
+        }
+        logo.x = 20
+        project.coverPreparation?.spineLogo = logo
+        let overflow = CoverPreparationPlanner.plan(project,pages:pages,output:.spread)
+        XCTAssertTrue(PDFSpine.issues(in:overflow).contains { $0.message.contains("Logo taşıyor") })
+        XCTAssertThrowsError(try PDFExporter.export(plan:overflow,source:source,
+            destination:.singlePDF(folder.appendingPathComponent("overflow.pdf"))))
+    }
+
+    @MainActor func testCoverPreparationSVGAndPNGLogoImport() async throws {
+        let trim = CGRect(x:0,y:0,width:8,height:70)
+        let svg = Data("""
+        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><path d="M0 0H40V30Z" fill="#292929"/></svg>
+        """.utf8)
+        let imported = try XCTUnwrap(PDFSpine.importSVGLogo(name:"logo.svg",data:svg,in:trim))
+        XCTAssertNil(PDFSpine.logoWarning(imported,in:trim))
+        XCTAssertTrue([SpineLogo.Format.pdf,.convertedSVG].contains(imported.format))
+        let png = try XCTUnwrap(Data(base64Encoded:"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aHAMAAAAASUVORK5CYII="))
+        XCTAssertNotNil(PDFSpine.makeLogo(name:"logo.png",format:.png,data:png,in:trim))
+        XCTAssertNil(PDFSpine.makeLogo(name:"broken.pdf",format:.pdf,data:Data(),in:trim))
+    }
+}

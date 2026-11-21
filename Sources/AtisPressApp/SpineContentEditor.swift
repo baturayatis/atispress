@@ -26,13 +26,23 @@ struct SpineContentEditor: View {
                 Toggle("Kapak kenarından uzat",isOn:$model.spineContent.extendEdges)
                 if !model.spineContent.extendEdges { SpineCMYKPicker(color:$model.spineContent.color) }
             case .text:
-                ForEach(SpineContent.Position.allCases,id:\.self) { position in
-                    SpineBlockEditor(title:title(position),position:position,trim:trim,block:Binding(
-                        get:{ model.spineContent.blocks[position] ?? SpineContent.TextBlock() },
-                        set:{ model.spineContent.blocks[position] = $0 }))
-                }
+                SpineTextBlocksEditor(trim:trim,blocks:$model.spineContent.blocks)
             }
             Toggle("Sırt kenarlarına katlama işareti",isOn:$model.spineContent.foldMarks)
+        }
+    }
+
+}
+
+struct SpineTextBlocksEditor: View {
+    let trim: CGRect?
+    @Binding var blocks: [SpineContent.Position:SpineContent.TextBlock]
+
+    var body: some View {
+        ForEach(SpineContent.Position.allCases,id:\.self) { position in
+            SpineBlockEditor(title:title(position),position:position,trim:trim,block:Binding(
+                get:{ blocks[position] ?? SpineContent.TextBlock() },
+                set:{ blocks[position] = $0 }))
         }
     }
 

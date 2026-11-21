@@ -2,7 +2,7 @@ import Foundation
 import ImpositionCore
 
 enum InspectorPanel: String, CaseIterable, Identifiable, Codable {
-    case job, sheet, montage, dimensions, cut, separation, serial, press, color, price, output, coverPreparation
+    case job, sheet, montage, coverPreparation, dimensions, cut, separation, serial, press, color, price, output
 
     var id: String { rawValue }
 

@@ -33,6 +33,11 @@ final class CoverPreparationTests: XCTestCase {
         let manual = try XCTUnwrap(CoverPreparationPlanner.plan(input,pages:pages,output:.spread).sheets.first)
         XCTAssertEqual(manual.front.slots[1].spineArtwork?.content.color,.cmyk(0.2,0.4,0.6,0.8))
         XCTAssertEqual(manual.front.slots[1].spineArtwork?.content.extendEdges,false)
+        input.coverPreparation?.colorMode = .picked
+        input.coverPreparation?.pickedColor = .rgb(0.25,0.4,0.9)
+        XCTAssertEqual(CoverPreparationPlanner.plan(input,pages:pages,output:.spread).sheets.first?
+            .front.slots[1].spineArtwork?.content.color,.rgb(0.25,0.4,0.9))
+        XCTAssertEqual(input.coverPreparation?.color,.cmyk(0.2,0.4,0.6,0.8))
         input.coverPreparation?.front = 99
         XCTAssertFalse(CoverPreparationPlanner.plan(input,pages:pages,output:.spread).canExport)
     }

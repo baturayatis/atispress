@@ -1,12 +1,15 @@
 import Foundation
 
 public struct CoverPreparationSettings: Codable, Equatable, Sendable {
-    public enum SpineColorMode: String, Codable, Sendable { case automatic, manual }
+    public enum SpineColorMode: String, Codable, Sendable { case automatic, picked, manual }
     public var front: Int?
     public var back: Int?
     public var spineWidth = 0.0
     public var colorMode = SpineColorMode.automatic
     public var color = BleedColor.cmyk(0,0,0,1)
+    public var pickedColor: BleedColor?
+    public var spineText: [SpineContent.Position:SpineContent.TextBlock]?
+    public var spineLogo: SpineLogo?
     public var sheet: SheetSpec?
     public var bleed: Double?
     public var crop: Bool?
@@ -64,9 +67,13 @@ public enum CoverPreparationPlanner {
             var spine = panel(nil,x:left,width:cover.spineWidth,label:"Sırt")
             var content = SpineContent()
             content.mode = .color
-            content.color = cover.color
+            content.color = cover.colorMode == .picked ? cover.pickedColor ?? .rgb(0,0,0) : cover.color
+            content.blocks = cover.spineText ?? [:]
+            guard content.isValid(allowRGB:cover.colorMode == .picked) else {
+                return error("Sırt içeriğinin ölçülerini ve renklerini kontrol edin.")
+            }
             content.extendEdges = cover.colorMode == .automatic
-            spine.spineArtwork = SpineArtwork(content:content,backPage:back.number,frontPage:front.number,vectorExtension:true)
+            spine.spineArtwork = SpineArtwork(content:content,backPage:back.number,frontPage:front.number,vectorExtension:true,logo:cover.spineLogo)
             panels.append(spine)
         }
         panels.append(panel(front,x:right,width:front.trimSize.width,label:"Ön kapak"))
