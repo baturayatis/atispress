@@ -22,9 +22,10 @@ agent environment), use `swift build --disable-sandbox` and
 Sağ denetçide **Kapak Hazırla** bölümünü açın. Ön ve arka kapak için PDF
 sayfalarını seçin. Varsayılan ilk ve son sayfadır. **Sırt payı (mm)** 0 ise
 iki yüz bitişir. Pozitif sırtta **Otomatik**, macOS **Renk seç** veya
-**CMYK** ile zemin belirlenir. **Sırt içeriği** altında Üst, Orta ve Alt
-yazı alanları ile PNG, SVG veya tek sayfalı PDF logo eklenebilir. Yazıyı
-ve logoyu önizlemede sürükleyin veya X/Y ölçülerini girin.
+**CMYK** ile zemin belirlenir. **+ Yazı ekle** ve **+ Logo ekle** ile
+bağımsız nesneler oluşturun. PNG, SVG ve tek sayfalı PDF desteklenir.
+Nesneyi önizlemede sürükleyin, tutamaçlarla ölçekleyip döndürün veya
+X/Y ölçülerini girin. Sürükleme 1 mm’ye yuvarlanır.
 
 **Kapak PDF'i oluştur** kesim ebadında tek bir açılım verir. **Tabaka montajı**
 330 × 480 mm, 0 mm ara boşluk ve 3 mm taşmayla başlar. İşte seçili bir
@@ -32,7 +33,7 @@ makine varsa, elle tabaka ölçüsü girilene kadar makinenin ölçüsü kullan�
 Otomatik dizilim 0° ve 90° yönlerini karşılaştırır. Sütun ve
 satır sayısıyla dizilimi, yatay ve dikey kaydırmayla blok konumunu ayarlayın.
 **Tabakaya bağla / PDF oluştur** yalnız monte edilmiş kapakları basar.
-Kapak ve sırt içeriği .atispress şema 30 ile kaydedilir.
+Kapak ve sırt içeriği .atispress şema 31 ile kaydedilir.
 
 ## Kapak ve Sırt
 
@@ -185,7 +186,7 @@ kapsamı ve elle kontrol listesi [docs/STATUS.md](docs/STATUS.md) içindedir.
 Bu sürüm **0.5.0 (build 7)**. Sürüm kaynağı
 `packaging/Info.plist`; Hakkında, tanı bilgisi ve güncelleme karşılaştırması
 aynı paket sürümünü kullanır. `swift run` için de 0.5.0 / 7 yedeği bulunur.
-Proje dosyası şeması bağımsızdır ve **30**’dur; eski projeler açılır.
+Proje dosyası şeması bağımsızdır ve **31**’dir; eski projeler açılır.
 
 **macOS 14 veya üzeri** gerekir. Intel ve Apple Silicon Mac’ler aynı universal
 uygulamayı kullanır.

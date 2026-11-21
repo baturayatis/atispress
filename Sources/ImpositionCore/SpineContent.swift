@@ -47,7 +47,7 @@ public struct SpineArtwork: Equatable, Sendable {
     public var backPage: Int?
     public var frontPage: Int?
     public var vectorExtension = false
-    public var logo: SpineLogo?
+    public var objects: [FreeSpineObject] = []
 }
 
 public struct SpineLogo: Codable, Equatable, Sendable {

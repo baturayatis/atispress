@@ -287,14 +287,26 @@ extension BookExportTests {
         project.coverPreparation?.spineWidth = 16
         project.coverPreparation?.colorMode = .manual
         project.coverPreparation?.color = .cmyk(0,0,0,0)
-        project.coverPreparation?.spineLogo = logo
+        let vector = FreeSpineObject(content:.logo(logo))
         var block = SpineContent.TextBlock()
         block.text = "Çığ İŞ"
-        block.autoFit = true
-        project.coverPreparation?.spineText = [.top:block]
+        block.size = 10
+        block.y = 22
+        var text = FreeSpineObject(content:.text(block))
+        text.rotation = 12
+        let textBounds = try XCTUnwrap(PDFSpine.objectBounds(text,in:trim))
+        XCTAssertGreaterThan(textBounds.width,0)
+        XCTAssertNil(PDFSpine.objectWarning(text,in:trim))
         for outlines in [true,false] {
             block.outlines = outlines
-            project.coverPreparation?.spineText = [.top:block]
+            text.content = .text(block)
+            let otherTexts = [-24.0,-12,10].enumerated().map { index,y in
+                var other = block
+                other.text = "Ek\(index)"
+                other.y = y
+                return FreeSpineObject(content:.text(other))
+            }
+            project.coverPreparation?.spineObjects = [vector,text]+otherTexts
             let plan = CoverPreparationPlanner.plan(project,pages:pages,output:.sheet)
             XCTAssertTrue(PDFSpine.issues(in:plan).isEmpty)
             let out = folder.appendingPathComponent("logo-\(outlines).pdf")
@@ -307,7 +319,7 @@ extension BookExportTests {
             XCTAssertEqual(Self.images(cg.page(at:1)?.dictionary),0)
         }
         logo.x = 20
-        project.coverPreparation?.spineLogo = logo
+        project.coverPreparation?.spineObjects = [FreeSpineObject(content:.logo(logo))]
         let overflow = CoverPreparationPlanner.plan(project,pages:pages,output:.spread)
         XCTAssertTrue(PDFSpine.issues(in:overflow).contains { $0.message.contains("Logo taşıyor") })
         XCTAssertThrowsError(try PDFExporter.export(plan:overflow,source:source,

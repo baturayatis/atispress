@@ -226,6 +226,7 @@ final class Workspace: ObservableObject {
     @Published var zoomFactor: CGFloat = 1
     private var filePanel: NSOpenPanel?
     private var exportPanel: NSSavePanel?
+    @Published var selectedPreparedSpineID: UUID?
     @Published var coverPreviewOutput: CoverPreparationPlanner.Output = .spread
     private var coverPlanCache: (source: UUID, project: Project, plans: [CoverPreparationPlanner.Output: ImpositionPlan])?
 

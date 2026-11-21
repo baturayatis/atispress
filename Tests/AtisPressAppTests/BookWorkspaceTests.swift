@@ -77,16 +77,43 @@ final class BookWorkspaceTests: XCTestCase {
         let logoFile = try fixture(folder,"logo.pdf",count:1,size:Size(10,10))
         reopened.coverPreparation.spineLogo = try XCTUnwrap(PDFSpine.makeLogo(name:"logo.pdf",format:.pdf,
             data:Data(contentsOf:logoFile),in:CGRect(x:0,y:0,width:6,height:70)))
+        let trim = CGRect(x:0,y:0,width:6,height:70)
+        let oldTextBounds = try XCTUnwrap(PDFSpine.layout(text,at:.top,in:trim)).bounds
+        let legacy = try ProjectDocument(version:30,state:reopened.state).encoded()
+        let migrated = try XCTUnwrap(ProjectDocument.decode(legacy).state.project.coverPreparation)
+        XCTAssertNil(migrated.spineText)
+        XCTAssertNil(migrated.spineLogo)
+        XCTAssertEqual(migrated.spineObjects?.count,2)
+        XCTAssertEqual(PDFSpine.objectBounds(try XCTUnwrap(migrated.spineObjects?.first),in:trim),oldTextBounds)
+        reopened.coverPreparation = migrated
+        let original = reopened.preparedSpineObjects
+        let logo = try XCTUnwrap(original.last)
+        let bounds = try XCTUnwrap(PDFSpine.objectBounds(logo,in:trim))
+        let gesture = SpineObjectInteraction(bounds:bounds,unit:0.5)
+        let move = gesture.edited(logo,handle:.move,start:gesture.center,
+                                  current:CGPoint(x:gesture.center.x+0.2,y:gesture.center.y+5.8))
+        XCTAssertEqual(move.x,0)
+        XCTAssertEqual(move.y,6)
+        let resize = gesture.edited(logo,handle:.resize,start:gesture.resize,
+                                   current:CGPoint(x:gesture.center.x+2*(gesture.resize.x-gesture.center.x),
+                                                   y:gesture.center.y+2*(gesture.resize.y-gesture.center.y)))
+        XCTAssertEqual(resize.size,2*logo.size,accuracy:0.00001)
+        let rotated = gesture.edited(move,handle:.rotate,start:gesture.rotate,
+                                    current:CGPoint(x:gesture.center.x-10,y:gesture.center.y))
+        XCTAssertEqual(rotated.rotation,90)
         reopened.beginUndoGroup()
-        reopened.movePreparedSpine(nil,to:Point(0.2,5.8))
-        reopened.movePreparedSpine(.top,to:Point(0.2,-1.3))
+        reopened.editPreparedSpine(rotated)
         reopened.endUndoGroup()
-        XCTAssertEqual(reopened.coverPreparation.spineLogo?.y,6)
-        XCTAssertEqual(reopened.coverPreparation.spineText?[.top]?.y,-1)
+        XCTAssertEqual(reopened.preparedSpineObjects.last,rotated)
+        reopened.undoEdit()
+        XCTAssertEqual(reopened.preparedSpineObjects,original)
+        reopened.redoEdit()
+        XCTAssertEqual(reopened.preparedSpineObjects.last,rotated)
+        reopened.deletePreparedSpine(logo.id)
+        XCTAssertEqual(reopened.preparedSpineObjects.count,1)
         reopened.undoEdit()
         try await settle(reopened)
-        XCTAssertEqual(reopened.coverPreparation.spineLogo?.y,0)
-        XCTAssertEqual(reopened.coverPreparation.spineText?[.top]?.y,0)
+        XCTAssertEqual(reopened.preparedSpineObjects.last,rotated)
         reopened.coverPreparation.bleed = 1
         reopened.coverPreparation.crop = false
         reopened.coverPreviewOutput = .spread
@@ -109,6 +136,49 @@ final class BookWorkspaceTests: XCTestCase {
         XCTAssertEqual(loaded.coverPreparationPlan(.sheet).sheets,reopened.coverPreparationPlan(.sheet).sheets)
         XCTAssertEqual(loaded.plan.sheets,interior)
         XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:url)).version,ProjectDocument.currentVersion)
+    }
+
+    func testCoverPreparationCanvasDragSnapsInRotatedSheetCoordinates() async throws {
+        let folder = try folder()
+        let pdf = try fixture(folder,"drag.pdf",count:2,size:Size(50,70))
+        let workspace = model()
+        workspace.open(pdf); try await settle(workspace)
+        workspace.coverPreparation.spineWidth = 15
+        workspace.coverPreparation.grid.rotation = .ninety
+        workspace.coverPreparation.grid.columns = 1
+        workspace.coverPreparation.grid.rows = 1
+        var text = SpineContent.TextBlock()
+        text.text = "Çığ"
+        let object = FreeSpineObject(content:.text(text))
+        workspace.addPreparedSpine(object)
+        let plan = workspace.coverPreparationPlan(.sheet)
+        let sheet = try XCTUnwrap(plan.sheets.first)
+        let spine = try XCTUnwrap(sheet.front.slots.first { $0.spineArtwork != nil })
+        let bounds = try XCTUnwrap(PDFSpine.objectBounds(object,in:PDFPreviewDrawing.localTrim(spine)))
+        let canvas = SheetCanvasView()
+        canvas.preparedSpineModel = workspace
+        canvas.beginEdit = workspace.beginUndoGroup
+        canvas.endEdit = workspace.endUndoGroup
+        canvas.configure(sheet:sheet,side:sheet.front,source:workspace.source,overlays:.artworkOnly,highlighted:[])
+        let window = NSWindow(contentRect:canvas.bounds,styleMask:[.borderless],backing:.buffered,defer:false)
+        window.contentView = canvas
+        let slotTransform = PDFPreviewDrawing.slotTransform(spine)
+        func mouse(_ type: NSEvent.EventType,_ local: CGPoint) throws -> NSEvent {
+            let paper = local.applying(slotTransform)
+            let view = CGPoint(x:32+paper.x*PDFPreviewDrawing.pointsPerMM,y:32+paper.y*PDFPreviewDrawing.pointsPerMM)
+            return try XCTUnwrap(NSEvent.mouseEvent(with:type,location:canvas.convert(view,to:nil),modifierFlags:[],
+                timestamp:0,windowNumber:window.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:1))
+        }
+        let center = CGPoint(x:bounds.midX,y:bounds.midY)
+        let target = CGPoint(x:center.x+1.21,y:center.y+6.85)
+        canvas.mouseDown(with:try mouse(.leftMouseDown,center))
+        canvas.mouseDragged(with:try mouse(.leftMouseDragged,target))
+        canvas.mouseUp(with:try mouse(.leftMouseUp,target))
+        XCTAssertEqual(workspace.selectedPreparedSpineID,object.id)
+        XCTAssertEqual(workspace.preparedSpineObjects.first?.x,1)
+        XCTAssertEqual(workspace.preparedSpineObjects.first?.y,7)
+        workspace.undoEdit()
+        XCTAssertEqual(workspace.preparedSpineObjects.first,object)
     }
 
     func testModernCoverSpineBindingImportReplacementRemovalAndRoundTrip() async throws {

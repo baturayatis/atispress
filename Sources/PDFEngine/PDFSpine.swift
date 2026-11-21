@@ -17,8 +17,8 @@ public enum PDFSpine {
                 components: value.components.map { CGFloat($0) } + [1])!
     }
 
-    public static func layout(_ block: SpineContent.TextBlock, at position: SpineContent.Position,
-                              in trim: CGRect) -> TextLayout? {
+    public static func layout(_ block: SpineContent.TextBlock, at position: SpineContent.Position?,
+                              in trim: CGRect, extraRotation: Double = 0) -> TextLayout? {
         guard !block.text.isEmpty, trim.width > 0, trim.height > 0, (0.01...1000).contains(block.size),
               block.color.components.allSatisfy({ (0...1).contains($0) }),
               block.x.isFinite, block.y.isFinite else { return nil }
@@ -71,7 +71,7 @@ public enum PDFSpine {
             return (line, path)
         }
 
-        let regionHeight = trim.height/3
+        let regionHeight = position == nil ? trim.height : trim.height/3
         let regionBottom = position == .top ? 2*regionHeight : position == .middle ? regionHeight : 0
         let alignTop = (block.alignment == .start && !block.bottomUp) || (block.alignment == .end && block.bottomUp)
         let angle: CGFloat = block.bottomUp ? .pi/2 : -.pi/2
@@ -103,17 +103,60 @@ public enum PDFSpine {
             alignTop ? regionBottom+regionHeight-ink.height : regionBottom
         let tx = trim.midX-ink.midX+block.x
         let ty = trim.minY+y-ink.minY+block.y
-        let bounds = ink.offsetBy(dx:tx,dy:ty)
-        let overflow = path.isEmpty ? CGSize.zero : CGSize(
-            width: max(0,trim.minX-bounds.minX)+max(0,bounds.maxX-trim.maxX),
-            height: max(0,trim.minY-bounds.minY)+max(0,bounds.maxY-trim.maxY))
-        let transform = rotation.concatenating(CGAffineTransform(translationX:tx,y:ty))
+        var bounds = ink.offsetBy(dx:tx,dy:ty)
+        var transform = rotation.concatenating(CGAffineTransform(translationX:tx,y:ty))
+        if extraRotation != 0, !path.isEmpty {
+            let center = CGPoint(x:bounds.midX,y:bounds.midY)
+            let spin = CGAffineTransform(translationX:-center.x,y:-center.y)
+                .concatenating(CGAffineTransform(rotationAngle:extraRotation.truncatingRemainder(dividingBy:360)*(.pi/180)))
+                .concatenating(CGAffineTransform(translationX:center.x,y:center.y))
+            transform = transform.concatenating(spin)
+            bounds = path.copy(using:&transform)?.boundingBoxOfPath ?? bounds
+        }
+        let overflow = path.isEmpty ? .zero : excess(bounds,in:trim)
         return TextLayout(bounds:bounds,overflow:overflow,size:size,line:line,path:path,transform:transform)
     }
 
-    public static func warning(_ block: SpineContent.TextBlock, at position: SpineContent.Position, in trim: CGRect) -> String? {
+    static func excess(_ bounds: CGRect,in trim: CGRect) -> CGSize {
+        CGSize(width:max(0,trim.minX-bounds.minX)+max(0,bounds.maxX-trim.maxX),
+               height:max(0,trim.minY-bounds.minY)+max(0,bounds.maxY-trim.maxY))
+    }
+
+    public static func objectBounds(_ object: FreeSpineObject,in trim: CGRect) -> CGRect? {
+        switch object.content {
+        case .text(let text):
+            return layout(text,at:object.legacyPosition,in:trim,extraRotation:object.rotation)?.bounds
+        case .logo(let logo):
+            return logoBounds(logo,in:trim)
+        }
+    }
+
+    public static func objectWarning(_ object: FreeSpineObject,in trim: CGRect) -> String? {
+        switch object.content {
+        case .text(let text):
+            return warning(text,at:object.legacyPosition,in:trim,rotation:object.rotation)
+        case .logo(let logo):
+            return logoWarning(logo,in:trim)
+        }
+    }
+
+    // Convert the old anchor/fit to physical position and size on the first move or resize.
+    public static func freePlacement(_ object: FreeSpineObject,in trim: CGRect) -> FreeSpineObject {
+        guard case .text(var text) = object.content, object.legacyPosition != nil || text.autoFit,
+              let current = layout(text,at:object.legacyPosition,in:trim) else { return object }
+        var result = object
+        text.size = current.size; text.autoFit = false
+        text.alignment = .center
+        text.x = current.bounds.midX-trim.midX
+        text.y = current.bounds.midY-trim.midY
+        result.content = .text(text)
+        result.legacyPosition = nil
+        return result
+    }
+
+    public static func warning(_ block: SpineContent.TextBlock, at position: SpineContent.Position?, in trim: CGRect, rotation: Double = 0) -> String? {
         guard !block.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        guard let layout = layout(block, at:position, in:trim) else {
+        guard let layout = layout(block, at:position, in:trim, extraRotation:rotation) else {
             return "Yazı tipi veya biçimi kullanılamıyor. Başka bir yazı tipi seçin ya da yazıyı eğriye çevirin."
         }
         guard layout.overflow.width > 0.00001 || layout.overflow.height > 0.00001 else { return nil }
@@ -127,13 +170,15 @@ public enum PDFSpine {
             for slot in sheet.front.slots+sheet.back.slots {
                 guard let artwork = slot.spineArtwork else { continue }
                 let trim = PDFPreviewDrawing.localTrim(slot)
-                if artwork.content.mode == .text || artwork.vectorExtension {
+                if artwork.content.mode == .text {
                     for position in SpineContent.Position.allCases {
                         if let block = artwork.content.blocks[position],
                            let message = warning(block,at:position,in:trim) { messages.insert(message) }
                     }
                 }
-                if let logo = artwork.logo, let message = logoWarning(logo,in:trim) { messages.insert(message) }
+                for object in artwork.objects {
+                    if let message = objectWarning(object,in:trim) { messages.insert(message) }
+                }
             }
         }
         return messages.sorted().map { ValidationIssue(.error,.bookSettings,$0) }
@@ -195,26 +240,37 @@ public struct PDFSpineOverlay: PDFSlotOverlay, @unchecked Sendable {
             }
         case .text: break
         }
-        if content.mode == .text || artwork.vectorExtension {
+        if content.mode == .text {
             for position in SpineContent.Position.allCases {
-                guard let block = content.blocks[position],
-                      let layout = PDFSpine.layout(block, at:position, in:trim),
-                      layout.overflow.width <= 0.00001, layout.overflow.height <= 0.00001 else { continue }
-                context.saveGState()
-                context.concatenate(layout.transform)
-                context.setFillColor(PDFSpine.color(block.color))
-                if block.outlines {
-                    context.addPath(layout.path)
-                    context.fillPath()
-                } else {
-                    context.textMatrix = .identity
-                    context.textPosition = .zero
-                    CTLineDraw(layout.line,context)
-                }
-                context.restoreGState()
+                if let block = content.blocks[position] { drawText(block,at:position,in:trim,context:context) }
             }
         }
-        if let logo = artwork.logo { PDFSpine.drawLogo(logo,in:trim,context:context) }
+        for object in artwork.objects {
+            switch object.content {
+            case .text(let block):
+                drawText(block,at:object.legacyPosition,in:trim,rotation:object.rotation,context:context)
+            case .logo(let logo):
+                PDFSpine.drawLogo(logo,in:trim,context:context)
+            }
+        }
+    }
+
+    private func drawText(_ block: SpineContent.TextBlock,at position: SpineContent.Position?,
+                          in trim: CGRect,rotation: Double = 0,context: CGContext) {
+        guard let layout = PDFSpine.layout(block,at:position,in:trim,extraRotation:rotation),
+              layout.overflow.width <= 0.00001, layout.overflow.height <= 0.00001 else { return }
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.concatenate(layout.transform)
+        context.setFillColor(PDFSpine.color(block.color))
+        if block.outlines {
+            context.addPath(layout.path)
+            context.fillPath()
+        } else {
+            context.textMatrix = .identity
+            context.textPosition = .zero
+            CTLineDraw(layout.line,context)
+        }
     }
 
     fileprivate func coverEdges(_ artwork: SpineArtwork) throws -> [(CGPDFPage,SampleEdge,EdgeStrip)] {

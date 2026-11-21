@@ -60,26 +60,10 @@ private struct SpineBlockEditor: View {
     let position: SpineContent.Position
     let trim: CGRect?
     @Binding var block: SpineContent.TextBlock
-    @State private var showFonts = false
-    @State private var query = ""
-    private static let fonts = NSFontManager.shared.availableFonts.sorted {
-        $0.localizedStandardCompare($1) == .orderedAscending
-    }
-
     var body: some View {
         DisclosureGroup(title) {
             VStack(alignment:.leading,spacing:7) {
-                TextField("Sırt yazısı",text:$block.text)
-                Button("Yazı tipi: "+block.font) { query = ""; showFonts = true }
-                    .popover(isPresented:$showFonts) {
-                        VStack {
-                            TextField("Yazı tipi ara",text:$query).textFieldStyle(.roundedBorder)
-                            List(Self.fonts.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) },id:\.self) { font in
-                                Button(font) { block.font = font; showFonts = false }.buttonStyle(.plain)
-                            }
-                        }.padding(12).frame(width:300,height:300)
-                    }
-                HStack { Toggle("Kalın",isOn:$block.bold); Toggle("İtalik",isOn:$block.italic) }
+                SpineTypefaceEditor(block:$block)
                 Toggle("Sırta sığdır",isOn:$block.autoFit)
                 if !block.autoFit { measure("Boyut",$block.size,unit:"pt",range:0.01...1000) }
                 Picker("Hizalama",selection:$block.alignment) {
@@ -87,12 +71,6 @@ private struct SpineBlockEditor: View {
                     Text("Orta").tag(SpineContent.Alignment.center)
                     Text("Bitiş").tag(SpineContent.Alignment.end)
                 }
-                Picker("Okuma yönü",selection:$block.bottomUp) {
-                    Text("Yukarıdan aşağı").tag(false)
-                    Text("Aşağıdan yukarı").tag(true)
-                }
-                SpineCMYKPicker(color:$block.color)
-                Toggle("Yazıyı eğriye çevir",isOn:$block.outlines)
                 measure("X",$block.x,range:-10_000...10_000)
                 measure("Y",$block.y,range:-10_000...10_000)
                 if let trim, let warning = PDFSpine.warning(block,at:position,in:trim) {
@@ -111,6 +89,37 @@ private struct SpineBlockEditor: View {
 
     private func measure(_ title: String,_ value: Binding<Double>,unit: String = "mm",range: ClosedRange<Double>) -> some View {
         HStack { Text(title); Spacer(); DimensionInput(title,value:value,unit:unit,range:range) }
+    }
+}
+
+struct SpineTypefaceEditor: View {
+    @Binding var block: SpineContent.TextBlock
+    @State private var showFonts = false
+    @State private var query = ""
+    private static let fonts = NSFontManager.shared.availableFonts.sorted {
+        $0.localizedStandardCompare($1) == .orderedAscending
+    }
+
+    var body: some View {
+        VStack(alignment:.leading,spacing:7) {
+                TextField("Sırt yazısı",text:$block.text)
+                Button("Yazı tipi: "+block.font) { query = ""; showFonts = true }
+                    .popover(isPresented:$showFonts) {
+                        VStack {
+                            TextField("Yazı tipi ara",text:$query).textFieldStyle(.roundedBorder)
+                            List(Self.fonts.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) },id:\.self) { font in
+                                Button(font) { block.font = font; showFonts = false }.buttonStyle(.plain)
+                            }
+                        }.padding(12).frame(width:300,height:300)
+                    }
+                HStack { Toggle("Kalın",isOn:$block.bold); Toggle("İtalik",isOn:$block.italic) }
+                Picker("Okuma yönü",selection:$block.bottomUp) {
+                    Text("Yukarıdan aşağı").tag(false)
+                    Text("Aşağıdan yukarı").tag(true)
+                }
+                SpineCMYKPicker(color:$block.color)
+                Toggle("Yazıyı eğriye çevir",isOn:$block.outlines)
+        }
     }
 }
 

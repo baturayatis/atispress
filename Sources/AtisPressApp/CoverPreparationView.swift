@@ -111,14 +111,12 @@ struct CoverPreparationView: View {
             CoverSheetMeasure(title:"Taşma",value:Binding(
                 get:{ model.coverPreparation.bleed ?? CoverPreparationSettings.defaultBleed },
                 set:{ value in model.updateCoverImposition { $0.bleed = value } }),maximum:1000)
-            DisclosureGroup("Tabaka yönü, kenarlar ve maşa",isExpanded:$sheetDetails) {
-                if selectedMachine == nil {
-                    Picker("Tabaka yönü",selection:$model.coverSheetSpec.orientation) {
-                        Text("Otomatik").tag(Orientation.auto)
-                        Text("Dikey").tag(Orientation.portrait)
-                        Text("Yatay").tag(Orientation.landscape)
-                    }
-                }
+            Picker("Tabaka yönü",selection:$model.coverSheetSpec.orientation) {
+                Text("Otomatik").tag(Orientation.auto)
+                Text("Dikey").tag(Orientation.portrait)
+                Text("Yatay").tag(Orientation.landscape)
+            }
+            DisclosureGroup("Kenarlar ve maşa",isExpanded:$sheetDetails) {
                 measure("Sol kenar",$model.coverSheetSpec.margins.left)
                 measure("Sağ kenar",$model.coverSheetSpec.margins.right)
                 measure("Alt kenar",$model.coverSheetSpec.margins.bottom)
@@ -218,14 +216,15 @@ struct CoverPreparationPreview: View {
                 }.pickerStyle(.segmented).frame(maxWidth:280)
                 Spacer()
                 if let size = plan.sheets.first?.size {
-                    Text(TRFormat.size(size.width,size.height)).monospacedDigit()
+                    let angle = plan.sheets.first?.front.slots.first?.rotation ?? 0
+                    Text(TRFormat.size(size.width,size.height)+(output == .sheet ? " · \(angle)°" : "")).monospacedDigit()
                 }
                 Button("Sığdır") { model.zoomFactor = 0; model.zoomAction += 1 }
             }.padding(10)
             if let sheet = plan.sheets.first {
                 PreviewCanvas(sheet:sheet,side:sheet.front,sheetIndex:0,sideKind:.front,source:model.source,
                               overlays:.artworkOnly,generatedBleed:plan.generatedBleed,highlighted:[],
-                              zoomAction:model.zoomAction,zoomFactor:model.zoomFactor,controlMarks:marks,forceVectorArtwork:true,movePreparedSpine:model.movePreparedSpine,
+                              zoomAction:model.zoomAction,zoomFactor:model.zoomFactor,controlMarks:marks,forceVectorArtwork:true,preparedSpineModel:model,
                               beginEdit:model.beginUndoGroup,endEdit:model.endUndoGroup)
                     .id(output)
             } else {

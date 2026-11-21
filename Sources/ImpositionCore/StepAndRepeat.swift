@@ -184,8 +184,8 @@ extension ImpositionPlanner {
         let landscape = Size(portrait.height,portrait.width)
         let cover = project.coverGrid
         let usesCoverMachine = cover != nil && project.activeMachineProfile != nil
-        let sheets = usesCoverMachine ? [spec.size] :
-            spec.orientation == .portrait ? [portrait] : spec.orientation == .landscape ? [landscape] : [portrait,landscape]
+        let sheets = spec.orientation == .portrait ? [portrait] :
+            spec.orientation == .landscape ? [landscape] : [portrait,landscape]
         let stroke = max(0.01,project.exportMarks.lineWidth.isFinite ? project.exportMarks.lineWidth : 0.25)*25.4/144
         let reserve = project.layoutExteriorReserve+(cover != nil && settings.cropMarkLength > 0 ? stroke : 0)
         let rotations = cover?.rotation.angle.map { [$0] } ?? (options.allowRotation ? [0,90] : [0])

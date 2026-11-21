@@ -10,6 +10,27 @@ public struct CoverPreparationSettings: Codable, Equatable, Sendable {
     public var pickedColor: BleedColor?
     public var spineText: [SpineContent.Position:SpineContent.TextBlock]?
     public var spineLogo: SpineLogo?
+    public var spineObjects: [FreeSpineObject]?
+
+    public static let spineObjectLimit = 128
+    public static let spineAssetByteLimit = 64*1024*1024
+
+    public var resolvedSpineObjects: [FreeSpineObject] {
+        if let spineObjects { return spineObjects }
+        var result = SpineContent.Position.allCases.enumerated().compactMap { index,position -> FreeSpineObject? in
+            guard let text = spineText?[position], !text.text.isEmpty else { return nil }
+            let id = UUID(uuid:(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,UInt8(index+1)))
+            return FreeSpineObject(id:id,content:.text(text),legacyPosition:position)
+        }
+        if let spineLogo { result.append(FreeSpineObject(id:spineLogo.id,content:.logo(spineLogo))) }
+        return result
+    }
+
+    public mutating func migrateSpineObjects() {
+        guard spineText != nil || spineLogo != nil else { return }
+        spineObjects = resolvedSpineObjects
+        spineText = nil; spineLogo = nil
+    }
     public var sheet: SheetSpec?
     public var bleed: Double?
     public var crop: Bool?
@@ -24,7 +45,10 @@ public struct CoverPreparationSettings: Codable, Equatable, Sendable {
         let profile = useProjectMachine ? project.machineProfile : machine
         var result = sheet ?? Self.defaultSheet
         if let profile {
-            if sheet == nil { result.size = profile.size }
+            if sheet == nil {
+                result.size = profile.size
+                result.orientation = profile.size.width > profile.size.height ? .landscape : .portrait
+            }
             result.gripperEdge = profile.gripperEdge
             result.gripperWidth = profile.gripperWidth
         }
@@ -82,12 +106,16 @@ public enum CoverPreparationPlanner {
             var content = SpineContent()
             content.mode = .color
             content.color = cover.colorMode == .picked ? cover.pickedColor ?? .rgb(0,0,0) : cover.color
-            content.blocks = cover.spineText ?? [:]
-            guard content.isValid(allowRGB:cover.colorMode == .picked) else {
+            let objects = cover.resolvedSpineObjects
+            guard content.isValid(allowRGB:cover.colorMode == .picked),
+                  objects.count <= CoverPreparationSettings.spineObjectLimit,
+                  Set(objects.map(\.id)).count == objects.count,
+                  objects.allSatisfy(\.isValid),
+                  objects.reduce(0, { $0+$1.byteCount }) <= CoverPreparationSettings.spineAssetByteLimit else {
                 return error("Sırt içeriğinin ölçülerini ve renklerini kontrol edin.")
             }
             content.extendEdges = cover.colorMode == .automatic
-            spine.spineArtwork = SpineArtwork(content:content,backPage:back.number,frontPage:front.number,vectorExtension:true,logo:cover.spineLogo)
+            spine.spineArtwork = SpineArtwork(content:content,backPage:back.number,frontPage:front.number,vectorExtension:true,objects:objects)
             panels.append(spine)
         }
         panels.append(panel(front,x:right,width:front.trimSize.width,label:"Ön kapak"))

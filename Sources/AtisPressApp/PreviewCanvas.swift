@@ -25,7 +25,7 @@ struct PreviewCanvas: NSViewRepresentable {
     var moveSerial: ((UUID,Point) -> Void)? = nil
     var controlMarks = ExportMarks.none
     var forceVectorArtwork = false
-    var movePreparedSpine: ((SpineContent.Position?,Point) -> Void)? = nil
+    var preparedSpineModel: Workspace? = nil
     var moveGangBlock: ((UUID,Point) -> Void)? = nil
     var beginEdit: (() -> Void)? = nil
     var endEdit: (() -> Void)? = nil
@@ -63,7 +63,7 @@ struct PreviewCanvas: NSViewRepresentable {
         if let zoomModel { canvas.connectSerialEditing(zoomModel) }
         canvas.focusArea = focusArea
         canvas.forceVectorArtwork = forceVectorArtwork
-        canvas.movePreparedSpine = movePreparedSpine
+        canvas.preparedSpineModel = preparedSpineModel
         canvas.repetition = repetition; canvas.selectedSerial = selectedSerial
         canvas.selectSerial = selectSerial; canvas.moveSerial = moveSerial; canvas.moveGangBlock = moveGangBlock; canvas.beginEdit = beginEdit; canvas.endEdit = endEdit
         canvas.configure(sheet: sheet,side: side,source: source,overlays: overlays,highlighted: highlighted,sheetIndex: sheetIndex,kind: sideKind,generatedBleed: generatedBleed,controlMarks: controlMarks,bleedAmount:bleedAmount,info:printedInfo,tone:tone)
@@ -115,7 +115,8 @@ final class SheetCanvasView: NSView {
     var beginEdit: (() -> Void)?
     var endEdit: (() -> Void)?
     private var spineDrag: (move: (Point) -> Void, inverse: CGAffineTransform, start: CGPoint, offset: Point)?
-    var movePreparedSpine: ((SpineContent.Position?,Point) -> Void)?
+    weak var preparedSpineModel: Workspace?
+    private var preparedSpineCopy: Int?
     private var moveSpine: ((SpineContent.Position,Point) -> Void)?
     private var gangDrag: (id: UUID,origin: Point,start: CGPoint,flipX: Bool,flipY: Bool)?
     private var originX: CGFloat = 32
@@ -247,6 +248,16 @@ final class SheetCanvasView: NSView {
                 label(text,at: CGPoint(x: rect.midX,y: rect.minY+min(5,rect.height/5)),size: 3,color:DesignSystem.purpleNS)
             }
         }
+        if let (slot,object) = selectedPreparedSpine() {
+            let trim = PDFPreviewDrawing.localTrim(slot)
+            if let bounds = PDFSpine.objectBounds(object,in:trim), !bounds.isEmpty {
+                context.saveGState()
+                context.concatenate(PDFPreviewDrawing.slotTransform(slot))
+                SpineObjectInteraction(bounds:bounds,unit:1/(pointsPerMM*scale))
+                    .draw(in:context,overflow:PDFSpine.objectWarning(object,in:trim) != nil)
+                context.restoreGState()
+            }
+        }
         if let selectedSerial {
             context.setStrokeColor(DesignSystem.focusNS.cgColor); context.setLineWidth(1/pointsPerMM/scale)
             for serial in sheet.serialPlacements(side: side,kind: sideKind,repetition: repetition) where serial.field.id == selectedSerial {
@@ -326,39 +337,74 @@ final class SheetCanvasView: NSView {
             self.needsDisplay = true
         }
     }
+    private func selectedPreparedSpine() -> (Slot,FreeSpineObject)? {
+        guard let id = preparedSpineModel?.selectedPreparedSpineID else { return nil }
+        let matches = side.slots.compactMap { slot in
+            slot.spineArtwork?.objects.first(where:{ $0.id == id }).map { (slot,$0) }
+        }
+        return matches.first(where:{ $0.0.copyIndex == preparedSpineCopy }) ?? matches.first
+    }
+
+    private func startPreparedDrag(_ object: FreeSpineObject,slot: Slot,local: CGPoint,
+                                   interaction: SpineObjectInteraction,handle: SpineObjectInteraction.Handle) {
+        let start = PDFSpine.freePlacement(object,in:PDFPreviewDrawing.localTrim(slot))
+        beginEdit?()
+        spineDrag = ({ [weak model = preparedSpineModel] point in
+            model?.editPreparedSpine(interaction.edited(start,handle:handle,start:local,
+                current:CGPoint(x:point.x,y:point.y)))
+        },PDFPreviewDrawing.slotTransform(slot).inverted(),local,Point(local.x,local.y))
+        NSCursor.closedHand.push()
+    }
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         let viewPoint = convert(event.locationInWindow,from: nil)
         let point = CGPoint(x: (viewPoint.x-originX)/pointsPerMM,y: (viewPoint.y-originY)/pointsPerMM)
-        if moveSpine != nil || movePreparedSpine != nil {
-            for slot in side.slots.reversed() {
-                guard let artwork = slot.spineArtwork,
-                      artwork.content.mode == .text || artwork.vectorExtension else { continue }
+        if let model = preparedSpineModel {
+            let unit = 1/(pointsPerMM*max(0.01,enclosingScrollView?.magnification ?? 1))
+            if let (slot,object) = selectedPreparedSpine() {
                 let inverse = PDFPreviewDrawing.slotTransform(slot).inverted()
                 let local = point.applying(inverse)
                 let trim = PDFPreviewDrawing.localTrim(slot)
-                func startMove(_ x: Double,_ y: Double,_ move: @escaping (Point) -> Void) {
-                    beginEdit?()
-                    spineDrag = (move,inverse,local,Point(x,y))
-                    NSCursor.closedHand.push()
+                if let bounds = PDFSpine.objectBounds(object,in:trim), !bounds.isEmpty {
+                    let interaction = SpineObjectInteraction(bounds:bounds,unit:unit)
+                    if let handle = interaction.hit(local) {
+                        if handle == .delete { model.deletePreparedSpine(object.id) }
+                        else { startPreparedDrag(object,slot:slot,local:local,interaction:interaction,handle:handle) }
+                        return
+                    }
                 }
-                if let logo = artwork.logo, let movePreparedSpine,
-                   let bounds = PDFSpine.logoBounds(logo,in:trim), bounds.insetBy(dx:-0.75,dy:-0.75).contains(local) {
-                    startMove(logo.x,logo.y) { movePreparedSpine(nil,$0) }
-                    return
+            }
+            for slot in side.slots.reversed() {
+                let trim = PDFPreviewDrawing.localTrim(slot)
+                let local = point.applying(PDFPreviewDrawing.slotTransform(slot).inverted())
+                for object in (slot.spineArtwork?.objects ?? []).reversed() {
+                    if let bounds = PDFSpine.objectBounds(object,in:trim),
+                       !bounds.isEmpty, bounds.insetBy(dx:-2*unit,dy:-2*unit).contains(local) {
+                        model.selectedPreparedSpineID = object.id
+                        preparedSpineCopy = slot.copyIndex
+                        startPreparedDrag(object,slot:slot,local:local,
+                            interaction:SpineObjectInteraction(bounds:bounds,unit:unit),handle:.move)
+                        return
+                    }
                 }
+            }
+            model.selectedPreparedSpineID = nil
+        }
+        if let moveSpine {
+            for slot in side.slots.reversed() {
+                guard let content = slot.spineArtwork?.content, content.mode == .text else { continue }
+                let inverse = PDFPreviewDrawing.slotTransform(slot).inverted()
+                let local = point.applying(inverse)
+                let trim = PDFPreviewDrawing.localTrim(slot)
                 for position in SpineContent.Position.allCases.reversed() {
-                    guard let block = artwork.content.blocks[position], !block.text.isEmpty,
+                    guard let block = content.blocks[position], !block.text.isEmpty,
                           let layout = PDFSpine.layout(block,at:position,in:trim),
                           layout.bounds.insetBy(dx:-0.75,dy:-0.75).contains(local) else { continue }
-                    if artwork.vectorExtension, let movePreparedSpine {
-                        startMove(block.x,block.y) { movePreparedSpine(position,$0) }
-                        return
-                    }
-                    if let moveSpine {
-                        startMove(block.x,block.y) { moveSpine(position,$0) }
-                        return
-                    }
+                    beginEdit?()
+                    spineDrag = ({ moveSpine(position,$0) },inverse,local,Point(block.x,block.y))
+                    NSCursor.closedHand.push()
+                    return
                 }
             }
         }

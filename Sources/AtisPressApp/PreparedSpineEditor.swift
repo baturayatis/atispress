@@ -4,16 +4,47 @@ import ImpositionCore
 import PDFEngine
 
 extension Workspace {
-    func movePreparedSpine(_ position: SpineContent.Position?, to point: Point) {
-        var settings = coverPreparation
-        if let position, var block = settings.spineText?[position] {
-            block.x = point.x.rounded(); block.y = point.y.rounded()
-            settings.spineText?[position] = block
-        } else if position == nil, var logo = settings.spineLogo {
-            logo.x = point.x.rounded(); logo.y = point.y.rounded()
-            settings.spineLogo = logo
-        } else { return }
-        coverPreparation = settings
+    var preparedSpineObjects: [FreeSpineObject] {
+        get { coverPreparation.resolvedSpineObjects }
+        set {
+            var settings = coverPreparation
+            settings.spineObjects = newValue
+            settings.spineText = nil; settings.spineLogo = nil
+            coverPreparation = settings
+        }
+    }
+
+    func editPreparedSpine(_ object: FreeSpineObject) {
+        guard let index = preparedSpineObjects.firstIndex(where:{ $0.id == object.id }) else { return }
+        preparedSpineObjects[index] = object
+    }
+
+    func deletePreparedSpine(_ id: UUID) {
+        guard preparedSpineObjects.contains(where:{ $0.id == id }) else { return }
+        beginUndoGroup()
+        preparedSpineObjects.removeAll { $0.id == id }
+        if selectedPreparedSpineID == id { selectedPreparedSpineID = nil }
+        endUndoGroup()
+    }
+
+    func addPreparedSpine(_ object: FreeSpineObject) {
+        guard preparedSpineObjects.count < CoverPreparationSettings.spineObjectLimit else {
+            error = "Sırta en fazla 128 nesne eklenebilir."
+            return
+        }
+        let byteCount = (preparedSpineObjects+[object]).reduce(0) { count,item in
+            if case .logo(let logo) = item.content { return count+logo.data.count }
+            return count
+        }
+        guard byteCount <= CoverPreparationSettings.spineAssetByteLimit else {
+            error = "Sırttaki logoların toplam boyutu en fazla 64 MB olabilir."
+            return
+        }
+        beginUndoGroup()
+        preparedSpineObjects.append(object)
+        selectedPreparedSpineID = object.id
+        endUndoGroup()
+        coverPreviewOutput = .spread
     }
 }
 
@@ -33,38 +64,77 @@ struct PreparedSpineEditor: View {
         case .picked: ColorPicker("Renk seç",selection:pickedColor,supportsOpacity:false)
         case .manual: SpineCMYKPicker(color:$model.coverPreparation.color)
         }
-        DisclosureGroup("Sırt içeriği") {
-            VStack(alignment:.leading,spacing:8) {
-                SpineTextBlocksEditor(trim:trim,blocks:Binding(
-                    get:{ model.coverPreparation.spineText ?? [:] },
-                    set:{ model.coverPreparation.spineText = $0 }))
-                Divider()
-                if let logo = model.coverPreparation.spineLogo {
-                    Text(logo.name).lineLimit(1)
-                    if logo.format == .convertedSVG {
-                        Text("SVG bu sistemde piksele çevrildi. Vektör çıktı için PDF logo kullanın.")
-                            .foregroundStyle(DesignSystem.warning)
-                    }
-                    HStack {
-                        Button("Logoyu değiştir…") { importing = true }
-                        Button("Kaldır") { model.coverPreparation.spineLogo = nil }
-                    }
-                    measurement("Logo genişliği",logoValue(\.width,logo.width),range:0.001...10_000)
-                    measurement("Dönüş",logoValue(\.rotation,logo.rotation),unit:"°",range:-360...360)
-                    measurement("X",logoValue(\.x,logo.x))
-                    measurement("Y",logoValue(\.y,logo.y))
-                    if let warning = PDFSpine.logoWarning(logo,in:trim) {
-                        Text(warning).foregroundStyle(DesignSystem.warning)
-                    }
-                } else {
-                    Button("Logo ekle…") { importing = true }
+        VStack(alignment:.leading,spacing:8) {
+            HStack {
+                Button("+ Yazı ekle") {
+                    var text = SpineContent.TextBlock()
+                    text.text = "Sırt yazısı"
+                    text.autoFit = true
+                    var object = PDFSpine.freePlacement(FreeSpineObject(content:.text(text)),in:trim)
+                    object.size = min(object.size,24)
+                    model.addPreparedSpine(object)
                 }
-            }.padding(.top,6)
+                Button("+ Logo ekle") { importing = true }
+            }
+            if !model.preparedSpineObjects.isEmpty &&
+                (model.preparedSpineObjects.count > 1 ||
+                 !model.preparedSpineObjects.contains(where:{ $0.id == model.selectedPreparedSpineID })) {
+                Picker("Nesne",selection:$model.selectedPreparedSpineID) {
+                    Text("Seçili nesne yok").tag(nil as UUID?)
+                    ForEach(model.preparedSpineObjects) { object in
+                        Text(title(object)).lineLimit(1).tag(Optional(object.id))
+                    }
+                }
+            }
+            if let object = model.preparedSpineObjects.first(where:{ $0.id == model.selectedPreparedSpineID }) {
+                selectedEditor(object)
+            }
         }.accessibilityIdentifier("preparedSpineContent")
             .fileImporter(isPresented:$importing,allowedContentTypes:[.png,.svg,.pdf]) { result in
                 do { try importLogo(result.get()) }
                 catch { model.error = error.localizedDescription }
             }
+    }
+
+    private func title(_ object: FreeSpineObject) -> String {
+        switch object.content {
+        case .text(let text): return text.text.isEmpty ? "Boş yazı" : String(text.text.prefix(40))
+        case .logo(let logo): return logo.name
+        }
+    }
+
+    @ViewBuilder private func selectedEditor(_ object: FreeSpineObject) -> some View {
+        let placed = PDFSpine.freePlacement(object,in:trim)
+        switch object.content {
+        case .text(let text):
+            SpineTypefaceEditor(block:Binding(get:{
+                if let current = model.preparedSpineObjects.first(where:{ $0.id == object.id }),
+                   case .text(let value) = current.content { return value }
+                return text
+            },set:{ value in
+                if var current = model.preparedSpineObjects.first(where:{ $0.id == object.id }) {
+                    current.content = .text(value)
+                    model.editPreparedSpine(current)
+                }
+            }))
+            measurement("Yazı boyutu",objectValue(placed,\.size),unit:"pt",range:object.sizeRange)
+        case .logo(let logo):
+            Text(logo.name).lineLimit(1)
+            if logo.format == .convertedSVG {
+                Text("SVG piksele çevrildi. Vektör çıktı için PDF logo kullanın.").foregroundStyle(DesignSystem.warning)
+            }
+            measurement("Logo genişliği",objectValue(placed,\.size),range:object.sizeRange)
+        }
+        DisclosureGroup("Konum ve dönüş") {
+            measurement("X",objectValue(placed,\.x))
+            measurement("Y",objectValue(placed,\.y))
+            measurement("Dönüş",objectValue(placed,\.rotation),unit:"°",range:-360...360)
+        }
+        if let warning = PDFSpine.objectWarning(object,in:trim) {
+            Text(warning).foregroundStyle(DesignSystem.warning)
+        }
+        Button("Seçileni sil") { model.deletePreparedSpine(object.id) }
+            .help("Önizlemede ⌫ ile de silebilirsiniz. Sürüklemede konum 1 mm’ye yuvarlanır.")
     }
 
     private var pickedColor: Binding<Color> {
@@ -80,9 +150,17 @@ struct PreparedSpineEditor: View {
         })
     }
 
-    private func logoValue(_ key: WritableKeyPath<SpineLogo,Double>,_ fallback: Double) -> Binding<Double> {
-        Binding(get:{ model.coverPreparation.spineLogo?[keyPath:key] ?? fallback },
-                set:{ model.coverPreparation.spineLogo?[keyPath:key] = $0 })
+    private func objectValue(_ object: FreeSpineObject,_ key: WritableKeyPath<FreeSpineObject,Double>) -> Binding<Double> {
+        Binding(get:{
+            guard let current = model.preparedSpineObjects.first(where:{ $0.id == object.id }) else { return object[keyPath:key] }
+            return PDFSpine.freePlacement(current,in:trim)[keyPath:key]
+        },set:{ value in
+            if let current = model.preparedSpineObjects.first(where:{ $0.id == object.id }) {
+                var next = PDFSpine.freePlacement(current,in:trim)
+                next[keyPath:key] = value
+                model.editPreparedSpine(next)
+            }
+        })
     }
 
     private func measurement(_ name: String,_ value: Binding<Double>,unit: String = "mm",
@@ -101,14 +179,14 @@ struct PreparedSpineEditor: View {
         case "png": format = .png
         case "svg":
             guard let logo = PDFSpine.importSVGLogo(name:url.lastPathComponent,data:data,in:trim) else { throw LogoImportError.svg }
-            model.coverPreparation.spineLogo = logo
+            model.addPreparedSpine(FreeSpineObject(content:.logo(logo)))
             return
         default: throw LogoImportError.unsupported
         }
         guard let logo = PDFSpine.makeLogo(name:url.lastPathComponent,format:format,data:data,in:trim) else {
             throw LogoImportError.unsupported
         }
-        model.coverPreparation.spineLogo = logo
+        model.addPreparedSpine(FreeSpineObject(content:.logo(logo)))
     }
 }
 

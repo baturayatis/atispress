@@ -90,7 +90,7 @@ final class CoverPreparationTests: XCTestCase {
         let backs = sheet.front.slots.filter { $0.bookRegion == "Arka kapak" }.sorted { $0.x < $1.x }
         XCTAssertEqual(backs[2].x-backs[0].x,297,accuracy:0.0001)
         XCTAssertTrue(sheet.front.slots.compactMap(\.artworkClip).allSatisfy { $0.origin.x >= machine.gripperWidth })
-        input.coverPreparation?.sheet = SheetSpec(size:Size(690,990),gutter:11)
+        input.coverPreparation?.sheet = SheetSpec(size:Size(690,990),gutter:11,orientation:.portrait)
         let edited = try XCTUnwrap(CoverPreparationPlanner.plan(input,pages:pages,output:.sheet).sheets.first)
         XCTAssertEqual(edited.size,Size(690,990))
         XCTAssertEqual(edited.gripperEdge,.left)
@@ -125,6 +125,38 @@ final class CoverPreparationTests: XCTestCase {
         XCTAssertTrue(message.contains("303,100 × 436,200 mm"),message)
         XCTAssertTrue(message.contains("300,000 × 480,000 mm"),message)
         XCTAssertTrue(message.contains("en 3,100 mm"),message)
+    }
+
+
+    func testSheetOrientationRotatesTheWholeCoverWithMachineGripper() throws {
+        let pages = [SourcePage(number:1,trimSize:Size(215.1,297.1),availableBleed:3),
+                     SourcePage(number:9,trimSize:Size(215.1,297.1),availableBleed:3)]
+        var input = Project(pages:pages,sheet:SheetSpec(size:Size(330,480)))
+        var cover = CoverPreparationSettings()
+        cover.crop = false
+        var machine = MachineProfile(name:"Test",size:Size(480,330))
+        machine.gripperWidth = 10
+        input.machineProfile = machine
+        for preset in [SheetPreset.cm33x48,.cm50x70,.cm70x100] {
+            for orientation in [Orientation.portrait,.landscape] {
+                cover.sheet = SheetSpec(preset:preset,orientation:orientation)
+                cover.grid.rotation = orientation == .portrait ? .ninety : .zero
+                input.coverPreparation = cover
+                let plan = CoverPreparationPlanner.plan(input,pages:pages,output:.sheet)
+                let sheet = try XCTUnwrap(plan.sheets.first)
+                let rotated = orientation == .portrait
+                XCTAssertEqual(sheet.size,rotated ? preset.size : Size(preset.size.height,preset.size.width))
+                XCTAssertEqual(sheet.front.slots.prefix(2).compactMap(\.sourcePageNumber),[9,1])
+                XCTAssertEqual(Set(sheet.front.slots.map(\.rotation)),[rotated ? 90 : 0])
+                let back = sheet.front.slots[0], front = sheet.front.slots[1]
+                if rotated { XCTAssertEqual(front.y+front.size.height,back.y,accuracy:0.0001) }
+                else { XCTAssertEqual(back.x+back.size.width,front.x,accuracy:0.0001) }
+                XCTAssertTrue(sheet.front.slots.compactMap(\.artworkClip).allSatisfy { $0.origin.y >= 10 })
+                let spread = try XCTUnwrap(CoverPreparationPlanner.plan(input,pages:pages,output:.spread).sheets.first)
+                XCTAssertEqual(spread.size,Size(430.2,297.1))
+                XCTAssertEqual(Set(spread.front.slots.map(\.rotation)),[0])
+            }
+        }
     }
 
 }

@@ -100,7 +100,7 @@ struct ProjectState: Codable, Equatable {
     }
 }
 struct ProjectDocument: Codable, Equatable {
-    static let currentVersion = 30
+    static let currentVersion = 31
     var version: Int = currentVersion
     var state: ProjectState
     static func decode(_ data: Data) throws -> ProjectDocument {
@@ -109,6 +109,7 @@ struct ProjectDocument: Codable, Equatable {
         let header = try decoder.decode(Header.self,from: data)
         guard (1...currentVersion).contains(header.version) else { throw ProjectFileError.unsupportedVersion(header.version) }
         var file = try decoder.decode(ProjectDocument.self,from: data)
+        file.state.project.coverPreparation?.migrateSpineObjects()
         if header.version < 12,file.state.project.alignment == nil,var state = file.state.project.autoLayout {
             // Legacy projects retain their press-edge geometry even on a later
             // re-import or production change. Explicit auto/reset opts into centering.
