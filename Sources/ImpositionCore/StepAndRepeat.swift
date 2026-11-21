@@ -1,3 +1,5 @@
+import Foundation
+
 extension ImpositionPlanner {
     private struct RepeatGrid {
         var sheet: Size
@@ -46,8 +48,9 @@ extension ImpositionPlanner {
             guard settings.safeAreaInset*2 < min(front.trimSize.width,front.trimSize.height) else {
                 issue(.invalidInput,"İş \(job+1): güvenli alan payı ürün boyutunu aşıyor."); continue
             }
-            guard let grid = repeatGrid(project,trim: front.trimSize) else {
-                issue(.exceedsSheet,"İş \(job+1): ürün veya seçilen ızgara baskı tabakasına sığmıyor."); continue
+            var fitMessage: String?
+            guard let grid = repeatGrid(project,trim: front.trimSize,fitMessage:&fitMessage) else {
+                issue(.exceedsSheet,fitMessage ?? "İş \(job+1): ürün veya seçilen ızgara baskı tabakasına sığmıyor."); continue
             }
             guard grid.capacity <= 20_000 else {
                 issue(project.activeMachineProfile == nil ? .invalidInput : .exceedsSheet,"İş \(job+1): tek tabakada en fazla 20.000 ürün destekleniyor."); continue
@@ -158,7 +161,7 @@ extension ImpositionPlanner {
     private static func reverseRotation(_ rotation: Int, mirrorX: Bool) -> Int {
         ((mirrorX ? 360 : 180)-rotation)%360
     }
-    private static func repeatGrid(_ project: Project, trim: Size) -> RepeatGrid? {
+    private static func repeatGrid(_ project: Project, trim: Size, fitMessage: inout String?) -> RepeatGrid? {
         let spec = project.sheet, settings = project.settings, options = project.stepAndRepeat
         let mirrorX = repeatMirrorsX(project)
         if project.coverGrid == nil, let profile = project.activeMachineProfile,
@@ -189,12 +192,31 @@ extension ImpositionPlanner {
         // Zero gutter is an explicit shared-trim-cut mode. Otherwise bleed boxes do not overlap.
         let spacing = spec.gutter == 0 || usesCoverMachine ? spec.gutter : 2*settings.bleed+spec.gutter
         var best: RepeatGrid?
+        var closest = Double.infinity
         for sheet in sheets {
             let m = project.blockAlignment == .center && settings.turnMethod == .sheetwise ? usableMargins(spec) : repeatMargins(spec,mirrorX:mirrorX)
-            let width = sheet.width-m.left-m.right-2*reserve
-            let height = sheet.height-m.top-m.bottom-2*reserve
+            let printableWidth = sheet.width-m.left-m.right
+            let printableHeight = sheet.height-m.top-m.bottom
+            let extraWidth = 2*reserve+2*abs(cover?.x ?? 0)
+            let extraHeight = 2*reserve+2*abs(cover?.y ?? 0)
+            let width = printableWidth-extraWidth
+            let height = printableHeight-extraHeight
             for rotation in rotations {
                 let item = rotation == 0 ? trim : Size(trim.height,trim.width)
+                if cover != nil {
+                    let columns = Double(options.columns ?? 1)
+                    let rows = Double(options.rows ?? 1)
+                    let requiredWidth = columns*item.width+(columns-1)*spacing+extraWidth
+                    let requiredHeight = rows*item.height+(rows-1)*spacing+extraHeight
+                    let dx = max(0,requiredWidth-printableWidth)
+                    let dy = max(0,requiredHeight-printableHeight)
+                    if dx+dy < closest {
+                        closest = dx+dy
+                        fitMessage = String(format:"Kapak sığmıyor (%d°). Gerekli: %.3f × %.3f mm. Baskı alanı: %.3f × %.3f mm. Eksik: en %.3f mm, boy %.3f mm.",
+                                            locale:Locale(identifier:"tr_TR"),rotation,requiredWidth,requiredHeight,
+                                            max(0,printableWidth),max(0,printableHeight),dx,dy)
+                    }
+                }
                 let tolerance = max(project.autoLayout?.trimTolerance ?? 0,(project.usesFullSheetBooklet || (project.bookCoverTemplate && reserve == 0)) ? 0.0001 : 0)
                 guard width+tolerance >= item.width, height+tolerance >= item.height else { continue }
                 let fitColumns = ((width+spacing)/(item.width+spacing)).rounded(.down)

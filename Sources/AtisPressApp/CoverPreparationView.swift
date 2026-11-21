@@ -9,8 +9,15 @@ extension Workspace {
     }
 
     var coverSheetSpec: SheetSpec {
-        get { coverPreparation.sheet ?? project.sheet }
-        set { coverPreparation.sheet = newValue }
+        get { coverPreparation.effectiveSheet(for:project) }
+        set { updateCoverImposition { $0.sheet = newValue } }
+    }
+
+    func updateCoverImposition(_ change: (inout CoverPreparationSettings) -> Void) {
+        var cover = coverPreparation
+        change(&cover)
+        coverPreviewOutput = .sheet
+        coverPreparation = cover
     }
 }
 
@@ -69,10 +76,10 @@ struct CoverPreparationView: View {
             if model.coverPreparation.useProjectMachine { return "project" }
             return model.coverPreparation.machine?.id.uuidString ?? "none"
         },set:{ choice in
-            var cover = model.coverPreparation
-            cover.useProjectMachine = choice == "project"
-            cover.machine = model.machineProfiles.first { $0.id.uuidString == choice }
-            model.coverPreparation = cover
+            model.updateCoverImposition {
+                $0.useProjectMachine = choice == "project"
+                $0.machine = model.machineProfiles.first { $0.id.uuidString == choice }
+            }
         })
     }
 
@@ -91,46 +98,45 @@ struct CoverPreparationView: View {
             if let machine = selectedMachine {
                 Text(machine.name+" · "+TRFormat.size(machine.size.width,machine.size.height))
                     .foregroundStyle(DesignSystem.muted)
-            } else {
-                Menu(model.coverPreparation.sheet == nil ? "İşteki tabaka ayarı" : TRFormat.size(model.coverSheetSpec.size.width,model.coverSheetSpec.size.height)) {
-                    Button("İşteki tabaka ayarı") { model.coverPreparation.sheet = nil }
-                    ForEach(presets,id:\.title) { preset in
-                        Button(preset.title) { model.coverSheetSpec.size = preset.size }
-                    }
-                    Button("Özel ölçü…") {
-                        model.coverPreparation.sheet = model.coverSheetSpec
-                        sheetDetails = true
-                    }
-                }.accessibilityLabel("Kapak tabakası")
-                DisclosureGroup("Ebat, kenarlar ve maşa",isExpanded:$sheetDetails) {
-                    VStack(alignment:.leading,spacing:7) {
-                        measure("Genişlik",$model.coverSheetSpec.size.width,range:1...10_000)
-                        measure("Yükseklik",$model.coverSheetSpec.size.height,range:1...10_000)
-                        Picker("Tabaka yönü",selection:$model.coverSheetSpec.orientation) {
-                            Text("Otomatik").tag(Orientation.auto)
-                            Text("Dikey").tag(Orientation.portrait)
-                            Text("Yatay").tag(Orientation.landscape)
-                        }
-                        measure("Sol kenar",$model.coverSheetSpec.margins.left)
-                        measure("Sağ kenar",$model.coverSheetSpec.margins.right)
-                        measure("Alt kenar",$model.coverSheetSpec.margins.bottom)
-                        measure("Üst kenar",$model.coverSheetSpec.margins.top)
-                        Picker("Maşa kenarı",selection:$model.coverSheetSpec.gripperEdge) {
-                            Text("Alt").tag(ImpositionCore.Edge.bottom)
-                            Text("Üst").tag(ImpositionCore.Edge.top)
-                            Text("Sol").tag(ImpositionCore.Edge.left)
-                            Text("Sağ").tag(ImpositionCore.Edge.right)
-                        }
-                        measure("Maşa payı",$model.coverSheetSpec.gripperWidth)
+            }
+            Menu("Tabaka · "+TRFormat.size(model.coverSheetSpec.size.width,model.coverSheetSpec.size.height)) {
+                Button("Varsayılan ölçü") { model.updateCoverImposition { $0.sheet = nil } }
+                ForEach(presets,id:\.title) { preset in
+                    Button(preset.title) { model.coverSheetSpec.size = preset.size }
+                }
+            }.accessibilityLabel("Kapak tabakası")
+            CoverSheetMeasure(title:"Genişlik",value:$model.coverSheetSpec.size.width,minimum:1)
+            CoverSheetMeasure(title:"Yükseklik",value:$model.coverSheetSpec.size.height,minimum:1)
+            CoverSheetMeasure(title:"Ara boşluk",value:$model.coverSheetSpec.gutter)
+            CoverSheetMeasure(title:"Taşma",value:Binding(
+                get:{ model.coverPreparation.bleed ?? CoverPreparationSettings.defaultBleed },
+                set:{ value in model.updateCoverImposition { $0.bleed = value } }),maximum:1000)
+            DisclosureGroup("Tabaka yönü, kenarlar ve maşa",isExpanded:$sheetDetails) {
+                if selectedMachine == nil {
+                    Picker("Tabaka yönü",selection:$model.coverSheetSpec.orientation) {
+                        Text("Otomatik").tag(Orientation.auto)
+                        Text("Dikey").tag(Orientation.portrait)
+                        Text("Yatay").tag(Orientation.landscape)
                     }
                 }
-                measure("Ara boşluk",$model.coverSheetSpec.gutter)
+                measure("Sol kenar",$model.coverSheetSpec.margins.left)
+                measure("Sağ kenar",$model.coverSheetSpec.margins.right)
+                measure("Alt kenar",$model.coverSheetSpec.margins.bottom)
+                measure("Üst kenar",$model.coverSheetSpec.margins.top)
+                if selectedMachine == nil {
+                    Picker("Maşa kenarı",selection:$model.coverSheetSpec.gripperEdge) {
+                        Text("Alt").tag(ImpositionCore.Edge.bottom)
+                        Text("Üst").tag(ImpositionCore.Edge.top)
+                        Text("Sol").tag(ImpositionCore.Edge.left)
+                        Text("Sağ").tag(ImpositionCore.Edge.right)
+                    }
+                    measure("Maşa payı",$model.coverSheetSpec.gripperWidth)
+                }
             }
-            measure("Taşma",Binding(get:{ model.coverPreparation.bleed ?? model.project.settings.bleed },
-                                     set:{ model.coverPreparation.bleed = $0 }),range:0...1000)
             Toggle("Kesim işaretleri",isOn:Binding(get:{ model.coverPreparation.crop ?? model.project.exportMarks.crop },
                                                     set:{ model.coverPreparation.crop = $0 }))
-            Picker("Kapak dönüşü",selection:$model.coverPreparation.grid.rotation) {
+            Picker("Kapak dönüşü",selection:Binding(get:{ model.coverPreparation.grid.rotation },
+                set:{ value in model.updateCoverImposition { $0.grid.rotation = value } })) {
                 Text("Otomatik (en çok kopya)").tag(MachineProfile.Rotation.automatic)
                 Text("0°").tag(MachineProfile.Rotation.zero)
                 Text("90°").tag(MachineProfile.Rotation.ninety)
@@ -164,6 +170,36 @@ struct CoverPreparationView: View {
 
     private func measure(_ title: String,_ value: Binding<Double>,range: ClosedRange<Double> = 0...10_000) -> some View {
         HStack { Text(title); Spacer(); DimensionInput(title,value:value,range:range) }
+    }
+}
+
+/// Keeps partial decimal input intact while publishing every valid edit.
+private struct CoverSheetMeasure: View {
+    let title: String
+    @Binding var value: Double
+    var minimum = 0.0
+    var maximum = 10_000.0
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack {
+            Text(title)
+            Spacer()
+            TextField(title,text:Binding(
+                get:{ focused ? draft : TRFormat.dimension(value,detail:true) },
+                set:{ text in
+                    draft = text
+                    if let parsed = Double(text.replacingOccurrences(of:",",with:".")),
+                       (minimum...maximum).contains(parsed), parsed != value { value = parsed }
+                }))
+                .focused($focused).multilineTextAlignment(.trailing)
+                .textFieldStyle(.roundedBorder).frame(width:80).accessibilityLabel(title)
+                .onChange(of:focused) { _, active in
+                    if active { draft = TRFormat.dimension(value,detail:true) }
+                }
+            Text("mm").foregroundStyle(DesignSystem.muted)
+        }
     }
 }
 

@@ -89,7 +89,10 @@ final class BookWorkspaceTests: XCTestCase {
         XCTAssertEqual(reopened.coverPreparation.spineText?[.top]?.y,0)
         reopened.coverPreparation.bleed = 1
         reopened.coverPreparation.crop = false
+        reopened.coverPreviewOutput = .spread
         reopened.coverSheetSpec = SheetSpec(size:Size(240,170),gripperWidth:8,gutter:5,orientation:.landscape)
+        XCTAssertEqual(reopened.coverPreviewOutput,.sheet)
+        XCTAssertEqual(reopened.coverPreparationPlan(.sheet).sheets.first?.size,Size(240,170))
         reopened.coverPreparation.grid.columns = 1
         reopened.coverPreparation.grid.rows = 1
         reopened.coverPreparation.grid.x = 2

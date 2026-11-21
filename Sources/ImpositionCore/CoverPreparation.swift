@@ -17,6 +17,20 @@ public struct CoverPreparationSettings: Codable, Equatable, Sendable {
     public var machine: MachineProfile?
     public var grid = Grid()
 
+    public static let defaultSheet = SheetSpec(preset:.cm33x48,orientation:.portrait)
+    public static let defaultBleed = 3.0
+
+    public func effectiveSheet(for project: Project) -> SheetSpec {
+        let profile = useProjectMachine ? project.machineProfile : machine
+        var result = sheet ?? Self.defaultSheet
+        if let profile {
+            if sheet == nil { result.size = profile.size }
+            result.gripperEdge = profile.gripperEdge
+            result.gripperWidth = profile.gripperWidth
+        }
+        return result
+    }
+
     public struct Grid: Codable, Equatable, Sendable {
         public var rotation = MachineProfile.Rotation.automatic
         public var columns: Int?
@@ -52,7 +66,7 @@ public enum CoverPreparationPlanner {
         let left = back.trimSize.width
         let right = left+cover.spineWidth
         let size = Size(right+front.trimSize.width,height)
-        let bleed = output == .sheet ? cover.bleed ?? project.settings.bleed : 0
+        let bleed = output == .sheet ? cover.bleed ?? CoverPreparationSettings.defaultBleed : 0
         guard (0...1000).contains(bleed) else { return error("Taşma 0–1.000 mm arasında olmalıdır.") }
         func panel(_ page: SourcePage?, x: Double, width: Double, label: String) -> Slot {
             let start = x == 0 ? -bleed : x
@@ -88,7 +102,7 @@ public enum CoverPreparationPlanner {
         settings.safeAreaInset = 0
         if !(cover.crop ?? project.exportMarks.crop) { settings.cropMarkLength = 0 }
         var input = Project(pages:[SourcePage(number:front.number,trimSize:size,availableBleed:bleed)],
-                            sheet:cover.sheet ?? project.sheet,settings:settings,
+                            sheet:cover.effectiveSheet(for:project),settings:settings,
                             stepAndRepeat:StepAndRepeatSettings(columns:cover.grid.columns,rows:cover.grid.rows))
         input.machineProfile = cover.useProjectMachine ? project.machineProfile : cover.machine
         input.coverGrid = cover.grid

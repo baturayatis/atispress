@@ -27,8 +27,9 @@ yazı alanları ile PNG, SVG veya tek sayfalı PDF logo eklenebilir. Yazıyı
 ve logoyu önizlemede sürükleyin veya X/Y ölçülerini girin.
 
 **Kapak PDF'i oluştur** kesim ebadında tek bir açılım verir. **Tabaka montajı**
-işteki tabaka ve makine ayarlarını devralabilir veya kapak için ayrı ayarlar
-kullanabilir. Otomatik dizilim 0° ve 90° yönlerini karşılaştırır. Sütun ve
+330 × 480 mm, 0 mm ara boşluk ve 3 mm taşmayla başlar. İşte seçili bir
+makine varsa, elle tabaka ölçüsü girilene kadar makinenin ölçüsü kullanılır.
+Otomatik dizilim 0° ve 90° yönlerini karşılaştırır. Sütun ve
 satır sayısıyla dizilimi, yatay ve dikey kaydırmayla blok konumunu ayarlayın.
 **Tabakaya bağla / PDF oluştur** yalnız monte edilmiş kapakları basar.
 Kapak ve sırt içeriği .atispress şema 30 ile kaydedilir.
