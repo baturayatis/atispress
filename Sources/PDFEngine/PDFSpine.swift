@@ -166,6 +166,7 @@ public enum PDFSpine {
 
     public static func issues(in plan: ImpositionPlan) -> [ValidationIssue] {
         var messages = Set<String>()
+        var warnings = Set<String>()
         for sheet in plan.sheets {
             for slot in sheet.front.slots+sheet.back.slots {
                 guard let artwork = slot.spineArtwork else { continue }
@@ -177,11 +178,18 @@ public enum PDFSpine {
                     }
                 }
                 for object in artwork.objects {
-                    if let message = objectWarning(object,in:trim) { messages.insert(message) }
+                    guard let message = objectWarning(object,in:trim) else { continue }
+                    if artwork.clipLogosToTrim, case .logo(let logo) = object.content,
+                       logoBounds(logo,in:trim) != nil {
+                        warnings.insert(message)
+                    } else {
+                        messages.insert(message)
+                    }
                 }
             }
         }
         return messages.sorted().map { ValidationIssue(.error,.bookSettings,$0) }
+            + warnings.sorted().map { ValidationIssue(.warning,.bookSettings,$0) }
     }
 
     public static let edgeWarning = "Kapak kenarı güvenilir biçimde okunamadı. Renk seç veya CMYK ile sırt rengini belirleyin."
@@ -250,7 +258,7 @@ public struct PDFSpineOverlay: PDFSlotOverlay, @unchecked Sendable {
             case .text(let block):
                 drawText(block,at:object.legacyPosition,in:trim,rotation:object.rotation,context:context)
             case .logo(let logo):
-                PDFSpine.drawLogo(logo,in:trim,context:context)
+                PDFSpine.drawLogo(logo,in:trim,clipToTrim:artwork.clipLogosToTrim,context:context)
             }
         }
     }

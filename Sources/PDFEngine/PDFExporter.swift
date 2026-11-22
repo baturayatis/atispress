@@ -44,11 +44,16 @@ public enum PDFExporter {
     }
     public static func export(plan: ImpositionPlan,source: PDFSource,destination: PDFExportDestination,
                               marks: ExportMarks = ExportMarks(),jobName: String = "",sheetInfo: SheetInfoSettings = SheetInfoSettings(),production: ProductionType = .digital,includeBlankBacks: Bool = true,overlays: [any PDFSlotOverlay] = []) throws -> PDFExportResult {
-        guard plan.canExport, PDFSpine.issues(in:plan).isEmpty, plan.diagnosticSheets.isEmpty, plan.generatedBleed.isValid, !plan.sheets.isEmpty else { throw PDFExportError.invalidPlan }
+        let spineIssues = PDFSpine.issues(in:plan)
+        guard plan.canExport, !spineIssues.contains(where:{ $0.severity == .error }),
+              plan.diagnosticSheets.isEmpty, plan.generatedBleed.isValid else { throw PDFExportError.invalidPlan }
         for sheet in plan.sheets { try validate(sheet) }
         let date = Date()
         let dateLabel = marks.sheetInfo && sheetInfo.date ? PDFSheetInfoContext.formattedDate(date) : ""
         var notes: [String] = PDFSerialCodeValidation.warnings(plan: plan)
+        if plan.sheets.contains(where:\.isPreparedCover) {
+            notes += spineIssues.map(\.message) + PDFSpine.logoResolutionIssues(in:plan).map(\.message)
+        }
         notes += plan.displayIssues.filter { [.missingBleed, .sharedCutBleed, .insufficientGutter].contains($0.code) }.map(\.message)
         let bindingWarnings = PDFBindingStripInspector.warnings(plan:plan,url:source.url,cache:source.bindingStripCache)
         notes += Array(Set((plan.displayIssues.filter { $0.code == .bindingAllowance }+bindingWarnings).map(\.message))).sorted()
@@ -58,7 +63,7 @@ public enum PDFExporter {
         var internalCutOnly = ExportMarks.none
         internalCutOnly.lineWidth = marks.lineWidth
         for sheet in plan.sheets {
-            let hasBack = sheet.hasContent(on: .back) || keepBlankBacks
+            let hasBack = sheet.exportsBack(keepingBlankBacks:keepBlankBacks)
             let faces = hasBack ? 2 : 1
             guard sheet.repeatCount > 0, sheet.repeatCount <= (maximumPageCount-pageCount)/faces else { throw PDFExportError.tooManyPages }
             pageCount += sheet.repeatCount*faces
@@ -174,7 +179,7 @@ public enum PDFExporter {
             let sheet = plan.sheets[index]
             let firstPhysical = plan.sheets.prefix(index).reduce(0) { $0+$1.repeatCount }+1
             let repetitions = only.map { $0.1..<($0.1+1) } ?? 0..<sheet.repeatCount
-            let faces: [(SideKind,Side)] = sheet.hasContent(on: .back) || keepBlankBacks ? [(.front,sheet.front),(.back,sheet.back)] : [(.front,sheet.front)]
+            let faces: [(SideKind,Side)] = sheet.exportsBack(keepingBlankBacks:keepBlankBacks) ? [(.front,sheet.front),(.back,sheet.back)] : [(.front,sheet.front)]
             for repetition in repetitions {
                 for (kind,side) in faces {
                     try Task.checkCancellation()

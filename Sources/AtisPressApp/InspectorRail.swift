@@ -72,7 +72,9 @@ struct InspectorRail:View {
     @ObservedObject var model:Workspace
     @ObservedObject var prices:PricingStore
     @FocusState private var focused:InspectorPanel?
-    private var panels:[InspectorPanel] {InspectorPanel.allCases}
+    private var panels:[InspectorPanel] {
+        InspectorPanel.allCases.filter { $0 != .coverPreparation || model.canShowCoverTab }
+    }
     var body:some View {
         VStack(spacing:2) {
             InspectorVisibilityButton(settings: model.ui)

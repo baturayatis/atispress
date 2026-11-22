@@ -1,6 +1,75 @@
 # AtışPress — sayfa-bol durumu
 
 
+## Kapak sekmesi · şema 33
+
+**Çalışanlar**
+
+- Sağ simge çubuğunda **Montaj → Kapak → Ölçüler** sırası kullanılır.
+  İki veya daha fazla PDF sayfası olan işlerde **Kapak** açılır. Eski
+  **Kapak ve Sırt** denetimleri bu sekmeye taşındı. Üst çubuktaki
+  **Sırt (mm)** aynı sırt payını düzenler.
+- Dört kaynak seçeneği vardır. **İlk ve son sayfa**, **Sayfaları seç** ve
+  **Sadece kapağı olan iş** iki yüzü arka, sırt, ön sırasıyla birleştirir.
+  **Ayrı kapak PDF’i**, bağlantılı bir iki sayfalı PDF’yi veya ölçüsü
+  denetlenen tek sayfalı hazır açılımı kullanır. Kaynak seçimi üretimi
+  etkinleştirir. **Sadece kapağı bas** açıkken iç işler projede durur.
+- Açılım boyutu, tabaka başına açılım sayısı ve sığmayan düzende gerekli
+  alan ile en yakın uygun hazır tabaka gösterilir. Kapak tabakası mevcut
+  tabaka, maşa, hizalama, adet, taşma ve çıktı işareti ayarlarını kullanır.
+  **Kapak** panelinden ortak tabaka ve işaret ayarlarına gidilebilir.
+- Sırtta CMYK veya kapak kenarı uzatma, yazı ve en fazla üç logo
+  kullanılabilir. PNG, JPG, tek sayfalı PDF ve SVG açılır. Logo orantılı
+  boyutlanır, mm veya sırt genişliği yüzdesiyle ölçülür ve varsayılan 90°
+  dönüşle yerleşir. X/Y merkezden ölçülür. Sürükleme 1 mm’ye yuvarlanır ve
+  tek geri alma adımıdır. Raster logoda etkin çözünürlük, sırtta taşan logoda
+  milimetre cinsinden taşma gösterilir. Taşan logo baskıda sırt sınırında
+  kırpılır.
+- Sırt kılavuzları önizlemede kalır. İsteğe bağlı katlama işaretleri iki
+  sırt kenarının dışında basılır. Mevcut taşma ve işaret motorları açılımın
+  dış sınırında çalışır.
+- Şema 1–32 açılır. Eski kitap ve bağımsız kapak ayarları kendi üretim
+  sonuçlarıyla açılır. Yeni kaynak seçimi yapılmadan kapak tabakasının
+  projeye eklenmesi gerekmez. Güncelleyici ve makine profili değişmedi.
+
+**Sınırlar**
+
+- PDF logo vektör olarak yerleştirilir. SVG’nin vektör olarak aktarılması
+  macOS’un SVG çizimine bağlıdır. Piksel dönüşümü olduğunda panel uyarır.
+- Önizleme ve PDF regresyonları için üretilen örnekler kullanıldı. Gerçek
+  baskı malzemesiyle prova, Finder dosya seçicisi ve VoiceOver elle
+  doğrulanmayı bekliyor.
+
+**Çalıştırma ve elle kontrol**
+
+Tam test koşusunda 505 test geçti. Kapak testleri kaynak seçimi, adet
+ve maşa, kaydet/aç, logo ölçüsü ve uyarıları, çıktı pikselleri, şema 32
+plan/PDF karşılaştırması ve ayar erişimini kapsar.
+
+```sh
+cd /Users/baturayatis/Developer/AtisPressCore
+swift run --disable-sandbox AtisPressApp
+swift test --disable-sandbox
+```
+
+1. 12 sayfalı bir PDF açın. **Kapak** sekmesinde ilk ve son sayfayı seçin.
+   **Sadece kapağı bas** açık ve kapalıyken Tabakalar listesini ve PDF
+   özetini karşılaştırın. Ön ve arka kapağı farklı dosyalardan seçip aynı
+   projeyi kaydedin ve tekrar açın.
+2. Kapağı tek sayfalı hazır açılımla değiştirin. Trim ölçüsünü uyumlu ve
+   uyumsuz dosyalarla doğrulayın. Küçük bir tabaka seçip uygun hazır
+   tabaka önerisini, ardından çoklu dizilim ve maşa payını kontrol edin.
+3. Renk, sırt yazısı ve PDF/JPG/SVG logo deneyin. Logoyu sürükleyip tek
+   ⌘Z ile geri alın. Yüzde ve mm arasında geçin, logoyu döndürün ve
+   taşırın. Sırt kenarındaki sayısal uyarıyı ve kırpmayı çıktıdan okuyun.
+4. Taşma üretimini, önizleme kılavuzlarını ve baskı işaretlerini ayrı
+   açıp kapatın. PDF’de kesim ve sırt katlama işaretlerini, sırt
+   dolgusunun taşmasını ve tüm açılımların dış kenarlarını kontrol edin.
+5. Kapak ayarı olan bir şema 32 projesini açın. Kapak sekmesine geçin,
+   bir kaynak seçmeden çıktı alın ve eski provayla karşılaştırın.
+   Dar denetçide kaynak düğmelerini, klavye sırasını ve VoiceOver
+   etiketlerini denetleyin.
+
 ## 0.6.1 · build 9
 
 - **Uygulama ikonu.** Yeni AtışPress ikonu macOS uygulama paketinde ve Hakkında penceresinde kullanılır.

@@ -59,7 +59,7 @@ import PDFEngine
     func testSidebarSeparatesPressAndColorAndPreservesNumberShortcuts() {
         let model = Workspace(uiDefaults: defaults())
         let tabs = InspectorPanel.allCases
-        XCTAssertEqual(tabs.map(\.title), ["İş", "Tabaka", "Montaj", "Kapak Hazırla", "Ölçüler", "Kesim", "İş Ayır", "Seri No", "Baskı", "Renk", "Fiyat", "Çıktı"])
+        XCTAssertEqual(tabs.map(\.title), ["İş", "Tabaka", "Montaj", "Kapak", "Ölçüler", "Kesim", "İş Ayır", "Seri No", "Baskı", "Renk", "Fiyat", "Çıktı"])
         XCTAssertEqual(InspectorPanel.neighbor(of: .job, step: -1, visible: tabs), .job)
         XCTAssertEqual(InspectorPanel.neighbor(of: .sheet, step: 1, visible: tabs), .montage)
         XCTAssertEqual(InspectorPanel.neighbor(of: .cut, step: 1, visible: tabs), .separation)
@@ -80,7 +80,7 @@ import PDFEngine
         let bindingShortcut = InspectorPanel.shortcuts[7]
         XCTAssertFalse(bindingShortcut.isAvailable(for: model.project))
         XCTAssertTrue(bindingShortcut.isAvailable(for: book))
-        XCTAssertEqual(bindingShortcut.destination(for: book), .cover)
+        XCTAssertEqual(bindingShortcut.destination(for: book), .binding)
         book.binding = .spiral
         XCTAssertTrue(bindingShortcut.isAvailable(for: book))
         XCTAssertEqual(bindingShortcut.destination(for: book), .binding)
@@ -88,6 +88,8 @@ import PDFEngine
         XCTAssertEqual(InspectorRegistry.owner(editor: "SourcePageTools", path: "hiddenGuideGroups"), .separation)
         XCTAssertEqual(InspectorRegistry.owner(editor: "TeamInspectorView", path: "manualLayouts"), .montage)
         XCTAssertEqual(InspectorRegistry.owner(editor: "InternalCutMarksView", path: "internalCutJobs"), .cut)
+        XCTAssertEqual(InspectorRegistry.owner(editor:"BookInspectorView",path:"coverMode"), .coverPreparation)
+        XCTAssertEqual(InspectorRegistry.owner(editor:"PreparedSpineEditor",path:"spineObjects"), .coverPreparation)
         XCTAssertEqual(InspectorRegistry.owner(.exportCrop), .cut)
         XCTAssertEqual(InspectorRegistry.owner(.exportColorBar), .color)
         XCTAssertEqual(InspectorRegistry.owner(.exportSheetInfo), .press)
@@ -351,7 +353,9 @@ import PDFEngine
             let after=ImpositionPlanner.plan(model.project)
             XCTAssertEqual(before.sheets,after.sheets);XCTAssertEqual(before.issues,after.issues)
             XCTAssertEqual(try pixels(after,"after"),baseline)
-            let restored=try ProjectDocument.decode(state).state.project
+            var legacy = try XCTUnwrap(JSONSerialization.jsonObject(with:state) as? [String:Any])
+            legacy["version"] = 32
+            let restored = try ProjectDocument.decode(JSONSerialization.data(withJSONObject:legacy)).state.project
             XCTAssertEqual(ImpositionPlanner.plan(restored).sheets,before.sheets)
             XCTAssertEqual(try pixels(ImpositionPlanner.plan(restored),"restored"),baseline)
         }
@@ -413,7 +417,8 @@ extension IconPanelTests {
             }
             XCTAssertTrue(seen.isSuperset(of: [.method, .placement, .scale, .internalCuts, .separation,
                                               .serialContent, .production, .tone, .colorControls, .preview, .colorSizes, .colorInfo, .registration, .sheetInfo, .preflight]))
-            XCTAssertEqual(seen.contains(.cover), model.project.isBooklet || model.project.isLeafBinding)
+            XCTAssertTrue(seen.contains(.coverPreparation))
+            XCTAssertFalse(seen.contains(.cover))
         }
     }
     func testPanelAndContextTypographyAndNavigationDefinitions() throws {

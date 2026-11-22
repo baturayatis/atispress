@@ -13,14 +13,14 @@ struct ExportVerification:Sendable {
         var result = Self()
         let docs = try files.map { url -> CGPDFDocument in guard let doc = CGPDFDocument(url as CFURL) else { throw PDFReadError.unreadable }; return doc }
         let keep = plan.hasBackContent && includeBlankBacks
-        let expectedCount = plan.sheets.reduce(0) { $0+$1.repeatCount*($1.hasContent(on:.back) || keep ? 2 : 1) }
+        let expectedCount = plan.sheets.reduce(0) { $0+$1.repeatCount*($1.exportsBack(keepingBlankBacks:keep) ? 2 : 1) }
         let actualCount = docs.reduce(0) { $0+$1.numberOfPages }
         if actualCount != expectedCount { result.differences.append("Sayfa sayısı: beklenen \(expectedCount), bulunan \(actualCount).") }
         guard let sourceDoc = CGPDFDocument(source.url as CFURL) else { throw PDFReadError.unreadable }
         var fileIndex = 0,pageIndex = 1,physicalPage = 0
         for (sheetIndex,sheet) in plan.sheets.enumerated() {
             for repetition in 0..<sheet.repeatCount {
-                for kind in (sheet.hasContent(on:.back) || keep ? [SideKind.front,.back] : [.front]) {
+                for kind in (sheet.exportsBack(keepingBlankBacks:keep) ? [SideKind.front,.back] : [.front]) {
                     try Task.checkCancellation()
                     physicalPage += 1
                     while fileIndex < docs.count && pageIndex > docs[fileIndex].numberOfPages { fileIndex += 1; pageIndex = 1 }

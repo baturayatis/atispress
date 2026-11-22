@@ -39,6 +39,6 @@ extension Workspace {
         let sizes = Array(Set(plan.sheets.map { TRFormat.size($0.size.width,$0.size.height) })).sorted().joined(separator:" / ")
         let m = project.exportMarks
         let marks = [(m.crop,"kesim"),(m.fold,"katlama"),(m.bleed,"taşma"),(m.safeArea,"güvenli alan"),(m.pageNumbers,"sayfa no"),(m.sheetInfo,"bilgi şeridi"),(m.fullCut,"tam kesim"),(m.colorBar,"renk skalası"),(m.registrationTargets,"diz"),(m.registrationCrosses,"kros")].filter(\.0).map(\.1).joined(separator:", ")
-        return "\(plan.totalPressSheets) tabaka · \(sizes) · \(plan.hasBackContent ? "ön ve arka" : "yalnız ön") · İşaretler: \(marks.isEmpty ? "yok" : marks) · \(workflowIssues.filter { $0.severity == .warning }.count) uyarı" + (requiresBacklessConfirmation ? "\nArka yüz yok":"") + (showsMissingBleedWarning ? "\n"+Self.missingBleedWarning : "") + (hiddenSourceGuideCount>0 ? "\n\(hiddenSourceGuideCount) kılavuz çizgisi gizlendi" : "")
+        return "\(plan.totalPressSheets) tabaka · \(sizes) · \(plan.hasBackContent ? "ön ve arka" : "yalnız ön") · İşaretler: \(marks.isEmpty ? "yok" : marks) · \(workflowIssues.filter { $0.severity == .warning }.count) uyarı" + (project.coverPreparation?.onlyCover == true ? "\nİç sayfalar: basılmayacak" : "") + (requiresBacklessConfirmation ? "\nArka yüz yok":"") + (showsMissingBleedWarning ? "\n"+Self.missingBleedWarning : "") + (hiddenSourceGuideCount>0 ? "\n\(hiddenSourceGuideCount) kılavuz çizgisi gizlendi" : "")
     }
 }

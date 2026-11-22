@@ -177,7 +177,7 @@ public enum PDFPlanRenderer {
             try drawSlot(slot,page: page,in: context,reference: SlotReference(sheet: sheetIndex,side: kind,slot: index),
                          repetition: repetition,overlays: overlays+serials,pass: .artwork,tone: tone?.value(for: slot,on: kind) ?? 0)
         }
-        drawMarks(side.marks,sheetSize: sheet.size,in: context,options: options)
+        drawMarks(side.marks+side.previewMarks,sheetSize: sheet.size,in: context,options: options)
         if options.punch { drawPunchMarks(side.punchMarks,in:context) }
         if options.colorBar || options.registrationTargets {
             var marks = controlMarks

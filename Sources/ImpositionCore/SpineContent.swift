@@ -48,15 +48,17 @@ public struct SpineArtwork: Equatable, Sendable {
     public var frontPage: Int?
     public var vectorExtension = false
     public var objects: [FreeSpineObject] = []
+    public var clipLogosToTrim = false
 }
 
 public struct SpineLogo: Codable, Equatable, Sendable {
-    public enum Format: String, Codable, Sendable { case pdf, png, convertedSVG }
+    public enum Format: String, Codable, Sendable { case pdf, png, jpg, convertedSVG }
     public let id: UUID
     public let name: String
     public let format: Format
     public let data: Data
     public var width: Double
+    public var spineWidthPercent: Double?
     public var rotation = 0.0
     public var x = 0.0
     public var y = 0.0

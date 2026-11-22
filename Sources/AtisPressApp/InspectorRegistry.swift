@@ -18,7 +18,7 @@ enum InspectorPanel: String, CaseIterable, Identifiable, Codable {
         case .press: return "Baskı"
         case .color: return "Renk"
         case .price: return "Fiyat"
-        case .coverPreparation: return "Kapak Hazırla"
+        case .coverPreparation: return "Kapak"
         case .output: return "Çıktı"
         }
     }
@@ -126,7 +126,7 @@ enum InspectorGroup: String, Identifiable, Hashable {
     var id: Self { self }
 
     static func bindingEntry(for project: Project) -> Self {
-        project.binding == .saddleStitch ? .cover : .binding
+        .binding
     }
 
     var title: String {
@@ -199,6 +199,8 @@ enum InspectorRegistry {
         "PresetInspectorView": ["autoLayout"],
     ]
     static let settingsByEditor=legacySettingsByEditor.merging([
+        "CoverPreparationView": ["source", "front", "back", "onlyCover", "spineWidth", "foldMarks", "grid"],
+        "PreparedSpineEditor": ["colorMode", "color", "spineObjects"],
         "InternalCutMarksView": ["internalCutJobs"],
         "TeamInspectorView": ["team", "manualLayouts", "allowRotation", "duplex"],
         "SourcePageTools":Set(["columns","rows","verticalCuts","horizontalCuts","cells.product","cells.side","cellBleed","explicitTrim.width","explicitTrim.height","learnedTrimCenters","hiddenGuideGroups","ignoreSplitSuggestion"])
@@ -218,7 +220,8 @@ enum InspectorRegistry {
             return .sheet
         }
         switch editor {
-        case "BookInspectorView","LeafInspectorView","BlankPlacementView":return .montage
+        case "BookInspectorView","CoverPreparationView","PreparedSpineEditor":return .coverPreparation
+        case "LeafInspectorView","BlankPlacementView":return .montage
         case "SerialInspectorView","SerialCodeControlsView":return .serial
         case "RescaleInspectorView","ScaleWindowView":return .dimensions
         case "SourcePageTools":return .separation
@@ -268,10 +271,9 @@ extension InspectorPanel {
         case .job: return [.jobBasics, .method, .waste, .presets]
         case .sheet: return [.paper, .preview]
         case .montage:
-            if project.isLeafBinding { return [.placement, .binding, .cover] }
+            if project.isLeafBinding { return [.placement, .binding] }
             if project.isBooklet {
-                let signature: [InspectorGroup] = project.binding == .saddleStitch ? [] : [.binding]
-                return [.placement] + signature + [.cover, .blanks]
+                return [.placement, .binding, .blanks]
             }
             if project.binding == .stepAndRepeat { return [.products, .placement, .jobFaces] }
             return [.products, .placement]

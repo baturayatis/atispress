@@ -110,6 +110,34 @@ extension PDFSpine {
         return logo
     }
 
+    public static func rotatedLogo(_ original: SpineLogo,in trim: CGRect) -> SpineLogo {
+        var logo = original
+        guard let asset = logoAsset(logo) else { return logo }
+        logo.rotation = 90
+        logo.width = 0.8*min(trim.height,trim.width*asset.size.width/asset.size.height)
+        return logo
+    }
+
+    public static func logoResolutionWarning(_ logo: SpineLogo) -> String? {
+        guard let asset = logoAsset(logo), let image = asset.image, logo.width > 0 else { return nil }
+        let dpi = Double(image.width)*25.4/logo.width
+        guard dpi < 300 else { return nil }
+        return String(format:"%@: etkin çözünürlük %.1f dpi (önerilen en az 300 dpi).",
+                      locale:Locale(identifier:"tr_TR"),logo.name,dpi)
+    }
+
+    public static func logoResolutionIssues(in plan: ImpositionPlan) -> [ValidationIssue] {
+        let messages = Set(plan.sheets.flatMap { sheet in
+            sheet.front.slots.flatMap { slot in
+                (slot.spineArtwork?.objects ?? []).compactMap { object -> String? in
+                    guard case .logo(let logo) = object.content else { return nil }
+                    return logoResolutionWarning(logo)
+                }
+            }
+        })
+        return messages.sorted().map { ValidationIssue(.warning,.bookSettings,$0) }
+    }
+
     public static func logoBounds(_ logo: SpineLogo,in trim: CGRect) -> CGRect? {
         logoPlacement(logo,in:trim)?.bounds
     }
@@ -134,11 +162,13 @@ extension PDFSpine {
         return String(format:"Logo taşıyor · En: %.4f mm · Boy: %.4f mm",locale:Locale(identifier:"tr_TR"),width,height)
     }
 
-    static func drawLogo(_ logo: SpineLogo,in trim: CGRect,context: CGContext) {
-        guard logoWarning(logo,in:trim) == nil, let placement = logoPlacement(logo,in:trim),
+    static func drawLogo(_ logo: SpineLogo,in trim: CGRect,clipToTrim: Bool,context: CGContext) {
+        guard clipToTrim || logoWarning(logo,in:trim) == nil,
+              let placement = logoPlacement(logo,in:trim),
               let asset = logoAsset(logo) else { return }
         context.saveGState()
         defer { context.restoreGState() }
+        if clipToTrim { context.clip(to:trim) }
         context.concatenate(placement.transform)
         asset.lock.lock()
         defer { asset.lock.unlock() }

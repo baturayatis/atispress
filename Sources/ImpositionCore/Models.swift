@@ -39,7 +39,7 @@ public enum SignatureSize: String, Codable, Sendable {
         switch self { case .automatic: return nil; case .four: return 4; case .eight: return 8; case .sixteen: return 16; case .thirtyTwo: return 32 }
     }
 }
-public enum SheetPreset: Sendable {
+public enum SheetPreset: Sendable, CaseIterable {
     case a5, a4, a3, sra3, cm33x48, cm35x50, cm50x70, cm70x100
     public var title: String {
         switch self {
@@ -372,12 +372,14 @@ public struct Mark: Equatable, Sendable {
     }
 }
 public struct Side: Equatable, Sendable {
+    public var previewMarks: [Mark] = []
     public var punchMarks: [PunchMark] = []
     public var slots: [Slot]
     public var marks: [Mark]
     public init(slots: [Slot] = [], marks: [Mark] = []) { self.slots = slots; self.marks = marks }
 }
 public struct Sheet: Equatable, Sendable {
+    public var isPreparedCover = false
     public var requiresDuplexBack = false
     public var leafInfo: LeafSheetInfo? = nil
     public var alignment: BlockAlignment = .gripper

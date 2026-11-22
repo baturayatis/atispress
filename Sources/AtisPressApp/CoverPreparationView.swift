@@ -18,125 +18,171 @@ extension Workspace {
 
 struct CoverPreparationView: View {
     @ObservedObject var model: Workspace
-    @State private var sheetDetails = false
-    private var stock: ContextBindings { ContextBindings(model:model) }
+    @State private var calculator = false
 
     var body: some View {
-        if let source = model.source {
+        if model.canShowCoverTab {
             let spread = model.coverPreparationPlan(.spread)
             let sheet = model.coverPreparationPlan(.sheet)
             VStack(alignment:.leading,spacing:10) {
-                pagePicker("Ön kapak",pages:source.pages,value:$model.coverPreparation.front,automatic:source.pages.first?.number)
-                    .inspectorTarget("prepareCover")
-                pagePicker("Arka kapak",pages:source.pages,value:$model.coverPreparation.back,automatic:source.pages.last?.number)
-                measure("Sırt payı (mm)",$model.coverPreparation.spineWidth,range:0...1000)
-                if let size = spread.sheets.first?.size {
-                    Text("Açılım: "+TRFormat.size(size.width,size.height)).monospacedDigit()
-                }
-                if model.coverPreparation.spineWidth > 0 {
-                    let back = source.pages.first { $0.number == model.coverPreparation.back } ?? source.pages.last
-                    let trim = CGRect(x:0,y:0,width:model.coverPreparation.spineWidth,height:back?.trimSize.height ?? 0)
-                    PreparedSpineEditor(model:model,trim:trim)
-                    if let issue = spread.issues.first(where:{ $0.severity == .error }) {
+                sourceControls
+                if model.project.coverPreparation == nil && (model.project.isBooklet || model.project.isLeafBinding) {
+                    BookInspectorView(model:model)
+                } else {
+                    if model.coverPreparation.source == .selectedPages || model.coverPreparation.source == nil && model.project.coverPreparation != nil {
+                        let legacy = model.coverPreparation.source == nil
+                        let pages = legacy ? model.source?.pages.map(\.sourcePage) ?? [] : model.coverSelectablePages
+                        let automatic = legacy ? pages : model.coverSourcePages
+                        pagePicker("Ön kapak",pages:pages,value:$model.coverPreparation.front,automatic:automatic.first?.number)
+                        pagePicker("Arka kapak",pages:pages,value:$model.coverPreparation.back,automatic:automatic.last?.number)
+                    }
+                    measure("Sırt payı (mm)",ContextBindings(model:model).spine,range:0...1000)
+                        .inspectorTarget("coverMode")
+                    Button("Kalınlıktan hesapla…") { calculator = true }
+                        .popover(isPresented:$calculator) {
+                            SpineCalculatorView(book:model.bookSettings,pageCount:model.coverInteriorProject.pages.count) {
+                                model.spineWidth = $0
+                                calculator = false
+                            }
+                        }
+                    if let size = spread.sheets.first?.size {
+                        Text("Açılım: \(TRFormat.dimension(size.width,detail:true)) × \(TRFormat.dimension(size.height,detail:true)) mm").monospacedDigit()
+                    }
+                    if let slot = spread.sheets.first?.front.slots.first(where: { $0.spineArtwork != nil }) {
+                        Text("Sırt içeriği").font(.headline)
+                        PreparedSpineEditor(model:model,trim:CGRect(x:0,y:0,width:slot.size.width,height:slot.size.height))
+                    }
+                    if sheet.issues.isEmpty, let issue = spread.issues.first(where:{ $0.severity == .error }) {
                         Text(issue.message).foregroundStyle(DesignSystem.warning)
                     }
+                    if model.coverPreparation.source == nil && model.project.coverPreparation != nil {
+                        Button("Kapak PDF'i oluştur") { model.requestCoverPreparationExport(.spread) }
+                            .disabled(!spread.canExport || model.exporting)
+                            .accessibilityIdentifier("exportCoverSpread")
+                        Divider()
+                        coverSheetControls(sheet,legacy:true)
+                        Button("Tabakaya bağla / PDF oluştur") { model.requestCoverPreparationExport(.sheet) }
+                            .disabled(!sheet.canExport || model.exporting)
+                            .accessibilityIdentifier("exportImposedCover")
+                    } else if model.coverPreparation.source != nil {
+                        if model.spineWidth > 0 {
+                            Toggle("Sırt kenarlarına katlama işareti",isOn:optionalFlag(\.foldMarks))
+                        }
+                        Divider()
+                        coverSheetControls(sheet,legacy:false)
+                        if model.project.binding == .saddleStitch {
+                            DisclosureGroup("Tel dikiş ayrıntıları") { SaddleCreepControls(model:model) }
+                        }
+                    }
                 }
-                Button("Kapak PDF'i oluştur") { model.requestCoverPreparationExport(.spread) }
-                    .disabled(!spread.canExport || model.exporting)
-                    .accessibilityIdentifier("exportCoverSpread")
-                Divider()
-                sheetControls(sheet)
-                Button("Tabakaya bağla / PDF oluştur") { model.requestCoverPreparationExport(.sheet) }
-                    .disabled(!sheet.canExport || model.exporting)
-                    .accessibilityIdentifier("exportImposedCover")
-            }
+            }.font(.system(size:13))
         } else {
             Button("PDF seçin",action:model.choosePDF)
         }
     }
 
-    private func pagePicker(_ title: String,pages: [PDFPageInfo],value: Binding<Int?>,automatic: Int?) -> some View {
-        Picker(title,selection:value) {
-            Text(automatic.map { "Otomatik (sayfa \($0))" } ?? "Otomatik").tag(nil as Int?)
-            ForEach(pages,id:\.number) { page in Text("Sayfa \(page.number)").tag(Optional(page.number)) }
-        }.accessibilityIdentifier(title == "Ön kapak" ? "preparedCoverFront" : "preparedCoverBack")
-    }
-
-    private func sheetControls(_ plan: ImpositionPlan) -> some View {
+    private var sourceControls: some View {
         VStack(alignment:.leading,spacing:8) {
-            Text("Tabaka montajı").font(.headline)
-            SharedMachinePicker(model:model)
-            Picker("Tabaka",selection:stock.sheet) {
-                ForEach(WorkflowPresentation.sheetChips,id:\.self) { Text($0).tag($0) }
-            }
-            CoverSheetMeasure(title:"Genişlik",value:stock.sheetDimension(\.width),minimum:1)
-            CoverSheetMeasure(title:"Yükseklik",value:stock.sheetDimension(\.height),minimum:1)
-            CoverSheetMeasure(title:"Ara boşluk",value:Binding(get:{ model.coverPreparation.gap ?? 0 },
-                set:{ value in model.updateCoverImposition { $0.gap = value } }))
-            LabeledContent("Kapak taşması") {
-                BleedInput(title:"Kapak taşması",value:Binding(
-                    get:{ model.coverPreparation.bleed ?? CoverPreparationSettings.defaultBleed },
-                    set:{ value in model.updateCoverImposition { $0.bleed = value } }),maximum:1000)
-            }
-            Picker("Tabaka yönü",selection:stock.orientation) {
-                Text("Otomatik").tag(Orientation.auto)
-                Text("Dikey").tag(Orientation.portrait)
-                Text("Yatay").tag(Orientation.landscape)
-            }
-            DisclosureGroup("Kenarlar ve maşa",isExpanded:$sheetDetails) {
-                measure("Sol kenar",margin(\.left,.marginLeft))
-                measure("Sağ kenar",margin(\.right,.marginRight))
-                measure("Alt kenar",margin(\.bottom,.marginBottom))
-                measure("Üst kenar",margin(\.top,.marginTop))
-                if model.project.machineProfile == nil {
-                    Picker("Maşa kenarı",selection:$model.project.sheet.gripperEdge) {
-                        Text("Alt").tag(ImpositionCore.Edge.bottom)
-                        Text("Üst").tag(ImpositionCore.Edge.top)
-                        Text("Sol").tag(ImpositionCore.Edge.left)
-                        Text("Sağ").tag(ImpositionCore.Edge.right)
-                    }
-                    measure("Maşa payı",$model.project.sheet.gripperWidth)
+            Text("Kapak kaynağı").font(.headline)
+            let choices: [(CoverPreparationSettings.Source,String)] = [
+                (.firstAndLast,"İlk ve son sayfa"), (.selectedPages,"Sayfaları seç"),
+                (.coverFile,"Sadece kapağı olan iş"), (.separatePDF,"Ayrı kapak PDF'i")
+            ]
+            VStack(spacing:4) {
+                sourcePicker(Array(choices.prefix(2)))
+                sourcePicker(Array(choices.suffix(2)))
+            }.inspectorTarget("prepareCover")
+            if let source = model.coverPreparation.source {
+                if source == .separatePDF {
+                    let linked = model.pageSourceRecords.first { $0.id == model.bookSettings.coverSourceID }
+                    if let linked { Text(linked.reference.fileName).lineLimit(1) }
+                    Button(linked == nil ? "Kapak PDF’i seç…" : "Kapak PDF’ini değiştir…",action:model.chooseCoverPDF)
+                        .disabled(model.loading || model.exporting)
                 }
-            }
-            Toggle("Kesim işaretleri",isOn:Binding(get:{ model.coverPreparation.crop ?? model.project.exportMarks.crop },
-                                                    set:{ stock.crop.wrappedValue = $0 }))
-            Picker("Kapak dönüşü",selection:Binding(get:{ model.coverPreparation.grid.rotation },
-                set:{ value in model.updateCoverImposition { $0.grid.rotation = value } })) {
-                Text("Otomatik (en çok kopya)").tag(MachineProfile.Rotation.automatic)
-                Text("0°").tag(MachineProfile.Rotation.zero)
-                Text("90°").tag(MachineProfile.Rotation.ninety)
-            }
-            HStack {
-                count("Sütun",$model.coverPreparation.grid.columns)
-                count("Satır",$model.coverPreparation.grid.rows)
-            }
-            measure("Merkezden yatay",$model.coverPreparation.grid.x,range:-10_000...10_000)
-            measure("Merkezden dikey",$model.coverPreparation.grid.y,range:-10_000...10_000)
-            if let layout = plan.sheets.first?.repeatLayout {
-                Text("\(layout.columns) × \(layout.rows) · \(layout.copiesPerSheet) kapak/tabaka").monospacedDigit()
-            }
-            Button("Tabaka önizle") { model.coverPreviewOutput = .sheet }
-            if let sheet = plan.sheets.first, model.project.exportMarks.registrationCrosses {
-                let marks = model.coverPreparationMarks(.sheet)
-                ForEach(PDFColorControlRenderer.geometry(sheet:sheet,settings:marks).warnings.filter { $0.hasPrefix("Kros") },id:\.self) {
-                    Text($0).foregroundStyle(DesignSystem.warning)
-                }
-            }
-            if let error = plan.issues.first(where:{ $0.severity == .error }) {
-                Text(error.message).foregroundStyle(DesignSystem.warning)
-            } else if let warning = plan.issues.first(where:{ $0.severity == .warning }) {
-                Text(warning.message).foregroundStyle(DesignSystem.warning)
+                Toggle("Sadece kapağı bas",isOn:optionalFlag(\.onlyCover))
+                if model.coverPreparation.onlyCover == true { Text("İç sayfalar: basılmayacak") }
             }
         }
     }
 
-    private func margin(_ path: WritableKeyPath<Insets,Double>,_ field: AutoLayoutField) -> Binding<Double> {
-        Binding(get:{ model.project.sharedSheet.margins[keyPath:path] },set:{ value in
-            model.markManual(field)
-            model.project.sheet.margins[keyPath:path] = value
-            model.schedulePlan()
-            model.showUpdatedCoverSheet()
-        })
+    private func sourcePicker(_ choices: [(CoverPreparationSettings.Source,String)]) -> some View {
+        Picker("Kapak kaynağı",selection:Binding(
+            get:{ model.coverPreparation.source },
+            set:{ if let source = $0 { model.activateCoverSource(source) } })) {
+            ForEach(choices,id:\.0) { source, label in Text(label).tag(Optional(source)) }
+        }.pickerStyle(.segmented).labelsHidden()
+    }
+
+    private func optionalFlag(_ field: WritableKeyPath<CoverPreparationSettings,Bool?>) -> Binding<Bool> {
+        Binding(get:{ model.coverPreparation[keyPath:field] ?? false },
+                set:{ model.coverPreparation[keyPath:field] = $0 })
+    }
+
+    private func pagePicker(_ title: String,pages: [SourcePage],value: Binding<Int?>,automatic: Int?) -> some View {
+        Picker(title,selection:value) {
+            Text(automatic.map { "Otomatik (\(pageLabel($0)))" } ?? "Otomatik").tag(nil as Int?)
+            ForEach(pages,id:\.number) { page in Text(pageLabel(page.number)).tag(Optional(page.number)) }
+        }.accessibilityIdentifier(title == "Ön kapak" ? "preparedCoverFront" : "preparedCoverBack")
+    }
+
+    private func pageLabel(_ number: Int) -> String {
+        if model.coverPreparation.source == nil { return "Sayfa \(number)" }
+        let title = model.coverPageLabel(number)
+        guard model.project.pageItems != nil, model.pageSourceRecords.count > 1 else { return title }
+        return title+" · "+model.pageSourceName(number)
+    }
+
+    private func coverSheetControls(_ plan: ImpositionPlan,legacy: Bool) -> some View {
+        VStack(alignment:.leading,spacing:8) {
+            Text("Tabaka montajı").font(.headline)
+            HStack {
+                Button("Tabaka ayarları") { model.ui.jump(.sheet,opening:.paper) }
+                Button("Kenarlar ve hizalama") { model.ui.jump(.dimensions,opening:.edges) }
+            }
+            HStack {
+                Button("Taşma ayarları") {
+                    if let index = model.displaySheets.firstIndex(where: \.isPreparedCover) {
+                        model.selectPreviewSheet(index)
+                    }
+                    model.ui.jump(.dimensions,opening:.bleed)
+                }
+                Button("Çıktı işaretleri") { model.ui.jump(.cut,opening:.printedMarks) }
+            }
+            if legacy {
+                measure("Kapak ara boşluğu",Binding(get:{ model.coverPreparation.gap ?? 0 },
+                    set:{ value in model.updateCoverImposition { $0.gap = value } }))
+                LabeledContent("Kapak taşması") {
+                    BleedInput(title:"Kapak taşması",value:Binding(
+                        get:{ model.coverPreparation.bleed ?? CoverPreparationSettings.defaultBleed },
+                        set:{ value in model.updateCoverImposition { $0.bleed = value } }),maximum:1000)
+                }
+            }
+            DisclosureGroup("Açılım dizilimi") {
+                Picker("Kapak dönüşü",selection:$model.coverPreparation.grid.rotation) {
+                    Text("Otomatik").tag(MachineProfile.Rotation.automatic)
+                    Text("0°").tag(MachineProfile.Rotation.zero)
+                    Text("90°").tag(MachineProfile.Rotation.ninety)
+                }
+                HStack {
+                    count("Sütun",$model.coverPreparation.grid.columns)
+                    count("Satır",$model.coverPreparation.grid.rows)
+                }
+                measure("Merkezden yatay",$model.coverPreparation.grid.x,range:-10_000...10_000)
+                measure("Merkezden dikey",$model.coverPreparation.grid.y,range:-10_000...10_000)
+            }
+            if let copies = plan.sheets.first?.repeatLayout?.copiesPerSheet {
+                Text("Tabakada \(copies) açılım").monospacedDigit()
+            }
+            if let sheet = plan.sheets.first {
+                let warnings = PDFColorControlRenderer.geometry(sheet:sheet,settings:model.coverPreparationMarks(.sheet)).warnings
+                ForEach(Array(Set(warnings)).sorted(),id:\.self) {
+                    Text($0).foregroundStyle(DesignSystem.warning)
+                }
+            }
+            ForEach(Array(plan.issues.enumerated()),id:\.offset) { _, issue in
+                Text(issue.message).foregroundStyle(DesignSystem.warning)
+            }
+        }
     }
 
     private func count(_ title: String,_ value: Binding<Int?>) -> some View {
@@ -153,36 +199,6 @@ struct CoverPreparationView: View {
     }
 }
 
-/// Keeps partial decimal input intact while publishing every valid edit.
-private struct CoverSheetMeasure: View {
-    let title: String
-    @Binding var value: Double
-    var minimum = 0.0
-    var maximum = 10_000.0
-    @State private var draft = ""
-    @FocusState private var focused: Bool
-
-    var body: some View {
-        HStack {
-            Text(title)
-            Spacer()
-            TextField(title,text:Binding(
-                get:{ focused ? draft : TRFormat.dimension(value,detail:true) },
-                set:{ text in
-                    draft = text
-                    if let parsed = Double(text.replacingOccurrences(of:",",with:".")),
-                       (minimum...maximum).contains(parsed), parsed != value { value = parsed }
-                }))
-                .focused($focused).multilineTextAlignment(.trailing)
-                .textFieldStyle(.roundedBorder).frame(width:80).accessibilityLabel(title)
-                .onChange(of:focused) { _, active in
-                    if active { draft = TRFormat.dimension(value,detail:true) }
-                }
-            Text("mm").foregroundStyle(DesignSystem.muted)
-        }
-    }
-}
-
 struct CoverPreparationPreview: View {
     @ObservedObject var model: Workspace
 
@@ -190,9 +206,11 @@ struct CoverPreparationPreview: View {
         let output = model.coverPreviewOutput
         let plan = model.coverPreparationPlan(output)
         let marks = model.coverPreparationMarks(output)
-        let guides = coverGuides(output,marks:marks)
+        let active = model.coverPreparation.source != nil
+        let guides = active ? model.overlays : coverGuides(output,marks:marks)
         VStack(spacing:0) {
             HStack {
+                Text("Kapak").font(.headline)
                 Picker("Kapak önizlemesi",selection:$model.coverPreviewOutput) {
                     Text("Açılım").tag(CoverPreparationPlanner.Output.spread)
                     Text("Tabaka").tag(CoverPreparationPlanner.Output.sheet)
@@ -208,7 +226,7 @@ struct CoverPreparationPreview: View {
             }.padding(10)
             if let sheet = plan.sheets.first {
                 PreviewCanvas(sheet:sheet,side:sheet.front,sheetIndex:0,sideKind:.front,source:model.source,
-                              overlays:guides,generatedBleed:plan.generatedBleed,highlighted:[],
+                              overlays:guides,generatedBleed:plan.generatedBleed,bleedAmount:model.project.settings.bleed,tone:plan.tone,highlighted:[],
                               zoomAction:model.zoomAction,zoomFactor:model.zoomFactor,controlMarks:marks,forceVectorArtwork:true,preparedSpineModel:model,
                               beginEdit:model.beginUndoGroup,endEdit:model.endUndoGroup)
                     .id(output)

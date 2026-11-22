@@ -63,12 +63,13 @@ final class Workspace: ObservableObject {
             if applyingAutomatic { return }
             if oldValue.settings.tone != project.settings.tone { plan.tone = project.settings.tone }
             var previous = oldValue
-            previous.coverPreparation = project.coverPreparation
+            let coverActive = oldValue.coverPreparation?.source != nil || project.coverPreparation?.source != nil
+            if !coverActive { previous.coverPreparation = project.coverPreparation }
             previous.settings.tone = project.settings.tone
             previous.exportMarks = project.exportMarks
             previous.includeBlankBacks = project.includeBlankBacks
             previous.sheetInfo = project.sheetInfo
-            previous.costing = project.costing
+            if !coverActive { previous.costing = project.costing }
             previous.allSheetsPreview = project.allSheetsPreview
             let clipChanged = (project.isBooklet && oldValue.includeBlankBacks != project.includeBlankBacks) || oldValue.usesFullSheetBooklet != project.usesFullSheetBooklet || (project.isBooklet && oldValue.hasActiveCropMarks != project.hasActiveCropMarks) || previous.autoLayout?.clipBleedToSheet != project.autoLayout?.clipBleedToSheet || previous.autoLayout?.trimTolerance != project.autoLayout?.trimTolerance
             previous.autoLayout = project.autoLayout
@@ -87,7 +88,8 @@ final class Workspace: ObservableObject {
                 previous.gang = oldGang
             }
             let machineStrokeChanged = project.machineProfile != nil && oldValue.exportMarks.lineWidth != project.exportMarks.lineWidth
-            if previous != project || clipChanged || machineStrokeChanged || ((serialChanged || gangArtworkChanged) && planning) { schedulePlan() }
+            let coverMarksChanged = coverActive && oldValue.exportMarks != project.exportMarks
+            if previous != project || coverMarksChanged || clipChanged || machineStrokeChanged || ((serialChanged || gangArtworkChanged) && planning) { schedulePlan() }
             else if serialChanged || gangArtworkChanged {
                 plan = ImpositionPlanner.updatingSerials(in: plan,project: project)
                 if gangArtworkChanged { updateGeneratedBleedSummary() }
@@ -238,8 +240,12 @@ final class Workspace: ObservableObject {
             coverPlanCache = (source.id,project,[:])
         }
         if let cached = coverPlanCache?.plans[output] { return cached }
-        var result = CoverPreparationPlanner.plan(project,pages:source.pages.map(\.sourcePage),output:output)
+        let input = coverPlanningInput
+        var result = CoverPreparationPlanner.plan(input.project,pages:input.pages,output:output,preparedSpread:input.prepared)
         result.issues += PDFSpine.issues(in:result)
+        if project.coverPreparation?.source != nil {
+            result.issues += PDFSpine.logoResolutionIssues(in:result)
+        }
         if let warning = PDFSpine.automaticEdgeWarning(in:result,source:source) {
             result.issues.append(ValidationIssue(.error,.bookSettings,warning))
         }
@@ -273,6 +279,7 @@ final class Workspace: ObservableObject {
 
     func coverPreparationMarks(_ output: CoverPreparationPlanner.Output) -> ExportMarks {
         guard output == .sheet else { return .none }
+        if project.coverPreparation?.source != nil { return project.exportMarks }
         var marks = ExportMarks.none
         marks.crop = project.coverPreparation?.crop ?? project.exportMarks.crop
         marks.registrationTargets = project.exportMarks.registrationTargets
@@ -531,9 +538,11 @@ final class Workspace: ObservableObject {
 
     private func teamJobs(_ draft: Project, sourceID: UUID) -> [GangJob] {
         let step = draft.team?.duplex == true ? 2 : 1
-        return stride(from: 0, to: draft.pages.count, by: step).map { index in
-            let front = draft.pages[index]
-            let back = step == 2 && index + 1 < draft.pages.count ? draft.pages[index + 1] : nil
+        let auxiliary = Set(draft.book?.coverPDFPages ?? [])
+        let pages = draft.pages.filter { !auxiliary.contains($0.number) }
+        return stride(from: 0, to: pages.count, by: step).map { index in
+            let front = pages[index]
+            let back = step == 2 && index + 1 < pages.count ? pages[index + 1] : nil
             var job = GangJob(sourceID: sourceID, name: teamPageLabel(front, back), front: front, back: back)
             job.internalCuts = draft.gang?.jobs.first { $0.front.number == front.number }?.internalCuts
                 ?? draft.internalCutJobs?[front.number]
@@ -817,7 +826,9 @@ final class Workspace: ObservableObject {
         planTask?.cancel()
         let token = UUID(); revision = token
         let snapshot = project
-        guard snapshot.hasPanelItems else {
+        let cover = snapshot.coverPreparation?.source == nil ? nil : coverPreparationPlan(.sheet)
+        let interior = cover == nil ? snapshot : coverInteriorProject
+        guard snapshot.hasPanelItems || cover != nil else {
             lastMachinePreview = nil
             plan = ImpositionPlan()
             planning = false
@@ -830,16 +841,24 @@ final class Workspace: ObservableObject {
                 do { try await Task.sleep(for: .milliseconds(140)) } catch { return }
             }
             guard !Task.isCancelled else { return }
-            let worker = Task.detached(priority: .userInitiated) { ImpositionPlanner.plan(snapshot) }
+            let worker = Task.detached(priority: .userInitiated) {
+                if let cover, snapshot.coverPreparation?.onlyCover == true || !interior.hasPanelItems {
+                    return cover
+                }
+                return ImpositionPlanner.plan(interior)
+            }
             var next = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             guard !Task.isCancelled, revision == token else { return }
+            if let cover, snapshot.coverPreparation?.onlyCover != true, interior.hasPanelItems {
+                next.appendCover(cover)
+            }
             next.tone = project.settings.tone
             let spineIssues = PDFSpine.issues(in:next)
             if !spineIssues.isEmpty {
-                next.issues += spineIssues
+                next.issues += cover == nil ? spineIssues : spineIssues.filter { !next.issues.contains($0) }
                 next.refreshWarningSummary(project:snapshot)
             }
-            plan = retainingMachinePreview(next, input: snapshot); planning = false
+            plan = cover == nil ? retainingMachinePreview(next, input: snapshot) : next; planning = false
             inspectBindingStrips()
             if normalizeSerials { normalizeSerialDigits() }
             sheetIndex = max(0,min(sheetIndex,max(0,displaySheets.count-1)))
@@ -1065,8 +1084,8 @@ extension Workspace {
             }
             if let book = snapshot.project.book,let id = book.coverSourceID {
                 guard let index = assets.firstIndex(where:{ $0.saved.id==id }) else { throw ProjectFileError.sourceMismatch }
-                let offset = assets.prefix(index).reduce(0) { $0+$1.saved.pageCount }
-                guard book.coverPDFPages.allSatisfy({ id in snapshot.project.artworkPageNumber(id).map{$0>offset && $0<=offset+assets[index].saved.pageCount} ?? false }),
+                let offset = assets.prefix(index).reduce(0) { $0+$1.source.pages.count }
+                guard book.coverPDFPages.allSatisfy({ id in snapshot.project.artworkPageNumber(id).map{$0>offset && $0<=offset+assets[index].source.pages.count} ?? false }),
                       book.auxiliaryPages.allSatisfy({ id in snapshot.project.artworkPageNumber(id).map{$0>0 && $0<=loadedSource!.pages.count} ?? false }) else { throw ProjectFileError.sourceMismatch }
             }
             if snapshot.linkedSources != nil { snapshot.linkedSources = assets.map(\.saved) }
@@ -1212,6 +1231,7 @@ extension Workspace {
         applyingAutomatic = false
         normalizeSerialDigits()
         updateGeneratedBleedSummary(); refreshModified()
+        if project.coverPreparation?.source != nil { schedulePlan() }
     }
 }
 
@@ -1590,9 +1610,13 @@ extension Workspace {
 }
 
 extension Workspace {
+    private var editingPreparedCover: Bool {
+        project.coverPreparation?.source != nil && (ui.activePanel == .coverPreparation || currentSheet?.isPreparedCover == true)
+    }
+
     var editableGeneratedBleed: GeneratedBleedSettings {
-        get { selectedGangJob?.generatedBleed ?? project.settings.generatedBleed }
-        set { if let id = selectedGangJob?.id { editGangJob(id) { $0.generatedBleed = newValue } } else { project.settings.generatedBleed = newValue } }
+        get { (editingPreparedCover ? nil : selectedGangJob?.generatedBleed) ?? project.settings.generatedBleed }
+        set { if !editingPreparedCover, let id = selectedGangJob?.id { editGangJob(id) { $0.generatedBleed = newValue } } else { project.settings.generatedBleed = newValue } }
     }
     func gangSourcePages(_ id: UUID) -> [SourcePage] {
         guard let i = gangAssets.firstIndex(where: { $0.saved.id==id }) else { return [] }
@@ -1612,25 +1636,32 @@ extension Workspace {
         if project.pageItems != nil {return pageListTitle(number)}
         var offset = 0
         for asset in gangAssets {
-            if number>offset && number<=offset+asset.saved.pageCount { return "\(number-offset) · \(asset.saved.reference.fileName)" }
-            offset += asset.saved.pageCount
+            if number>offset && number<=offset+asset.source.pages.count { return "\(number-offset) · \(asset.saved.reference.fileName)" }
+            offset += asset.source.pages.count
         }
         return "\(number)"
     }
     func chooseCoverPDF() {
-        guard source != nil,!loading,!exporting,(project.isBooklet || project.isLeafBinding) else { return }
+        guard source != nil, !loading, !exporting,
+              project.coverPreparation?.source == .separatePDF || project.isBooklet || project.isLeafBinding else { return }
         let panel = NSOpenPanel(); panel.allowedContentTypes = [.pdf]; panel.allowsMultipleSelection = false
         panel.title = "Ayrı kapak PDF’sini seçin"; panel.prompt = "Kapak yükle"
         panel.begin { [weak self] response in if response == .OK,let url = panel.url { self?.loadCoverPDF(url, automatic:true) } }
     }
     func loadCoverPDF(_ url: URL, automatic: Bool = false) {
-        guard let current = source,canEditPageList,project.sourcePreparation?.hasPreparedProducts != true,
-              (project.isBooklet || project.isLeafBinding) else { return }
+        let tabSource = project.coverPreparation?.source == .separatePDF
+        guard let current = source, !loading, !preparingSource, !exporting, !autoArranging,
+              tabSource || ((project.isBooklet || project.isLeafBinding) && project.sourcePreparation?.hasPreparedProducts != true) else { return }
         loading = true; error = nil; pdfLoadFailure=nil
         importTask = Task {
             do {
                 let reference = try capturePageSource(url)
                 let cover = try await openPagePDF(url)
+                if tabSource && !(1...2).contains(cover.pages.count) {
+                    self.error = "Kapak PDF’si bir hazır açılım veya iki kapak yüzü içermelidir."
+                    loading = false
+                    return
+                }
                 var assets = gangAssets
                 if assets.isEmpty {
                     let reference = try ProjectSource.capture(current.url,createBookmark:bookmarkCreator)
@@ -1639,14 +1670,18 @@ extension Workspace {
                 var next = project
                 var book = bookSettings
                 var removed = Set<Int>()
-                if automatic, let old = assets.firstIndex(where:{ $0.saved.id == book.coverSourceID }) {
+                if tabSource, automatic, project.team != nil,
+                   let old = assets.indices.last, assets[old].saved.id == book.coverSourceID {
+                    assets.removeLast()
+                    removed = Set(book.coverPDFPages)
+                } else if automatic, let old = assets.firstIndex(where:{ $0.saved.id == book.coverSourceID }) {
                     let previous = assets
                     assets.remove(at:old)
                     var items: [PageListItem] = []
                     for var item in pageListItems {
                         var offset = 0
                         for asset in previous {
-                            let end = offset+asset.saved.pageCount
+                            let end = offset+asset.source.pages.count
                             if let page = item.sourcePage, page > offset, page <= end {
                                 item.sourceID = asset.saved.id
                                 item.localPage = page-offset
@@ -1659,11 +1694,11 @@ extension Workspace {
                     }
                     next.pageItems = resolveSourceOffsets(items,assets:assets)
                 }
-                let offset = assets.reduce(0) { $0+$1.saved.pageCount },id = UUID()
+                let offset = assets.reduce(0) { $0+$1.source.pages.count },id = UUID()
                 assets.append(GangAsset(saved:GangSourceReference(id:id,reference:reference,pageCount:cover.pages.count),source:cover))
                 let combined = try await PDFSource.combine(assets.map(\.source),displayName:"Kitap ve kapak")
                 try Task.checkCancellation()
-                guard project.isBooklet || project.isLeafBinding else { throw CancellationError() }
+                guard tabSource ? project.coverPreparation?.source == .separatePDF : (project.isBooklet || project.isLeafBinding) else { throw CancellationError() }
                 let addedPages=combined.pages.filter{$0.number>offset}.map(\.sourcePage)
                 let mapping=try next.appendPageListSources(addedPages)
                 if var items = next.pageItems {
@@ -2078,12 +2113,12 @@ extension Workspace {
     var basicQuantity:Int? {
         get {
             if let team = project.team { return team.quantity }
-            if let job = selectedGangJob { return job.quantity }
+            if !editingPreparedCover, let job = selectedGangJob { return job.quantity }
             return project.isBooklet || project.isLeafBinding ? project.costing?.copies : project.stepAndRepeat.quantity
         }
         set {
             if project.team != nil { project.team?.quantity = newValue ?? 0 }
-            else if let job = selectedGangJob { editGangJob(job.id) { $0.quantity = newValue ?? 0 } }
+            else if !editingPreparedCover, let job = selectedGangJob { editGangJob(job.id) { $0.quantity = newValue ?? 0 } }
             else if project.isBooklet || project.isLeafBinding { var cost = project.costing ?? JobCostSettings(); cost.copies = newValue; project.costing = cost }
             else { project.stepAndRepeat.quantity = newValue }
         }
@@ -2269,9 +2304,9 @@ extension Workspace {
         }
     }
     var workflowBleed:Double {
-        get { selectedGangJob?.bleed ?? project.settings.bleed }
+        get { (editingPreparedCover ? nil : selectedGangJob?.bleed) ?? project.settings.bleed }
         set {
-            if let job = selectedGangJob { editGangJob(job.id) { $0.bleed = newValue } }
+            if !editingPreparedCover, let job = selectedGangJob { editGangJob(job.id) { $0.bleed = newValue } }
             else { project.settings.bleed = newValue }
         }
     }
@@ -2280,7 +2315,7 @@ extension Workspace {
 extension Workspace {
     func showsBackInPreview(_ sheet: Sheet) -> Bool {
         sheet.hasContent(on: .back) ||
-        (project.team?.duplex == true && (project.includeBlankBacks ?? true) && plan.hasBackContent)
+        (!sheet.isPreparedCover && project.team?.duplex == true && (project.includeBlankBacks ?? true) && plan.hasBackContent)
     }
 
     var previewGeometry:SideScrollGeometry {
@@ -2297,6 +2332,11 @@ extension Workspace {
         if side != location.side { side = location.side }
     }
     func selectPreviewSheet(_ index:Int) {
+        if ui.activePanel == .coverPreparation, project.coverPreparation?.source != nil,
+           displaySheets.indices.contains(index) {
+            if displaySheets[index].isPreparedCover { coverPreviewOutput = .sheet }
+            else { ui.jump(.montage) }
+        }
         selectPreviewLocation(PreviewSheetLocation(sheet:index,repetition:0))
     }
     func movePreviewSheet(_ delta:Int) {
@@ -2327,7 +2367,7 @@ extension Workspace {
         }
     }
     func enableMissingBleed() {
-        if project.binding == .gang {
+        if project.binding == .gang && !editingPreparedCover {
             for job in project.gang?.jobs ?? [] where [job.front,job.back].compactMap({ $0 }).contains(where: { ($0.availableBleed ?? 0) < max(0.001,job.bleed-0.001) }) {
                 editGangJob(job.id) { $0.generatedBleed.enabled = true; if $0.bleed <= 0 { $0.bleed = 3 } }
             }

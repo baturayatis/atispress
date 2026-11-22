@@ -100,7 +100,7 @@ struct ProjectState: Codable, Equatable {
     }
 }
 struct ProjectDocument: Codable, Equatable {
-    static let currentVersion = 32
+    static let currentVersion = 33
     var version: Int = currentVersion
     var state: ProjectState
     static func decode(_ data: Data) throws -> ProjectDocument {
@@ -145,9 +145,13 @@ struct ProjectDocument: Codable, Equatable {
         if let preparation, preparation.separation != nil && preparation.split != nil { throw ProjectFileError.invalidSelection }
         if file.state.project.team != nil {
             let project = file.state.project
-            guard project.binding == .gang, project.pageItems == nil, sources.count == 1,
-                  project.pages.count == (separatedCount ?? sources[0].pageCount),
-                  project.pages.enumerated().allSatisfy({ $0.element.number == $0.offset + 1 }),
+            let coverID = project.coverPreparation?.source == nil ? nil : project.book?.coverSourceID
+            let teamSources = sources.filter { $0.id != coverID }
+            let coverPages = coverID == nil ? [] : project.book?.coverPDFPages ?? []
+            let teamPages = project.pages.filter { !coverPages.contains($0.number) }
+            guard project.binding == .gang, project.pageItems == nil, teamSources.count == 1,
+                  teamPages.count == (separatedCount ?? teamSources[0].pageCount),
+                  teamPages.enumerated().allSatisfy({ $0.element.number == $0.offset + 1 }),
                   !(project.gang?.jobs.isEmpty ?? true) else { throw ProjectFileError.invalidSelection }
         }
         for item in file.state.project.pageItems ?? [] {

@@ -272,6 +272,7 @@ extension Workspace {
         return pageListItems.contains{$0.side == .back && $0.sourcePage != nil && included.contains($0.id)}
     }
     var requiresBacklessConfirmation:Bool {
+        project.coverPreparation?.onlyCover != true &&
         (project.binding == .stepAndRepeat || project.binding == .gang) && project.hasPanelItems && project.previouslyHadBacks == true && !hasActualPageBacks
     }
     func pageSideTitle(_ id:Int)->String {

@@ -4,11 +4,18 @@ import ImpositionCore
 extension Workspace {
     var spineWidth: Double {
         get {
+            if let cover = project.coverPreparation { return cover.spineWidth }
             if project.binding == .saddleStitch { return 0 }
             return bookSettings.spineWidth ?? plan.sheets.compactMap(\.bookInfo).first?.spine ?? 0
         }
         set {
-            guard project.binding != .saddleStitch, (0...1000).contains(newValue) else { return }
+            guard (0...1000).contains(newValue) else { return }
+            if project.coverPreparation != nil || !(project.isBooklet || project.isLeafBinding) || project.binding == .saddleStitch {
+                guard canShowCoverTab else { return }
+                if project.coverPreparation == nil { activateCoverSource(.firstAndLast,spineWidth:newValue) }
+                else { coverPreparation.spineWidth = newValue }
+                return
+            }
             var book = bookSettings
             if project.book == nil { book.automaticCover = true }
             book.spineWidth = newValue
@@ -66,6 +73,7 @@ extension Workspace {
     func coverSheetTitle(at index: Int) -> String? {
         let sheets = displaySheets
         guard sheets.indices.contains(index) else { return nil }
+        if sheets[index].isPreparedCover { return "Kapak" }
         func cover(_ sheet: Sheet) -> Bool { sheet.bookInfo?.section == .cover || sheet.leafInfo?.cover == true }
         return cover(sheets[index]) ? "Kapak \(sheets[...index].filter(cover).count)" : nil
     }

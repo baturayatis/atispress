@@ -171,7 +171,10 @@ enum ContextPresentation {
         if kind(model) == .job && model.project.binding != .saddleStitch && (model.project.isBooklet || model.project.isLeafBinding) {
             result.insert(.cover,at:0)
         }
-        if kind(model) == .book && model.project.binding == .saddleStitch {result.removeAll{$0 == .cover}}
+        if model.project.binding == .saddleStitch && !model.canShowCoverTab { result.removeAll { $0 == .cover } }
+        if model.canShowCoverTab && !result.contains(.cover) && (kind(model) == .book || kind(model) == .flat || model.ui.activePanel == .coverPreparation) {
+            result.insert(.cover,at:0)
+        }
         if kind(model) == .book && model.project.isLeafBinding {result.removeAll{$0 == .signature}}
         if let selected=model.editableSerialFields.first(where:{$0.id==model.selectedSerialID}),selected.kind != .text,!selected.codeSettings.humanReadable {result.removeAll{$0 == .font}}
         return globalControls+result.filter { !globalControls.contains($0) }

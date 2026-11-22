@@ -60,7 +60,7 @@ final class BookWorkspaceTests: XCTestCase {
         XCTAssertEqual(reopened.plan.sheets,interior)
         XCTAssertEqual(reopened.coverPreparationPlan(.spread).sheets.first?.front.slots.compactMap(\.sourcePageNumber),[8,1])
         reopened.ui.jump(.coverPreparation)
-        XCTAssertEqual(reopened.ui.activePanel.title,"Kapak Hazırla")
+        XCTAssertEqual(reopened.ui.activePanel.title,"Kapak")
         XCTAssertEqual(reopened.ui.activePanel.groups(for:reopened.project),[.coverPreparation])
         XCTAssertFalse(reopened.isModified)
         reopened.coverPreparation.front = 2
@@ -279,7 +279,7 @@ final class BookWorkspaceTests: XCTestCase {
         XCTAssertTrue(workspace.canExportNow)
         XCTAssertEqual(InspectorPanel.montage.groups(for:workspace.project).filter {
             [.cover,.bookPaper,.spine].contains($0)
-        },[.cover])
+        },[])
         XCTAssertEqual(ContextControl.cover.title,"Sırt (mm)")
         XCTAssertTrue(ContextPresentation.controls(.book).contains(.cover))
 
@@ -544,4 +544,235 @@ final class BookWorkspaceTests: XCTestCase {
         }
     }
 
+}
+
+extension BookWorkspaceTests {
+    func testKapakFirstLastOnlyAndSelectedSourcesRoundTrip() async throws {
+        let folder = try folder()
+        let workspace = model()
+        let pdf = try fixture(folder,"12-sayfa.pdf",count:12,size:Size(50,70))
+        workspace.open(pdf,confirmChanges:false)
+        try await settle(workspace)
+        XCTAssertTrue(workspace.canShowCoverTab)
+        workspace.project.sheet = SheetSpec(size:Size(300,400))
+        let original = workspace.project.pages
+        workspace.activateCoverSource(.firstAndLast)
+        for width in [0.0, 4, 13.25] {
+            workspace.spineWidth = width
+            let spread = workspace.coverPreparationPlan(.spread)
+            let sheet = try XCTUnwrap(spread.sheets.first)
+            XCTAssertEqual(sheet.front.slots.compactMap(\.sourcePageNumber),[12,1])
+            XCTAssertEqual(sheet.size.width,100+width,accuracy:0.001)
+            XCTAssertEqual(sheet.size.height,70,accuracy:0.001)
+            XCTAssertEqual(sheet.front.previewMarks.filter { $0.kind == .fold }.count,width > 0 ? 2 : 0)
+        }
+        try await settle(workspace)
+        let cover = try XCTUnwrap(workspace.plan.sheets.first(where: \.isPreparedCover))
+        XCTAssertGreaterThan(cover.repeatLayout?.copiesPerSheet ?? 0,1)
+        XCTAssertFalse(cover.exportsBack(keepingBlankBacks:true))
+        let interior = workspace.plan.sheets.filter { !$0.isPreparedCover }
+        XCTAssertEqual(Set(interior.flatMap { ($0.front.slots+$0.back.slots).compactMap(\.sourcePageNumber) }),Set(2...11))
+
+        workspace.coverPreparation.onlyCover = true
+        try await settle(workspace)
+        XCTAssertTrue(workspace.canExportNow)
+        XCTAssertTrue(workspace.plan.sheets.allSatisfy(\.isPreparedCover))
+        XCTAssertEqual(workspace.project.pages,original)
+        XCTAssertTrue(workspace.exportPreparationSummary.contains("İç sayfalar: basılmayacak"))
+
+        workspace.activateCoverSource(.selectedPages)
+        workspace.coverPreparation.front = 3
+        workspace.coverPreparation.back = 8
+        workspace.coverPreparation.colorMode = .manual
+        workspace.coverPreparation.color = .cmyk(0.4,0.1,0,0)
+        workspace.coverPreparation.foldMarks = true
+        try await settle(workspace)
+        XCTAssertEqual(workspace.coverPreparationPlan(.spread).sheets.first?.front.slots.compactMap(\.sourcePageNumber),[8,3])
+        let url = folder.appendingPathComponent("kapak.atispress")
+        try workspace.saveProject(as:url)
+        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:url)).version,33)
+        let reopened = model()
+        try await reopened.loadProject(at:url)
+        try await settle(reopened)
+        XCTAssertEqual(reopened.plan.sheets,workspace.plan.sheets)
+        XCTAssertEqual(reopened.project.coverPreparation,workspace.project.coverPreparation)
+    }
+
+    func testKapakTwoPageFileAndExternalCoverPDF() async throws {
+        let folder = try folder()
+        let panels = try fixture(folder,"yuzler.pdf",count:2,size:Size(50,70))
+        let prepared = try fixture(folder,"hazir.pdf",count:1,size:Size(107,70))
+        let workspace = model()
+        workspace.open(panels,confirmChanges:false)
+        try await settle(workspace)
+        workspace.project.sheet = SheetSpec(size:Size(300,400))
+        workspace.activateCoverSource(.coverFile)
+        try await settle(workspace)
+        XCTAssertTrue(workspace.canExportNow)
+        XCTAssertEqual(workspace.coverPreparationPlan(.spread).sheets.first?.front.slots.compactMap(\.sourcePageNumber),[2,1])
+        XCTAssertTrue(workspace.plan.sheets.allSatisfy(\.isPreparedCover))
+
+        workspace.activateCoverSource(.separatePDF)
+        workspace.spineWidth = 7
+        workspace.loadCoverPDF(prepared,automatic:true)
+        try await settle(workspace)
+        let spread = try XCTUnwrap(workspace.coverPreparationPlan(.spread).sheets.first)
+        XCTAssertEqual(spread.front.slots.compactMap(\.sourcePageNumber),[3])
+        XCTAssertEqual(spread.size.width,107,accuracy:0.001)
+        XCTAssertTrue(workspace.canExportNow)
+        workspace.spineWidth = 9
+        XCTAssertTrue(workspace.coverPreparationPlan(.spread).issues.contains { $0.message.contains("Beklenen") })
+        workspace.spineWidth = 7
+        let url = folder.appendingPathComponent("hazir.atispress")
+        try workspace.saveProject(as:url)
+        let reopened = model()
+        try await reopened.loadProject(at:url)
+        try await settle(reopened)
+        XCTAssertEqual(reopened.coverPreparationPlan(.spread).sheets,[spread])
+        reopened.loadCoverPDF(panels,automatic:true)
+        try await settle(reopened)
+        XCTAssertEqual(reopened.coverPreparationPlan(.spread).sheets.first?.front.slots.compactMap(\.sourcePageNumber),[4,3])
+        reopened.activateCoverSource(.selectedPages)
+        reopened.coverPreparation.front = reopened.project.book?.coverPDFPages.first
+        reopened.coverPreparation.back = reopened.project.pages.first?.number
+        XCTAssertEqual(reopened.coverPreparationPlan(.spread).sheets.first?.front.slots.compactMap(\.sourcePageNumber),[1,3])
+    }
+
+    func testKapakMarksBleedAndFitUseExistingSheetPlan() async throws {
+        let folder = try folder()
+        let workspace = model()
+        workspace.open(try fixture(folder,"marks.pdf",count:2,size:Size(90,130)),confirmChanges:false)
+        try await settle(workspace)
+        workspace.project.sheet = SheetSpec(size:Size(450,400))
+        workspace.activateCoverSource(.coverFile)
+        workspace.spineWidth = 10
+        workspace.coverPreparation.grid.columns = 1
+        workspace.coverPreparation.grid.rows = 1
+        workspace.coverPreparation.grid.rotation = .zero
+        workspace.coverPreparation.foldMarks = true
+        workspace.coverPreparation.colorMode = .manual
+        workspace.coverPreparation.color = .cmyk(0,1,0,0)
+        workspace.project.exportMarks.crop = true
+        workspace.project.settings.cropMarkLength = 4
+        workspace.project.exportMarks.lineWidth = 1
+        workspace.project.settings.bleed = 3
+        workspace.project.settings.generatedBleed.enabled = true
+        let plan = workspace.coverPreparationPlan(.sheet)
+        let sheet = try XCTUnwrap(plan.sheets.first)
+        let slots = sheet.front.slots
+        XCTAssertEqual(slots.count,3)
+        for slot in slots {
+            let clip = try XCTUnwrap(slot.artworkClip)
+            XCTAssertEqual(clip.size.height-slot.size.height,6,accuracy:0.001)
+        }
+        let spine = try XCTUnwrap(slots.first { $0.bookRegion == "Sırt" })
+        XCTAssertEqual(spine.artworkClip?.size.width,10)
+        XCTAssertEqual(spine.spineArtwork?.content.color,.cmyk(0,1,0,0))
+        let marks = PDFExportMarkRenderer.geometry(side:sheet.front,sheet:sheet,settings:workspace.project.exportMarks).segments
+        XCTAssertEqual(marks.filter { $0.kind == .spineFold }.count,4)
+        XCTAssertFalse(marks.filter { $0.kind == .crop }.isEmpty)
+        let output = folder.appendingPathComponent("marks-export.pdf")
+        _ = try PDFExporter.export(plan:plan,source:XCTUnwrap(workspace.source),destination:.singlePDF(output),
+                                   marks:workspace.project.exportMarks)
+        let doc = try XCTUnwrap(CGPDFDocument(output as CFURL))
+        XCTAssertEqual(doc.numberOfPages,1)
+        let pixelsPerMM = 4.0
+        let width = Int(sheet.size.width*pixelsPerMM)
+        let height = Int(sheet.size.height*pixelsPerMM)
+        let bitmap = try XCTUnwrap(CGContext(data:nil,width:width,height:height,bitsPerComponent:8,
+            bytesPerRow:width*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue))
+        bitmap.setFillColor(CGColor(gray:1,alpha:1))
+        bitmap.fill(CGRect(x:0,y:0,width:width,height:height))
+        bitmap.scaleBy(x:pixelsPerMM/PDFPreviewDrawing.pointsPerMM,y:pixelsPerMM/PDFPreviewDrawing.pointsPerMM)
+        bitmap.drawPDFPage(try XCTUnwrap(doc.page(at:1)))
+        let bytes = try XCTUnwrap(bitmap.data).assumingMemoryBound(to:UInt8.self)
+        func pixel(_ x: Double,_ y: Double,_ channel: Int) -> UInt8 {
+            let row = height-1-Int(y*pixelsPerMM)
+            return bytes[row*bitmap.bytesPerRow+Int(x*pixelsPerMM)*4+channel]
+        }
+        for kind in [MarkKind.spineFold,.crop] {
+            let mark = try XCTUnwrap(marks.first { $0.kind == kind })
+            XCTAssertLessThan(pixel((mark.start.x+mark.end.x)/2,(mark.start.y+mark.end.y)/2,0),245)
+        }
+        XCTAssertLessThan(pixel(spine.x+5,spine.y-1.5,1),180)
+        workspace.project.sheet = SheetSpec(size:Size(120,120))
+        let tooSmall = workspace.coverPreparationPlan(.sheet)
+        XCTAssertFalse(tooSmall.canExport)
+        XCTAssertTrue(tooSmall.issues.contains { $0.message.contains("En yakın uygun hazır tabaka") })
+    }
+}
+
+
+extension BookWorkspaceTests {
+    func testKapakMachineGripperAndQuantity() async throws {
+        let folder = try folder()
+        let workspace = model()
+        workspace.open(try fixture(folder,"makine.pdf",count:2,size:Size(80,120)),confirmChanges:false)
+        try await settle(workspace)
+        workspace.activateCoverSource(.coverFile)
+        workspace.project.setSharedSheetSize(Size(450,320))
+        var profile = MachineProfile.heidelberg
+        profile.gripperEdge = .top
+        profile.gripperWidth = 25
+        workspace.selectMachineProfile(profile)
+        workspace.project.settings.bleed = 3
+        workspace.project.settings.generatedBleed.enabled = true
+        workspace.coverPreparation.grid.rotation = .zero
+        workspace.project.stepAndRepeat.quantity = 25
+        try await settle(workspace)
+        let sheet = try XCTUnwrap(workspace.plan.sheets.first)
+        let capacity = try XCTUnwrap(sheet.repeatLayout?.copiesPerSheet)
+        XCTAssertTrue(sheet.isPreparedCover)
+        XCTAssertEqual(sheet.gripperEdge,.top)
+        XCTAssertGreaterThan(capacity,1)
+        XCTAssertEqual(sheet.repeatCount,(25+capacity-1)/capacity)
+        XCTAssertTrue(sheet.front.slots.allSatisfy { slot in
+            guard let clip = slot.artworkClip else { return false }
+            return clip.origin.y+clip.size.height <= sheet.size.height-25+0.001
+        })
+        XCTAssertEqual(workspace.project.machineProfile?.gripperWidth,25)
+    }
+
+    func testKapakLogoRotationPercentDPIAndLimit() async throws {
+        let folder = try folder()
+        let workspace = model()
+        workspace.open(try fixture(folder,"kapak-logo.pdf",count:2,size:Size(50,70)),confirmChanges:false)
+        try await settle(workspace)
+        workspace.activateCoverSource(.coverFile)
+        workspace.spineWidth = 10
+        let trim = CGRect(x:0,y:0,width:10,height:70)
+        let image = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes:nil,pixelsWide:8,pixelsHigh:8,
+            bitsPerSample:8,samplesPerPixel:3,hasAlpha:false,isPlanar:false,colorSpaceName:.deviceRGB,
+            bytesPerRow:0,bitsPerPixel:0))
+        for x in 0..<8 {
+            for y in 0..<8 { image.setColor(.red,atX:x,y:y) }
+        }
+        let jpeg = try XCTUnwrap(image.representation(using:.jpeg,properties:[:]))
+        let raster = try XCTUnwrap(PDFSpine.makeLogo(name:"logo.jpg",format:.jpg,data:jpeg,in:trim))
+        var placed = PDFSpine.rotatedLogo(raster,in:trim)
+        XCTAssertEqual(placed.rotation,90)
+        XCTAssertNil(PDFSpine.logoWarning(placed,in:trim))
+        placed.spineWidthPercent = 50
+        let object = FreeSpineObject(content:.logo(placed))
+        workspace.addPreparedSpine(object)
+        workspace.spineWidth = 12
+        let spread = workspace.coverPreparationPlan(.spread)
+        let spine = try XCTUnwrap(spread.sheets.first?.front.slots.first { $0.spineArtwork != nil })
+        let printed = try XCTUnwrap(spine.spineArtwork?.objects.first)
+        XCTAssertEqual(printed.size,6,accuracy:0.001)
+        XCTAssertTrue(spread.issues.contains { $0.severity == .warning && $0.message.contains("33,9 dpi") })
+        var moved = printed
+        moved.x = 8
+        workspace.beginUndoGroup()
+        workspace.editPreparedSpine(moved)
+        workspace.endUndoGroup()
+        let overflow = workspace.coverPreparationPlan(.spread)
+        XCTAssertTrue(overflow.canExport)
+        XCTAssertTrue(overflow.issues.contains { $0.severity == .warning && $0.message.contains("5,0000 mm") })
+        workspace.undoEdit()
+        XCTAssertEqual(workspace.preparedSpineObjects.first?.x,0)
+        for _ in 0..<3 { workspace.addPreparedSpine(FreeSpineObject(content:.logo(raster))) }
+        XCTAssertEqual(workspace.preparedLogoCount,3)
+        XCTAssertEqual(workspace.error,"Sırta en fazla 3 logo eklenebilir.")
+    }
 }

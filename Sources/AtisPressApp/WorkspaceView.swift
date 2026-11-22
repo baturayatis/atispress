@@ -20,7 +20,10 @@ struct WorkspaceView: View {
                 WorkspaceSplitView(settings: model.ui, windowWidth: geometry.size.width) {
                     sidebar
                 } preview: {
-                    if model.ui.activePanel == .coverPreparation, model.source != nil { CoverPreparationPreview(model:model) }
+                    if model.ui.activePanel == .coverPreparation, model.canShowCoverTab,
+                       model.project.coverPreparation != nil || !(model.project.isBooklet || model.project.isLeafBinding) {
+                        CoverPreparationPreview(model:model)
+                    }
                     else { center }
                 } tools: {
                     InspectorDock(model: model, prices: prices)
@@ -110,7 +113,8 @@ struct WorkspaceView: View {
                         let signatures = Set(sheet.front.slots.map(\.signature)).sorted().map { String($0+1) }.joined(separator: ", ")
                         VStack(alignment: .leading,spacing: 4) {
                             if let layout = sheet.repeatLayout {
-                                Text("Tabaka \(index+1) · \(layout.copiesPerSheet) adet").fontWeight(.semibold)
+                                Text(sheet.isPreparedCover ? "Kapak · Tabakada \(layout.copiesPerSheet) açılım" :
+                                     "Tabaka \(index+1) · \(layout.copiesPerSheet) adet").fontWeight(.semibold)
                                 Text("\(sheet.hasContent(on:.back) ? "ön ve arka" : "tek yüz") · \(layout.columns)×\(layout.rows)").font(.system(size:12)).foregroundStyle(DesignSystem.muted).lineLimit(1)
                             } else {
                                 Text(model.coverSheetTitle(at:index) ?? "\(sheet.leafInfo == nil ? (sheet.bookInfo?.label ?? "Tabaka") : "Yaprak tabakası") \(index+1)").fontWeight(.medium)

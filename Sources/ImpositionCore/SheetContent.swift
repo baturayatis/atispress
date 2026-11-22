@@ -11,5 +11,11 @@ extension Sheet {
 }
 extension ImpositionPlan {
     public var hasBackContent: Bool { sheets.contains { $0.hasContent(on: .back) } }
-    public var hasBlankBacks: Bool { sheets.contains { !$0.hasContent(on: .back) } }
+    public var hasBlankBacks: Bool { sheets.contains { !$0.isPreparedCover && !$0.hasContent(on: .back) } }
+}
+
+extension Sheet {
+    public func exportsBack(keepingBlankBacks: Bool) -> Bool {
+        hasContent(on:.back) || (keepingBlankBacks && !isPreparedCover)
+    }
 }

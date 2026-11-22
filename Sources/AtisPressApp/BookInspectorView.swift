@@ -15,9 +15,10 @@ struct BookInspectorView: View {
             if model.project.binding == .saddleStitch {
                 Toggle("Kapak farklı kâğıda basılacak (ayrı tabaka)",isOn:$model.separateSaddleCover)
                     .inspectorTarget("coverMode").disabled(model.bookSettings.coverSourceID != nil)
-            } else {
-                measure("Sırt payı (mm)",ContextBindings(model:model).spine,range:0...1000)
-                    .inspectorTarget("coverMode")
+            }
+            measure("Sırt payı (mm)",ContextBindings(model:model).spine,range:0...1000)
+                .inspectorTarget("coverMode")
+            if model.project.binding != .saddleStitch {
                 if model.spineWidth > 0 && !prepared { SpineContentEditor(model:model) }
                 Button("Kalınlıktan hesapla…") { calculator = true }
                     .popover(isPresented:$calculator) {
@@ -71,16 +72,7 @@ struct BookInspectorView: View {
                         measure("Sol kulak (mm)",book.leftFlap)
                         measure("Sağ kulak (mm)",book.rightFlap)
                     } else {
-                        Toggle("Kat kalınlığı kaydırması",isOn:Binding(get:{ model.bookSettings.creepEnabled },set:{ enabled in
-                            var settings = model.bookSettings
-                            if model.project.book == nil { settings.automaticCover = true }
-                            settings.creepEnabled = enabled
-                            model.bookSettings = settings
-                        }))
-                        if model.bookSettings.creepEnabled {
-                            PaperCaliperEditor(model:model,title:"İç kâğıt",paper:book.interiorPaper)
-                            PaperCaliperEditor(model:model,title:"Kapak kâğıdı",paper:book.coverPaper)
-                        }
+                        SaddleCreepControls(model:model)
                     }
                 }.padding(.top,6)
             }
@@ -120,7 +112,25 @@ struct BookInspectorView: View {
     }
 }
 
-private struct SpineCalculatorView: View {
+struct SaddleCreepControls: View {
+    @ObservedObject var model: Workspace
+    private var book: Binding<BookSettings> { $model.bookSettings }
+
+    var body: some View {
+        Toggle("Kat kalınlığı kaydırması",isOn:Binding(get:{ model.bookSettings.creepEnabled },set:{ enabled in
+            var settings = model.bookSettings
+            if model.project.book == nil { settings.automaticCover = true }
+            settings.creepEnabled = enabled
+            model.bookSettings = settings
+        }))
+        if model.bookSettings.creepEnabled {
+            PaperCaliperEditor(model:model,title:"İç kâğıt",paper:book.interiorPaper)
+            PaperCaliperEditor(model:model,title:"Kapak kâğıdı",paper:book.coverPaper)
+        }
+    }
+}
+
+struct SpineCalculatorView: View {
     @State private var microns: Double?
     @State private var cover: Double
     @State private var glue: Double

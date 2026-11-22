@@ -48,7 +48,7 @@ extension ImpositionPlan {
     public func pdfSideCount(includeBlankBacks: Bool = true) -> Int {
         let keepBlanks = includeBlankBacks && hasBackContent
         return sheets.reduce(0) { sum,sheet in
-            let product = sheet.repeatCount.multipliedReportingOverflow(by:sheet.hasContent(on:.back) || keepBlanks ? 2 : 1)
+            let product = sheet.repeatCount.multipliedReportingOverflow(by:sheet.exportsBack(keepingBlankBacks:keepBlanks) ? 2 : 1)
             let addition = sum.addingReportingOverflow(product.partialValue)
             return product.overflow || addition.overflow ? Int.max : addition.partialValue
         }

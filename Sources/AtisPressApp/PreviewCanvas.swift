@@ -243,7 +243,7 @@ final class SheetCanvasView: NSView {
             }
             context.setStrokeColor((highlighted.contains(index) ? DesignSystem.errorNS : DesignSystem.guideNS).cgColor)
             context.setLineWidth((highlighted.contains(index) ? 2.5 : 0.5)/pointsPerMM/scale)
-            if overlays.crop || highlighted.contains(index) { context.stroke(rect) }
+            if overlays.crop && !sheet.isPreparedCover || highlighted.contains(index) { context.stroke(rect) }
             if overlays.pageNumbers && (slot.rotation != 0 || slot.mirrored || slot.sourcePageNumber == nil) {
                 let text = slot.bookRegion ?? (slot.sourcePageNumber == nil ? "BOŞ" : [slot.rotation != 0 ? "↻ \(slot.rotation)°" : nil,slot.mirrored ? "AYNALI" : nil].compactMap{$0}.joined(separator: " · "))
                 label(text,at: CGPoint(x: rect.midX,y: rect.minY+min(5,rect.height/5)),size: 3,color:DesignSystem.purpleNS)
@@ -288,7 +288,7 @@ final class SheetCanvasView: NSView {
             else if let text = result.label { result.label = TRFormat.presentation(text) }
             return result
         }
-        PDFPlanRenderer.drawMarks(guides,sheetSize: sheet.size,in: context,options: overlays,displayScale: scale)
+        PDFPlanRenderer.drawMarks(guides+side.previewMarks,sheetSize: sheet.size,in: context,options: overlays,displayScale: scale)
         context.restoreGState()
         if overlays.generatedBleedTint == true {
             for slot in side.slots {
