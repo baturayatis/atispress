@@ -6,12 +6,24 @@ import SwiftUI
     static let pendingInstallKey="atispress.updates.pendingInstall"
     @Published private(set) var launchNotice=false
     static let lastCheckKey="atispress.updates.lastLaunchCheck"
+    private static let lastReleaseKey="atispress.updates.lastVerifiedRelease"
+    private static let skippedKey="atispress.updates.skippedVersion"
+    private static let snoozedKey="atispress.updates.snoozedVersion"
+    private static let snoozeUntilKey="atispress.updates.snoozeUntil"
+    private static let interval: TimeInterval = 86_400
+    enum LaunchPresentation: Equatable { case release, installResult }
     @Published private(set) var text="Denetlemek için Yardım menüsünü kullanın."
     @Published private(set) var release:UpdateManifest?
     @Published private(set) var busy=false
     @Published private(set) var progress:Double?
     @Published private(set) var installBlocked:String?
     var available:Bool {release != nil}
+    @Published private(set) var automaticConsent: Bool?
+    @Published private(set) var skippedVersion: String?
+    var badgeTitle: String? {
+        guard let release, release.version != skippedVersion else { return nil }
+        return "Güncelleme var: \(release.version)"
+    }
     private let client:UpdateClient
     private let manifestURL:URL
     private let defaults:UserDefaults
@@ -30,33 +42,90 @@ import SwiftUI
         }
         self.client=configuredClient ?? UpdateClient(publicKey:key); self.manifestURL=configuredURL
         self.defaults=defaults; self.target=target; self.currentVersion=currentVersion; self.currentBuild=currentBuild
+        automaticConsent = defaults.object(forKey:Self.automaticKey) as? Bool
+        skippedVersion = defaults.string(forKey:Self.skippedKey)
+    }
+
+    func setAutomaticConsent(_ enabled: Bool) {
+        defaults.set(enabled,forKey:Self.automaticKey)
+        automaticConsent = enabled
+    }
+
+    func remindLater(now: Date = Date()) {
+        guard !busy, let release else { return }
+        defaults.set(release.version,forKey:Self.snoozedKey)
+        defaults.set(now.addingTimeInterval(Self.interval),forKey:Self.snoozeUntilKey)
+    }
+
+    func skipRelease() {
+        guard !busy, let release else { return }
+        defaults.set(release.version,forKey:Self.skippedKey)
+        if defaults.string(forKey:Self.snoozedKey) == release.version {
+            defaults.removeObject(forKey:Self.snoozedKey)
+            defaults.removeObject(forKey:Self.snoozeUntilKey)
+        }
+        skippedVersion = release.version
+    }
+
+    func resetSkippedRelease() {
+        defaults.removeObject(forKey:Self.skippedKey)
+        skippedVersion = nil
+    }
+
+    private func canNotify(now: Date) -> Bool {
+        guard let release, release.version != skippedVersion else { return false }
+        guard defaults.string(forKey:Self.snoozedKey) == release.version,
+              let until = defaults.object(forKey:Self.snoozeUntilKey) as? Date else { return true }
+        return now >= until
     }
     static func claimLaunchCheck(defaults:UserDefaults,now:Date = Date()) -> Bool {
         guard defaults.bool(forKey:automaticKey) else {return false}
-        if let previous=defaults.object(forKey:lastCheckKey) as? Date,now.timeIntervalSince(previous)<86400 {return false}
+        if let previous=defaults.object(forKey:lastCheckKey) as? Date,now.timeIntervalSince(previous)<Self.interval {return false}
         defaults.set(now,forKey:lastCheckKey); return true
     }
-    func checkOnLaunch() async {
+    @discardableResult
+    func checkOnLaunch(now:Date? = nil) async -> LaunchPresentation? {
+        guard !busy else { return nil }
         if let path=defaults.string(forKey:Self.pendingInstallKey) {
             let folder=URL(fileURLWithPath:path),result=folder.appendingPathComponent("result.txt")
             if let message=try? String(contentsOf:result,encoding:.utf8) {
                 defaults.removeObject(forKey:Self.pendingInstallKey)
                 text=message.trimmingCharacters(in:.whitespacesAndNewlines)=="installed" ? "Güncelleme kuruldu. Şu an \(currentVersion) (build \(currentBuild))." : message
-                launchNotice=true; return
+                launchNotice=true; return .installResult
             }
         }
-        if Self.claimLaunchCheck(defaults:defaults) {await checkNow()}
+        guard defaults.bool(forKey:Self.automaticKey) else { return nil }
+        if Self.claimLaunchCheck(defaults:defaults,now:now ?? Date()) {
+            await checkNow()
+        } else if release == nil, let data = defaults.data(forKey:Self.lastReleaseKey),
+                  let verified = try? client.verifiedRelease(data,from:manifestURL,currentVersion:currentVersion,currentBuild:currentBuild) {
+            showRelease(verified)
+        }
+        guard defaults.bool(forKey:Self.automaticKey), canNotify(now:now ?? Date()) else { return nil }
+        return .release
     }
-    func check() {Task {await checkNow()}}
+
+    func check() {
+        guard automaticConsent != nil else { return }
+        Task { await checkNow() }
+    }
+
+    private func showRelease(_ release: UpdateManifest) {
+        self.release = release
+        text="Yeni sürüm var: \(release.version) (şu an \(currentVersion))"
+        installBlocked = nil
+        do { try UpdateInstaller.guardTarget(target) } catch { installBlocked=error.localizedDescription }
+    }
     func checkNow() async {
-        guard !busy else {return}; busy=true; release=nil; launchNotice=false; installBlocked=nil; text="Denetleniyor…"
+        guard !busy, defaults.object(forKey:Self.automaticKey) is Bool else { return }
+        busy=true; release=nil; launchNotice=false; installBlocked=nil; text="Denetleniyor…"
         defer {busy=false}
+        defaults.removeObject(forKey:Self.lastReleaseKey)
         guard client.publicKey.count==32 else {text="Güncelleme doğrulama anahtarı henüz ayarlanmamış. GitHub’dan elle kurabilirsiniz."; return}
         do {
-            release=try await client.check(at:manifestURL,currentVersion:currentVersion,currentBuild:currentBuild)
-            if let release {
-                text="Yeni sürüm var: \(release.version) (şu an \(currentVersion))"
-                do {try UpdateInstaller.guardTarget(target)} catch {installBlocked=error.localizedDescription}
+            if let verified = try await client.check(at:manifestURL,currentVersion:currentVersion,currentBuild:currentBuild) {
+                showRelease(verified)
+                if let data = try? JSONEncoder().encode(verified) { defaults.set(data,forKey:Self.lastReleaseKey) }
             } else {text="Güncelsiniz"}
         } catch {text=Self.message(error)}
     }
@@ -106,8 +175,7 @@ import SwiftUI
 struct UpdatePanel:View {
     @ObservedObject var model:Workspace
     @ObservedObject var checker:UpdateChecker
-    @AppStorage(UpdateChecker.automaticKey) private var automatic=false
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismissWindow) private var dismissWindow
     var body:some View {
         VStack(alignment:.leading,spacing:16) {
             Text("Güncellemeler").font(.title2.bold())
@@ -115,15 +183,20 @@ struct UpdatePanel:View {
             if let release=checker.release {
                 Text("Build \(release.build) · macOS \(release.minimumOS)+").font(.caption).foregroundStyle(.secondary)
                 ScrollView {Text(release.notes).frame(maxWidth:.infinity,alignment:.leading).textSelection(.enabled)}.frame(maxHeight:240)
+                Text("Güncelleme indirilmeden önce imzası doğrulanır.").foregroundStyle(.secondary)
                 if let reason=checker.installBlocked {Text(reason).foregroundStyle(.orange)}
                 if let progress=checker.progress {
                     if progress>=0 {ProgressView(value:progress); Text("İndiriliyor: %\(Int(progress*100))").font(.caption)}
                     else {ProgressView()}
                 } else if checker.busy {ProgressView()}
                 HStack {
-                    if checker.installBlocked==nil {Button("Şimdi güncelle") {checker.install(model:model)}.disabled(checker.busy)}
-                    Button("Daha sonra") {dismiss()}.disabled(checker.busy)
-                    Link("GitHub’da aç",destination:AppHelp.releases)
+                    if checker.installBlocked==nil {
+                        Button("Şimdi güncelle") {checker.install(model:model)}.disabled(checker.busy)
+                    } else {
+                        Link("GitHub’da aç",destination:AppHelp.releases)
+                    }
+                    Button("Daha sonra") { checker.remindLater(); dismissWindow(id:"updates") }.disabled(checker.busy)
+                    Button("Bu sürümü atla") { checker.skipRelease(); dismissWindow(id:"updates") }.disabled(checker.busy)
                 }
             } else {
                 HStack {
@@ -131,10 +204,52 @@ struct UpdatePanel:View {
                     Link("GitHub’da aç",destination:AppHelp.releases)
                 }
             }
-            Divider()
-            Toggle("Açılışta güncellemeyi denetle (günde en fazla bir kez)",isOn:$automatic)
-                .accessibilityIdentifier("updates.checkOnLaunch")
-            Text("Varsayılan kapalıdır. Denetleme yalnız update.json dosyasını ister; uygulama veya proje verisi göndermez. ZIP yalnız Şimdi güncelle ile indirilir.").font(.caption).foregroundStyle(.secondary)
         }.padding(24).frame(width:540).background(Color(nsColor:.windowBackgroundColor))
+    }
+}
+
+struct UpdateConsentPanel: View {
+    let answer: (Bool) -> Void
+    @Environment(\.dismissWindow) private var dismissWindow
+
+    var body: some View {
+        VStack(alignment:.leading,spacing:12) {
+            Text("AtışPress yeni sürümleri kendiliğinden denetlesin mi?").font(.headline)
+            Text("Günde en fazla bir kez yalnızca sürüm bilgisi dosyasını (update.json) GitHub'dan ister; proje veya kişisel veri göndermez.")
+            HStack {
+                Spacer()
+                Button("Hayır") { dismissWindow(id:"update-consent"); answer(false) }
+                Button("Evet, denetle") { dismissWindow(id:"update-consent"); answer(true) }.buttonStyle(.borderedProminent)
+            }
+        }.padding(20).frame(width:440)
+    }
+}
+
+struct UpdateSettingsSection: View {
+    @ObservedObject var checker: UpdateChecker
+
+    var body: some View {
+        Section("Güncellemeler") {
+            Toggle("Açılışta güncellemeyi denetle",isOn:Binding(
+                get:{ checker.automaticConsent == true },
+                set:checker.setAutomaticConsent))
+                .accessibilityIdentifier("updates.checkOnLaunch")
+            Button("Atlanan sürümü sıfırla",action:checker.resetSkippedRelease)
+                .disabled(checker.skippedVersion == nil)
+        }
+    }
+}
+
+struct UpdateToolbarBadge: View {
+    @ObservedObject var checker: UpdateChecker
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        if let title = checker.badgeTitle {
+            Button("Güncelleme var") { openWindow(id:"updates") }
+                .help(title)
+                .accessibilityLabel(title)
+                .accessibilityIdentifier("updates.toolbarBadge")
+        }
     }
 }

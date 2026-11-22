@@ -25,6 +25,7 @@ struct TeamPDFImportDialog: View {
 
 struct TeamPDFImportSettings: View {
     @ObservedObject var settings: UsabilitySettings
+    @ObservedObject var updates: UpdateChecker
 
     var body: some View {
         Form {
@@ -34,6 +35,7 @@ struct TeamPDFImportSettings: View {
             Text("Yalnızca yeni PDF açılışları için geçerlidir. Montaj bölümünden açık işi elle değiştirebilirsiniz.")
                 .foregroundStyle(.secondary)
                 .font(.caption)
+            UpdateSettingsSection(checker:updates)
         }
         .padding(20)
         .frame(width: 430)

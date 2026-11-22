@@ -98,6 +98,10 @@ struct UpdateClient {
     var publicKey:Data
     func check(at url:URL = manifestURL,currentVersion:String,currentBuild:Int) async throws -> UpdateManifest? {
         let data=try await transport.manifest(from:url)
+        return try verifiedRelease(data,from:url,currentVersion:currentVersion,currentBuild:currentBuild)
+    }
+
+    func verifiedRelease(_ data:Data,from url:URL,currentVersion:String,currentBuild:Int) throws -> UpdateManifest? {
         let manifest:UpdateManifest
         do { manifest=try JSONDecoder().decode(UpdateManifest.self,from:data) }
         catch { throw UpdateFailure("Güncelleme bilgisi okunamadı veya imza alanları eksik.") }

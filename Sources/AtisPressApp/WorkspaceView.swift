@@ -53,6 +53,7 @@ struct WorkspaceView: View {
         .toolbar {
             Button(action:model.choosePDF) { HStack { Image(systemName:"doc.badge.plus"); Text("PDF Seç") } }.help("PDF seç · ⌘O")
             JobTemplateMenu(model: model)
+            UpdateToolbarBadge(checker:UpdateChecker.shared)
             Spacer()
             Button("Otomatik düzenle") { model.requestAutomaticLayout() }.disabled(model.source == nil || model.loading || model.autoArranging || model.exporting)
             Button { model.preparingExport = true } label: {

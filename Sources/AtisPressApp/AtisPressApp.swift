@@ -3,6 +3,18 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var workspace: Workspace? { didSet { drainOpenRequests() } }
+    weak var mainWindow: NSWindow?
+    var beganUpdateLaunch = false
+    var manualUpdateAfterConsent = false
+
+    var canPresentUpdateWindow: Bool {
+        guard let workspace, let mainWindow, mainWindow.isVisible,
+              NSApp.keyWindow === mainWindow, NSApp.modalWindow == nil,
+              !NSApp.windows.contains(where:{ $0.isVisible && ($0 is NSSavePanel || $0.attachedSheet != nil) }),
+              !UpdateChecker.shared.busy else { return false }
+        return !workspace.hasPendingUpdatePresentationBlocker
+    }
+
     private var pendingOpenURLs: [URL] = []
     private var openTask: Task<Void,Never>?
     private var recentRequests: [URL: Date] = [:]
@@ -70,12 +82,13 @@ struct AtisPressApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var workspace = Workspace(restoreInspector:false)
     @StateObject private var prices = PricingStore()
+    @StateObject private var updates = UpdateChecker.shared
     @Environment(\.openWindow) private var openWindow
     var body: some Scene {
         Window("AtışPress — Canlı Önizleme",id: "workspace") {
             WorkspaceView(model:workspace,prices:prices)
                 .frame(minWidth:DesignSystem.minimumWindow.width,minHeight:DesignSystem.minimumWindow.height)
-                .background(ProjectWindowControl(model: workspace))
+                .background(ProjectWindowControl(model:workspace,onWindow:{ delegate.mainWindow = $0 }))
                 .onOpenURL { delegate.receiveOpenURLs([$0]) }
                 .task {
                     workspace.ui.railVisible = true
@@ -88,8 +101,7 @@ struct AtisPressApp: App {
                     if let path = CommandLine.arguments.dropFirst().first, !path.hasPrefix("-") {
                         workspace.open(URL(fileURLWithPath: path))
                     }
-                    await UpdateChecker.shared.checkOnLaunch()
-                    if UpdateChecker.shared.available || UpdateChecker.shared.launchNotice { openWindow(id:"updates") }
+                    await startLaunchUpdate()
                 }
         }
         .defaultSize(width: 1440,height: 920)
@@ -167,7 +179,11 @@ struct AtisPressApp: App {
             CommandGroup(replacing:.help) {
                 Button("Hata bildir…") { openWindow(id:"report") }
                 Button("AtışPress Hakkında") { openWindow(id:"about") }
-                Button("Güncellemeleri denetle…") { UpdateChecker.shared.check(); openWindow(id:"updates") }
+                Button("Güncellemeleri denetle…",action:checkUpdatesManually)
+                if let title = updates.badgeTitle {
+                    Button(title) { openWindow(id:"updates") }
+                        .accessibilityIdentifier("updates.helpBadge")
+                }
             }
             CommandGroup(replacing: .appSettings) {
                 SettingsLink { Text("Ayarlar…") }.keyboardShortcut(",", modifiers: .command)
@@ -176,11 +192,66 @@ struct AtisPressApp: App {
                 Button("AtışPress Hakkında") { openWindow(id:"about") }
             }
         }
-        Settings { TeamPDFImportSettings(settings: workspace.ui) }
+        Settings { TeamPDFImportSettings(settings:workspace.ui,updates:updates) }
+        Window("Güncelleme izni",id:"update-consent") {
+            UpdateConsentPanel(answer:answerUpdateConsent)
+        }.windowResizability(.contentSize)
         Window("Hata bildir…",id:"report") { HelpPanel(model:workspace,mode:"Hata bildir…") }
         Window("AtışPress Hakkında",id:"about") { HelpPanel(model:workspace,mode:"AtışPress Hakkında") }
-        Window("Güncellemeleri denetle…",id:"updates") { UpdatePanel(model:workspace,checker:UpdateChecker.shared) }
+        Window("Güncellemeleri denetle…",id:"updates") { UpdatePanel(model:workspace,checker:updates) }
         Window("Fiyatlar",id:"prices") { PricingView(store:prices) }
         Window("İş maliyeti",id:"costing") { CostingView(model:workspace,store:prices) }
     }
+
+    private func startLaunchUpdate() async {
+        while delegate.mainWindow?.isVisible != true {
+            do { try await Task.sleep(for:.milliseconds(30)) } catch { return }
+        }
+        guard !Task.isCancelled, !delegate.beganUpdateLaunch else { return }
+        delegate.beganUpdateLaunch = true
+        if updates.automaticConsent == nil {
+            while !delegate.canPresentUpdateWindow {
+                do { try await Task.sleep(for:.milliseconds(100)) } catch { return }
+                guard delegate.mainWindow?.isVisible == true, updates.automaticConsent == nil else { return }
+            }
+            openWindow(id:"update-consent")
+        } else {
+            await presentLaunchUpdate()
+        }
+    }
+
+    private func presentLaunchUpdate() async {
+        let started = ProcessInfo.processInfo.systemUptime
+        guard await updates.checkOnLaunch() != nil, !Task.isCancelled,
+              ProcessInfo.processInfo.systemUptime-started <= 30, delegate.canPresentUpdateWindow else { return }
+        openWindow(id:"updates")
+    }
+
+    private func checkUpdatesManually() {
+        guard updates.automaticConsent != nil else {
+            delegate.manualUpdateAfterConsent = true
+            openWindow(id:"update-consent")
+            return
+        }
+        updates.check()
+        openWindow(id:"updates")
+    }
+
+    private func answerUpdateConsent(_ enabled: Bool) {
+        updates.setAutomaticConsent(enabled)
+        if delegate.manualUpdateAfterConsent {
+            delegate.manualUpdateAfterConsent = false
+            checkUpdatesManually()
+        } else {
+            Task {
+                // Let the consent window close before an already cached result can open.
+                for _ in 0..<10 {
+                    guard !delegate.canPresentUpdateWindow else { break }
+                    try? await Task.sleep(for:.milliseconds(30))
+                }
+                await presentLaunchUpdate()
+            }
+        }
+    }
+
 }

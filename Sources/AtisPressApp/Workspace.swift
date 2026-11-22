@@ -302,6 +302,13 @@ final class Workspace: ObservableObject {
     private var revision = UUID()
     private var importRevision = UUID()
 
+    var hasPendingUpdatePresentationBlocker: Bool {
+        loading || preparingSource || autoArranging || exporting || preparingExport ||
+            filePanel != nil || exportPanel != nil || savePanel != nil || error != nil ||
+            showingTeamImportChoice || pdfInsertion != nil || pageDuplicateRequest != nil ||
+            showingArtworkSeparation || showingPageSplit || showingSourceGuides || scaleWindow != nil
+    }
+
     var displaySheets: [Sheet] { plan.sheets+plan.diagnosticSheets }
     var currentSheet: Sheet? { displaySheets.indices.contains(sheetIndex) ? displaySheets[sheetIndex] : nil }
     var currentSide: Side? { currentSheet.map { side == .front ? $0.front : $0.back } }

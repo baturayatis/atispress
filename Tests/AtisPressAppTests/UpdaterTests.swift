@@ -11,6 +11,7 @@ private actor MockUpdateTransport:UpdateTransport {
     func manifest(from url:URL) async throws -> Data {requests.append(url); return data}
     func archive(from url:URL,to destination:URL,progress:@escaping @Sendable (Double)->Void) async throws {requests.append(url); try data.write(to:destination); progress(1)}
     func count() -> Int {requests.count}
+    func replaceManifest(_ replacement: Data) { data = replacement }
 }
 final class UpdaterTests:XCTestCase {
     private func directory() throws -> URL {
@@ -128,6 +129,7 @@ final class UpdaterTests:XCTestCase {
         let key=Curve25519.Signing.PrivateKey(),m=try signed(key)
         let client=UpdateClient(transport:MockUpdateTransport(try JSONEncoder().encode(m)),publicKey:key.publicKey.rawRepresentation)
         let blocked=UpdateChecker(client:client,defaults:defaults,target:URL(fileURLWithPath:"/Volumes/Test/AtışPress.app"),currentVersion:"0.2.1",currentBuild:3)
+        blocked.setAutomaticConsent(false)
         await blocked.checkNow(); XCTAssertTrue(blocked.available); XCTAssertEqual(blocked.installBlocked,"Önce uygulamayı Uygulamalar klasörüne taşıyın")
         let current=UpdateChecker(client:client,defaults:defaults,currentVersion:"0.3.0",currentBuild:4)
         await current.checkNow(); XCTAssertEqual(current.text,"Güncelsiniz"); XCTAssertFalse(current.available)
@@ -157,6 +159,141 @@ final class UpdaterTests:XCTestCase {
             if mode != "readonly" {XCTAssertTrue(FileManager.default.fileExists(atPath:work.appendingPathComponent("backup.app").path))}
         }
     }
+    @MainActor func testLaunchConsentPersistsAndDeclineStillAllowsManualCheck() async throws {
+        let suite = "AtisPressConsent-"+UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName:suite))
+        defer { defaults.removePersistentDomain(forName:suite) }
+        let key = Curve25519.Signing.PrivateKey()
+        let transport = MockUpdateTransport(try JSONEncoder().encode(signed(key)))
+        let client = UpdateClient(transport:transport,publicKey:key.publicKey.rawRepresentation)
+        let checker = UpdateChecker(client:client,defaults:defaults,currentVersion:"0.2.1",currentBuild:3)
+        XCTAssertNil(checker.automaticConsent)
+        let unasked = await checker.checkOnLaunch()
+        await checker.checkNow()
+        XCTAssertNil(unasked)
+        let none = await transport.count()
+        XCTAssertEqual(none,0)
+
+        checker.setAutomaticConsent(false)
+        let reopened = UpdateChecker(client:client,defaults:defaults,currentVersion:"0.2.1",currentBuild:3)
+        XCTAssertEqual(reopened.automaticConsent,false)
+        let declined = await reopened.checkOnLaunch()
+        XCTAssertNil(declined)
+        let stillNone = await transport.count()
+        XCTAssertEqual(stillNone,0)
+        await reopened.checkNow()
+        let manual = await transport.count()
+        XCTAssertEqual(manual,1)
+        XCTAssertTrue(reopened.available)
+
+        reopened.setAutomaticConsent(true)
+        let allowed = UpdateChecker(client:client,defaults:defaults,currentVersion:"0.2.1",currentBuild:3)
+        XCTAssertEqual(allowed.automaticConsent,true)
+        let notification = await allowed.checkOnLaunch()
+        XCTAssertEqual(notification,.release)
+    }
+
+    @MainActor func testLaunchReminderSkipAndVerifiedCacheAcrossRelaunches() async throws {
+        let suite = "AtisPressReminder-"+UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName:suite))
+        defer { defaults.removePersistentDomain(forName:suite) }
+        let key = Curve25519.Signing.PrivateKey()
+        let transport = MockUpdateTransport(try JSONEncoder().encode(signed(key)))
+        let client = UpdateClient(transport:transport,publicKey:key.publicKey.rawRepresentation)
+        func reopen() -> UpdateChecker {
+            UpdateChecker(client:client,defaults:defaults,
+                target:URL(fileURLWithPath:"/private/var/folders/x/AppTranslocation/UUID/d/AtışPress.app"),
+                currentVersion:"0.2.1",currentBuild:3)
+        }
+        let start = Date(timeIntervalSince1970:1_800_000_000)
+        let first = reopen()
+        first.setAutomaticConsent(true)
+        let initial = await first.checkOnLaunch(now:start)
+        XCTAssertEqual(initial,.release)
+        XCTAssertNotNil(first.installBlocked)
+        XCTAssertEqual(first.badgeTitle,"Güncelleme var: 0.3.0")
+        first.remindLater(now:start.addingTimeInterval(60))
+
+        let early = reopen()
+        let snoozed = await early.checkOnLaunch(now:start.addingTimeInterval(86_402))
+        XCTAssertNil(snoozed)
+        XCTAssertEqual(early.badgeTitle,"Güncelleme var: 0.3.0")
+        let remaining = reopen()
+        let reminded = await remaining.checkOnLaunch(now:start.addingTimeInterval(86_460))
+        XCTAssertEqual(reminded,.release)
+        let dailyRequests = await transport.count()
+        XCTAssertEqual(dailyRequests,2)
+
+        remaining.skipRelease()
+        let skipped = reopen()
+        let muted = await skipped.checkOnLaunch(now:start.addingTimeInterval(86_461))
+        XCTAssertNil(muted)
+        XCTAssertNil(skipped.badgeTitle)
+        await skipped.checkNow()
+        XCTAssertEqual(skipped.release?.version,"0.3.0")
+        skipped.resetSkippedRelease()
+        XCTAssertNil(reopen().skippedVersion)
+        XCTAssertEqual(skipped.badgeTitle,"Güncelleme var: 0.3.0")
+        skipped.skipRelease()
+
+        await transport.replaceManifest(try JSONEncoder().encode(signed(key,version:"0.4.0",build:5)))
+        let newer = reopen()
+        let updated = await newer.checkOnLaunch(now:start.addingTimeInterval(172_805))
+        XCTAssertEqual(updated,.release)
+        XCTAssertEqual(newer.badgeTitle,"Güncelleme var: 0.4.0")
+    }
+
+    @MainActor func testLaunchStaysQuietForCurrentAndRejectedMetadataAndThrottlesFailure() async throws {
+        let suite = "AtisPressQuietLaunch-"+UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName:suite))
+        defer { defaults.removePersistentDomain(forName:suite) }
+        let key = Curve25519.Signing.PrivateKey()
+        let manifest = try signed(key)
+        let transport = MockUpdateTransport(try JSONEncoder().encode(manifest))
+        let client = UpdateClient(transport:transport,publicKey:key.publicKey.rawRepresentation)
+        let checker = UpdateChecker(client:client,defaults:defaults,currentVersion:"0.3.0",currentBuild:4)
+        checker.setAutomaticConsent(true)
+        let now = Date(timeIntervalSince1970:1_800_000_000)
+        let current = await checker.checkOnLaunch(now:now)
+        XCTAssertNil(current)
+        XCTAssertEqual(checker.text,"Güncelsiniz")
+        XCTAssertNil(checker.badgeTitle)
+        var forged = try signed(key,version:"0.4.0",build:5)
+        forged.notes += " Değiştirilmiş not."
+        await transport.replaceManifest(try JSONEncoder().encode(forged))
+        let failed = await checker.checkOnLaunch(now:now.addingTimeInterval(86_400))
+        XCTAssertNil(failed)
+        XCTAssertNil(checker.badgeTitle)
+        XCTAssertTrue(checker.text.contains("imzası"))
+        let retriedTooSoon = await checker.checkOnLaunch(now:now.addingTimeInterval(86_401))
+        XCTAssertNil(retriedTooSoon)
+        let requestCount = await transport.count()
+        XCTAssertEqual(requestCount,2)
+    }
+
+    @MainActor func testLaunchPresentationBlockersAndNotificationEntryPoints() throws {
+        let workspace = Workspace()
+        XCTAssertFalse(workspace.hasPendingUpdatePresentationBlocker)
+        workspace.preparingExport = true
+        XCTAssertTrue(workspace.hasPendingUpdatePresentationBlocker)
+        workspace.preparingExport = false
+        workspace.showingPageSplit = true
+        XCTAssertTrue(workspace.hasPendingUpdatePresentationBlocker)
+        workspace.showingPageSplit = false
+        workspace.error = "Deneme"
+        XCTAssertTrue(workspace.hasPendingUpdatePresentationBlocker)
+        let delegate = AppDelegate()
+        delegate.workspace = workspace
+        XCTAssertFalse(delegate.canPresentUpdateWindow)
+
+        let root = URL(fileURLWithPath:#filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let app = try String(contentsOf:root.appendingPathComponent("Sources/AtisPressApp/AtisPressApp.swift"))
+        XCTAssertTrue(app.contains("updates.helpBadge"))
+        XCTAssertTrue(app.contains("TeamPDFImportSettings(settings:workspace.ui,updates:updates)"))
+        let workspaceView = try String(contentsOf:root.appendingPathComponent("Sources/AtisPressApp/WorkspaceView.swift"))
+        XCTAssertTrue(workspaceView.contains("UpdateToolbarBadge(checker:"))
+    }
+
     @MainActor func testDefaultOffDailyGateMockedCheckerAndUpdateWindowReachability() async throws {
         let suite="AtisPressUpdaterTests-"+UUID().uuidString,defaults=UserDefaults(suiteName:suite)!
         defer {defaults.removePersistentDomain(forName:suite)}
@@ -264,6 +401,7 @@ extension UpdaterTests {
         let suite="AtisPressArchiveFailure-"+UUID().uuidString,defaults=UserDefaults(suiteName:suite)!
         defer{defaults.removePersistentDomain(forName:suite)}
         let checker=UpdateChecker(client:UpdateClient(transport:LocalUpdateTransport(),publicKey:key.publicKey.rawRepresentation),manifestURL:json,defaults:defaults,target:target,currentVersion:"0.2.1",currentBuild:3)
+        checker.setAutomaticConsent(false)
         await checker.checkNow();XCTAssertTrue(checker.available);XCTAssertNil(checker.installBlocked)
         checker.install(model:Workspace(uiDefaults:defaults))
         for _ in 0..<1000 {if !checker.busy {break};try await Task.sleep(for:.milliseconds(10))}

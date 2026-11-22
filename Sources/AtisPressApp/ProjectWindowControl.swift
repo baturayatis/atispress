@@ -5,10 +5,14 @@ import AppKit
 @MainActor
 struct ProjectWindowControl: NSViewRepresentable {
     @ObservedObject var model: Workspace
+    var onWindow: ((NSWindow) -> Void)? = nil
     func makeCoordinator() -> Coordinator { Coordinator(model: model) }
     func makeNSView(context: Context) -> WindowHookView {
         let view = WindowHookView()
-        view.attach = { [weak coordinator = context.coordinator] window in coordinator?.attach(window) }
+        view.attach = { [weak coordinator = context.coordinator] window in
+            coordinator?.attach(window)
+            onWindow?(window)
+        }
         return view
     }
     func updateNSView(_ view: WindowHookView,context: Context) { context.coordinator.update() }

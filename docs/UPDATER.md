@@ -81,8 +81,21 @@ paket mevcut build betiği gibi ad-hoc imzalıdır; Developer ID/noter onayı bu
 Yardım → **Güncellemeleri denetle…** yalnız
 `https://github.com/baturayatis/atispress/releases/latest/download/update.json`
 GET isteğini yapar. Metadata imzası doğrulanır, sürüm/build ve minimum macOS
-kontrol edilir. **Şimdi güncelle** tıklanmadan ZIP indirilmez. Açılışta denetleme
-varsayılan kapalıdır; açılırsa başarısız denemeler dahil en fazla 24 saatte bir.
+kontrol edilir. **Şimdi güncelle** tıklanmadan ZIP indirilmez.
+
+İlk açılışta ve daha önce seçim yapmamış kurulumlarda denetleme izni sorulur.
+Yanıt verilene kadar güncelleme isteği gönderilmez. **AtışPress → Ayarlar…**
+(⌘,) içindeki **Güncellemeler** bölümünden otomatik denetleme değiştirilebilir
+ve atlanan sürüm sıfırlanabilir. Otomatik denetleme, başarısız denemeler dahil
+en fazla 24 saatte bir arka planda yapılır. Elle denetleme istek üzerine çalışır.
+
+Uygun ve imzası geçerli bir sürüm varsa açılışta sürüm notları gösterilir.
+Denetim açılış fırsatından sonra biterse veya dışa aktarma ya da bir pencere
+akışı sürüyorsa araç çubuğundaki ve Yardım menüsündeki bildirim kullanılabilir.
+**Daha sonra** pencereyi 24 saat erteler. **Bu sürümü atla** o sürümün otomatik
+bildirimini kaldırır. Elle denetleme atlanan sürümü yine gösterir. İmzalı
+sürüm bilgisi günlük kota dolduğunda yerel olarak yeniden doğrulanabilir.
+Güncel sürüm ve denetim hataları açılışta pencere açmaz.
 Proje, dosya adı, tanı veya kullanıcı verisi gönderilmez. HTTP oturumu ephemeral;
 çerez, kimlik bilgisi ve kalıcı cache yoktur. HTTPS yönlendirmeleri yalnız GitHub
 ve GitHub release asset sunucularına izin verir. GitHub standart bağlantı/IP
@@ -94,7 +107,8 @@ manifest ile eşleştirilir. Metadata en fazla 512 KB, ZIP 1,5 GB kabul edilir.
 Minimum sistem macOS 14’tür. Yalnız kararlı üç parçalı sürümler desteklenir.
 
 DMG/App Translocation/salt okunur veya yazılamayan hedefte kurulum sunulmaz:
-“Önce uygulamayı Uygulamalar klasörüne taşıyın”. Yetki yükseltme/sudo yoktur.
+“Önce uygulamayı Uygulamalar klasörüne taşıyın” mesajıyla **GitHub’da aç** sunulur.
+Yetki yükseltme/sudo yoktur.
 Doğrulama bitince mevcut kaydet/iptal penceresi çalışır. Yardımcı betik yalnız
 uygulama kapandıktan sonra (en fazla 300 saniye bekleyerek) kopyalar. Önce aynı
 hedef diskte yeni paket hazırlanıp codesign doğrulanır, temp klasöre yedek alınır,
