@@ -162,6 +162,8 @@ extension PresentationReviewTests {
         let plist = try XCTUnwrap(PropertyListSerialization.propertyList(from:data,format:nil) as? [String:Any])
         let version = try XCTUnwrap(plist["CFBundleShortVersionString"] as? String)
         let build = try XCTUnwrap(plist["CFBundleVersion"] as? String)
+        XCTAssertEqual(version, "0.7.0")
+        XCTAssertEqual(build, "10")
         XCTAssertEqual(AppHelp.version, version)
         XCTAssertEqual(AppHelp.buildNumber, build)
         let current = try XCTUnwrap(ReleaseVersion(version))
