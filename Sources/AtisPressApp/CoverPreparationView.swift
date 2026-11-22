@@ -21,9 +21,10 @@ struct CoverPreparationView: View {
     @State private var calculator = false
 
     var body: some View {
-        if model.canShowCoverTab {
-            let spread = model.coverPreparationPlan(.spread)
-            let sheet = model.coverPreparationPlan(.sheet)
+        let enabled = model.coverSettingsHint == nil
+        Group {
+            let spread = enabled ? model.coverPreparationPlan(.spread) : ImpositionPlan()
+            let sheet = enabled ? model.coverPreparationPlan(.sheet) : ImpositionPlan()
             VStack(alignment:.leading,spacing:10) {
                 sourceControls
                 if model.project.coverPreparation == nil && (model.project.isBooklet || model.project.isLeafBinding) {
@@ -76,9 +77,9 @@ struct CoverPreparationView: View {
                     }
                 }
             }.font(.system(size:13))
-        } else {
-            Button("PDF seçin",action:model.choosePDF)
         }
+            .disabled(!enabled)
+            .accessibilityIdentifier("cover.settings")
     }
 
     private var sourceControls: some View {

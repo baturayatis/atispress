@@ -18,11 +18,11 @@ import PDFEngine
         addTeardownBlock {try? FileManager.default.removeItem(at:url)}
         return url
     }
-    private func fixture() throws -> URL {
+    private func fixture(pageCount: Int = 12) throws -> URL {
         let url=try directory().appendingPathComponent("cards.pdf")
         var box=CGRect(x:0,y:0,width:85*72/25.4,height:55*72/25.4)
         let context=try XCTUnwrap(CGContext(consumer:XCTUnwrap(CGDataConsumer(url:url as CFURL)),mediaBox:&box,nil))
-        for number in 1...12 {
+        for number in 1...pageCount {
             context.beginPDFPage(nil)
             context.setFillColor(CGColor(gray:Double(number)/16,alpha:1));context.fill(box)
             context.endPDFPage()
@@ -37,6 +37,34 @@ import PDFEngine
         }
         XCTFail("Workspace did not settle")
     }
+    func testRailOrderAndCoverAvailabilityWithZeroOneAndTwelvePages() async throws {
+        let model = Workspace(uiDefaults:defaults())
+        let prices = PricingStore(url:try directory().appendingPathComponent("prices.json"))
+        let expected: [InspectorPanel] = [.job,.sheet,.montage,.coverPreparation,.dimensions,.cut,
+                                          .separation,.serial,.press,.color,.price,.output]
+        for pageCount in [0,1,12] {
+            if pageCount > 0 {
+                model.open(try fixture(pageCount:pageCount),confirmChanges:false)
+                try await settle(model)
+            }
+            XCTAssertEqual(model.source?.pages.count ?? 0,pageCount)
+            let rail = NSHostingView(rootView:InspectorRail(model:model,prices:prices))
+            rail.layoutSubtreeIfNeeded()
+            XCTAssertEqual(InspectorRail.panels,expected)
+            model.ui.jump(.coverPreparation)
+            XCTAssertEqual(model.ui.activePanel,.coverPreparation)
+            let panel = NSHostingView(rootView:InspectorView(model:model,prices:prices))
+            panel.frame = CGRect(x:0,y:0,width:350,height:743)
+            panel.layoutSubtreeIfNeeded()
+            XCTAssertEqual(model.coverSettingsHint,pageCount < 2
+                ? "Kapak ayarları için en az 2 sayfalı bir PDF yükleyin." : nil)
+            XCTAssertEqual(InspectorSearchEntry.byID["prepareCover"]?.canOpen(in:model),pageCount >= 2)
+        }
+        let panelSource = try String(contentsOf:root.appendingPathComponent("Sources/AtisPressApp/CoverPreparationView.swift"))
+        XCTAssertTrue(panelSource.contains("let enabled = model.coverSettingsHint == nil"))
+        XCTAssertTrue(panelSource.contains(".disabled(!enabled)"))
+    }
+
     func testRegistryOwnsEveryLegacySettingAndAllAutomaticFieldsExactlyOnce() {
         for (editor,paths) in WorkflowSettingsBefore.byEditor {
             XCTAssertTrue(paths.isSubset(of:InspectorRegistry.settingsByEditor[editor] ?? []),editor)

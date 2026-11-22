@@ -553,7 +553,7 @@ extension BookWorkspaceTests {
         let pdf = try fixture(folder,"12-sayfa.pdf",count:12,size:Size(50,70))
         workspace.open(pdf,confirmChanges:false)
         try await settle(workspace)
-        XCTAssertTrue(workspace.canShowCoverTab)
+        XCTAssertTrue(workspace.hasCoverArtworkContext)
         workspace.project.sheet = SheetSpec(size:Size(300,400))
         let original = workspace.project.pages
         workspace.activateCoverSource(.firstAndLast)

@@ -72,21 +72,19 @@ struct InspectorRail:View {
     @ObservedObject var model:Workspace
     @ObservedObject var prices:PricingStore
     @FocusState private var focused:InspectorPanel?
-    private var panels:[InspectorPanel] {
-        InspectorPanel.allCases.filter { $0 != .coverPreparation || model.canShowCoverTab }
-    }
+    static let panels = InspectorPanel.allCases
     var body:some View {
         VStack(spacing:2) {
             InspectorVisibilityButton(settings: model.ui)
             Divider()
-            ForEach(panels) {panel in
+            ForEach(Self.panels) {panel in
                 item(panel).focused($focused,equals:panel)
             }
             Spacer(minLength:4)
         }.padding(.horizontal,2).frame(width:WorkspaceColumnLayout.railWidth).background(DesignSystem.card)
             .onMoveCommand {direction in
                 let step=direction == .down ? 1 : direction == .up ? -1 : 0
-                guard let next=InspectorPanel.neighbor(of:focused ?? model.ui.activePanel,step:step,visible:panels) else {return}
+                guard let next=InspectorPanel.neighbor(of:focused ?? model.ui.activePanel,step:step,visible:Self.panels) else {return}
                 focused=next
                 model.ui.jump(next)
             }

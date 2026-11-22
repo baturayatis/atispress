@@ -165,8 +165,9 @@ sayfa kutuları ve taşma bilgisi PDFKit kopyalama sırasında korunur.
 
 ## Ayarlara erişim
 
-Sağdaki simge çubuğunda İş, Tabaka, Montaj, Ölçüler, Kesim, İş Ayır,
-Seri No, Baskı, Renk, Fiyat ve Çıktı panelleri bulunur. Başlıktan bölümleri
+Sağdaki simge çubuğunda İş, Tabaka, Montaj, Kapak, Ölçüler, Kesim, İş Ayır,
+Seri No, Baskı, Renk, Fiyat ve Çıktı panelleri sabit sırada bulunur.
+Kapak ayarları için en az iki sayfalı bir PDF yükleyin. Başlıktan bölümleri
 açıp kapatın veya **Ayar ara** ile doğrudan ilgili kontrole gidin. Favoriler,
 panel genişliği ve açık bölümler yerel olarak hatırlanır. Genel önizleme
 kılavuzları **Tabaka** panelindedir.

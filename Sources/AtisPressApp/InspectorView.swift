@@ -17,6 +17,13 @@ struct InspectorView: View {
             InspectorSearchView(model: model)
             Label(panel.title,systemImage:panel.symbol).font(.system(size:17,weight:.semibold))
                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("panel.header."+panel.rawValue)
+            if panel == .coverPreparation, let hint = model.coverSettingsHint {
+                HStack(alignment:.firstTextBaseline,spacing:6) {
+                    Text(hint).foregroundStyle(DesignSystem.muted)
+                    Button("PDF Seç",action:model.choosePDF).buttonStyle(.link).fixedSize()
+                        .accessibilityIdentifier("cover.choosePDF")
+                }.accessibilityElement(children:.contain).accessibilityIdentifier("cover.requirement")
+            }
             if !manualFields.isEmpty {
                 Button("\(manualFields.count) ayar manuel · Otomatiğe döndür") { model.returnToAutomatic(manualFields) }
                     .buttonStyle(.link).font(.system(size:12))
@@ -50,19 +57,23 @@ struct InspectorView: View {
 
     private var sections: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(groups) { group in
-                DisclosureGroup(isExpanded: Binding(
-                    get: { model.ui.isGroupExpanded(group, in: panel, for: model.project) },
-                    set: { model.ui.setGroupExpanded(group, $0) }
-                )) {
-                    VStack(alignment: .leading, spacing: 10) { sectionContent(group) }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 8)
-                } label: {
-                    Text(group.title).fontWeight(.semibold)
-                        .accessibilityIdentifier("panel.section." + group.rawValue)
+            if panel == .serial && model.source == nil {
+                Text("Seri numara eklemek için bir PDF yükleyin.").foregroundStyle(DesignSystem.muted)
+            } else {
+                ForEach(groups) { group in
+                    DisclosureGroup(isExpanded: Binding(
+                        get: { model.ui.isGroupExpanded(group, in: panel, for: model.project) },
+                        set: { model.ui.setGroupExpanded(group, $0) }
+                    )) {
+                        VStack(alignment: .leading, spacing: 10) { sectionContent(group) }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 8)
+                    } label: {
+                        Text(group.title).fontWeight(.semibold)
+                            .accessibilityIdentifier("panel.section." + group.rawValue)
+                    }
+                    .id(group)
                 }
-                .id(group)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -136,6 +147,9 @@ struct InspectorView: View {
         case .quote: CostingView(model:model,store:prices,inline:true,section:3)
         case .priceLibrary: PricingView(store:prices,inline:true)
         case .output:
+            if model.source == nil {
+                Text("Çıktı hazırlamak için bir PDF yükleyin.").foregroundStyle(DesignSystem.muted)
+            }
             Button("PDF’i Hazırla") {model.preparingExport=true}.disabled(!model.canExportNow).inspectorTarget("preparePDF")
             ForEach(ExportPreset.allCases,id:\.self) {preset in
                 Button(preset.rawValue) {model.project.exportMarks=preset.applying(to:model.project.exportMarks)}.frame(minHeight:30)

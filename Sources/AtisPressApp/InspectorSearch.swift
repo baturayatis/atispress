@@ -91,8 +91,8 @@ struct InspectorSearchEntry: Identifiable {
         .init("columns", "Sütun sayısını belirle", .montage, .placement, "kolon ızgara") { $0.project.binding == .stepAndRepeat },
         .init("rows", "Satır sayısını belirle", .montage, .placement, "ızgara sıra") { $0.project.binding == .stepAndRepeat },
         .init("teamRotation", "Takımda 90° döndürmeye izin ver", .montage, .products, "rotasyon dönüş") { $0.project.team != nil },
-        .init("prepareCover", "Kapak kaynağı", .coverPreparation, .coverPreparation, "ön arka açılım kapak PDF tabaka montajı") { $0.canShowCoverTab },
-        .init("coverMode", "Sırt payı", .coverPreparation, .coverPreparation, "sırt payı açılım kalınlık") { $0.canShowCoverTab },
+        .init("prepareCover", "Kapak kaynağı", .coverPreparation, .coverPreparation, "ön arka açılım kapak PDF tabaka montajı") { $0.coverSettingsHint == nil },
+        .init("coverMode", "Sırt payı", .coverPreparation, .coverPreparation, "sırt payı açılım kalınlık") { $0.coverSettingsHint == nil },
         .init("bindingEdge", "Cilt kenarı", .montage, .binding, "spiral Wire-O delik") { $0.project.isLeafBinding },
         .init("holes", "Delik işaretleri", .montage, .binding, "spiral çıktı delgeç") { $0.project.isLeafBinding },
         .init("blankPlacement", "Boş sayfalar nereye", .montage, .blanks, "sona başa manuel dolgu"),
@@ -130,7 +130,7 @@ struct InspectorSearchEntry: Identifiable {
             $0.canInspectSourceGuides && ($0.preparationInput?.guides.count ?? 0) > 0
         },
         .init("serialAdd", "Alan ekle", .serial, .serialFields, "seri no numara QR barkod") {
-            ($0.project.binding == .stepAndRepeat || ($0.project.binding == .gang && $0.selectedGangJob != nil)) &&
+            $0.source != nil && ($0.project.binding == .stepAndRepeat || ($0.project.binding == .gang && $0.selectedGangJob != nil)) &&
                 $0.editableSerialFields.count < 100
         },
         .init("serialKind", "Seri alanı türü", .serial, .serialContent, "metin QR kod barkod code 128") { serialField(in: $0) != nil },

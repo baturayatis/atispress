@@ -1,7 +1,11 @@
 import ImpositionCore
 
 extension Workspace {
-    var canShowCoverTab: Bool {
+    var coverSettingsHint: String? {
+        (source?.pages.count ?? 0) < 2 ? "Kapak ayarları için en az 2 sayfalı bir PDF yükleyin." : nil
+    }
+
+    var hasCoverArtworkContext: Bool {
         (source?.pages.count ?? 0) >= 2 || project.coverPreparation != nil
     }
 

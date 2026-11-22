@@ -171,8 +171,8 @@ enum ContextPresentation {
         if kind(model) == .job && model.project.binding != .saddleStitch && (model.project.isBooklet || model.project.isLeafBinding) {
             result.insert(.cover,at:0)
         }
-        if model.project.binding == .saddleStitch && !model.canShowCoverTab { result.removeAll { $0 == .cover } }
-        if model.canShowCoverTab && !result.contains(.cover) && (kind(model) == .book || kind(model) == .flat || model.ui.activePanel == .coverPreparation) {
+        if model.project.binding == .saddleStitch && !model.hasCoverArtworkContext { result.removeAll { $0 == .cover } }
+        if model.hasCoverArtworkContext && !result.contains(.cover) && (kind(model) == .book || kind(model) == .flat || model.ui.activePanel == .coverPreparation) {
             result.insert(.cover,at:0)
         }
         if kind(model) == .book && model.project.isLeafBinding {result.removeAll{$0 == .signature}}

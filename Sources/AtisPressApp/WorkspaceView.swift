@@ -20,7 +20,7 @@ struct WorkspaceView: View {
                 WorkspaceSplitView(settings: model.ui, windowWidth: geometry.size.width) {
                     sidebar
                 } preview: {
-                    if model.ui.activePanel == .coverPreparation, model.canShowCoverTab,
+                    if model.ui.activePanel == .coverPreparation, model.hasCoverArtworkContext,
                        model.project.coverPreparation != nil || !(model.project.isBooklet || model.project.isLeafBinding) {
                         CoverPreparationPreview(model:model)
                     }

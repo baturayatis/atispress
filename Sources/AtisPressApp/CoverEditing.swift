@@ -11,7 +11,7 @@ extension Workspace {
         set {
             guard (0...1000).contains(newValue) else { return }
             if project.coverPreparation != nil || !(project.isBooklet || project.isLeafBinding) || project.binding == .saddleStitch {
-                guard canShowCoverTab else { return }
+                guard hasCoverArtworkContext else { return }
                 if project.coverPreparation == nil { activateCoverSource(.firstAndLast,spineWidth:newValue) }
                 else { coverPreparation.spineWidth = newValue }
                 return
