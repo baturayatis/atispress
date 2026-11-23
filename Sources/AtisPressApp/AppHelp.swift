@@ -34,8 +34,8 @@ enum AppHelp {
     static let releases = URL(string:"https://github.com/baturayatis/atispress/releases")!
     // Test runners and swift run have their own main bundle; never report its tool version.
     private static var appBundle:Bundle? { Bundle.main.bundleIdentifier == "com.atisajans.atispress" ? .main : nil }
-    static var version:String { appBundle?.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "0.7.1" }
-    static var buildNumber:String { appBundle?.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "11" }
+    static var version:String { appBundle?.object(forInfoDictionaryKey:"CFBundleShortVersionString") as? String ?? "0.7.2" }
+    static var buildNumber:String { appBundle?.object(forInfoDictionaryKey:"CFBundleVersion") as? String ?? "12" }
     static let licenseName = "Atış Ajans Kullanım Lisansı (taslak)"
     struct Release:Decodable { let tag_name:String }
     static func updateAvailable(data:Data,current:String = version) throws -> Bool {
