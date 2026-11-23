@@ -162,6 +162,7 @@ final class Workspace: ObservableObject {
     private let bookmarkCreator: (URL) throws -> Data
     private let recentStore: RecentFilesStore
     private let filePicker: FilePicker?
+    let imageSizePicker: ((ImageImportInfo) -> ImagePrintSettings?)?
     private let machineDefaults: UserDefaults
     private static let machineProfilesKey = "machineProfiles"
     @Published private(set) var machineProfiles: [MachineProfile] = []
@@ -201,13 +202,14 @@ final class Workspace: ObservableObject {
     @Published private(set) var recentFiles: [RecentFile] = []
     init(bookmarkCreator: @escaping (URL) throws -> Data = ProjectSource.securityBookmark,
          recentStore: RecentFilesStore? = nil,filePicker: FilePicker? = nil,uiDefaults:UserDefaults = .standard, templateStore: JobTemplateStore = JobTemplateStore(),
-         restoreInspector: Bool = true) {
+         restoreInspector: Bool = true, imageSizePicker: ((ImageImportInfo) -> ImagePrintSettings?)? = nil) {
         self.ui = UsabilitySettings(defaults:uiDefaults,restoreInspector:restoreInspector)
         machineDefaults = uiDefaults
         self.templateStore = templateStore
         self.bookmarkCreator = bookmarkCreator
         self.recentStore = recentStore ?? RecentFilesStore()
         self.filePicker = filePicker
+        self.imageSizePicker = imageSizePicker
         machineProfiles = loadMachineProfiles()
         recentFiles = self.recentStore.files()
         savedState = state
@@ -942,15 +944,9 @@ final class Workspace: ObservableObject {
         let files = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }
         guard !files.isEmpty else { return false }
         Task {
-            var urls: [URL] = []
-            for provider in files {
-                let url: URL? = await withCheckedContinuation { continuation in
-                    provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier,options: nil) { item,_ in
-                        if let data = item as? Data { continuation.resume(returning:URL(dataRepresentation:data,relativeTo:nil)) }
-                        else { continuation.resume(returning:item as? URL) }
-                    }
-                }
-                if let url { urls.append(url) }
+            guard let urls = await OpenFileKind.droppedURLs(files) else {
+                self.error = "Sürüklenen dosyanın konumu okunamadı."
+                return
             }
             if urls.count > 1, urls.allSatisfy(OpenFileKind.pdf.accepts) { openArtworkBatch(urls) }
             else if urls.count == 1, let url = urls.first, OpenFileKind.any.accepts(url) { open(url) }

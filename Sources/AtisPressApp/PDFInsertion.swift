@@ -91,16 +91,17 @@ extension Workspace {
             do {
                 var values:[PDFInsertSource]=[]
                 for url in urls {
-                    activeURL=url;stage="Yer imi oluşturma"
-                    stage="Kaynak yükleme"
+                    activeURL=url;stage="Kaynak yükleme"
                     let pdf=try await openPagePDF(url,password:password)
+                    stage="Yer imi oluşturma"
                     let reference=try capturePageSource(url,imageSettings:pdf.imageSettings)
+                    stage="Baskı ölçüsü doğrulama"
                     try checkJobTemplateSize(pdf)
                     values.append(PDFInsertSource(url:url,pdf:pdf,selected:Set(pdf.pages.map(\.number)),reference:reference))
                 }
                 pdfInsertion=PDFInsertionDraft(sources:values,anchor:anchor,position:anchor==nil ? .end:.above)
             } catch is CancellationError {} catch {
-                if ImageImport.accepts(activeURL) { self.error="\(activeURL.lastPathComponent) — \(error.localizedDescription)"; loading=false; return }
+                if ImageImport.accepts(activeURL) { self.error="\(activeURL.lastPathComponent) — \(stage) · \(error.localizedDescription)"; loading=false; return }
                 let failure=recordPDFLoadFailure(error,url:activeURL,stage:stage)
                 pdfLoadFailure=failure;self.error=failure.localizedDescription
             }

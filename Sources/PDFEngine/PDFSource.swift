@@ -43,12 +43,16 @@ public final class PDFSource: @unchecked Sendable {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("AtisPress-image-" + UUID().uuidString)
         let output = folder.appendingPathComponent(origin.deletingPathExtension().lastPathComponent + ".pdf")
         do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+            catch { throw ImageImportError.temporaryStorage }
             let warnings = try await Task.detached(priority: .userInitiated) {
                 try ImageImport.write(origin, to: output, settings: settings)
             }.value
             try Task.checkCancellation()
-            let result = try await open(output)
+            let result: PDFSource
+            do { result = try await open(output) }
+            catch is CancellationError { throw CancellationError() }
+            catch { throw ImageImportError.pdfValidation(error.localizedDescription) }
             result.imageOrigin = origin
             result.imageOriginAccess = scoped
             result.imageSettings = settings

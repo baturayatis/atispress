@@ -1,5 +1,7 @@
 import XCTest
 import AppKit
+import ImageIO
+import UniformTypeIdentifiers
 import PDFKit
 import SwiftUI
 import ImpositionCore
@@ -24,10 +26,10 @@ import ImpositionCore
         }
         context.closePDF();return url
     }
-    private func workspace()->Workspace {
+    private func workspace(imageSizePicker: ((ImageImportInfo) -> ImagePrintSettings?)? = nil)->Workspace {
         let name="PDFInsertion-"+UUID().uuidString,defaults=UserDefaults(suiteName:name)!
         addTeardownBlock {defaults.removePersistentDomain(forName:name)}
-        return Workspace(bookmarkCreator:{try $0.bookmarkData(options:.minimalBookmark,includingResourceValuesForKeys:nil,relativeTo:nil)},uiDefaults:defaults)
+        return Workspace(bookmarkCreator:{try $0.bookmarkData(options:.minimalBookmark,includingResourceValuesForKeys:nil,relativeTo:nil)},uiDefaults:defaults,imageSizePicker:imageSizePicker)
     }
     private func settle(_ model:Workspace) async throws {
         for _ in 0..<1200 {
@@ -241,6 +243,72 @@ import ImpositionCore
         XCTAssertEqual(opened.plan.sheets,model.plan.sheets)
         XCTAssertEqual(try outputPixels(opened),try outputPixels(model))
     }
+    func testPNGAndJPEGThroughOpenAddAndBothDropTargets() async throws {
+        let dir = try folder()
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.displayP3))
+        let bitmap = try XCTUnwrap(CGContext(data: nil, width: 720, height: 480, bitsPerComponent: 8,
+            bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        bitmap.setFillColor(try XCTUnwrap(CGColor(colorSpace: space, components: [0.8, 0.2, 0.1, 1])))
+        bitmap.fill(CGRect(x: 0, y: 0, width: 720, height: 400))
+        let artwork = try XCTUnwrap(bitmap.makeImage())
+        for (type, name, orientation) in [(UTType.png, "örnek.png", 1), (.jpeg, "örnek.JPG", 6)] {
+            let url = dir.appendingPathComponent(name)
+            let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL, type.identifier as CFString, 1, nil))
+            CGImageDestinationAddImage(destination, artwork, [
+                kCGImagePropertyOrientation: orientation, kCGImagePropertyDPIWidth: 300, kCGImagePropertyDPIHeight: 300
+            ] as CFDictionary)
+            XCTAssertTrue(CGImageDestinationFinalize(destination))
+            for route in ["open", "add", "workspace drop", "page drop"] {
+                var info: ImageImportInfo?
+                let model = workspace(imageSizePicker: { info = $0; return $0.defaultSettings })
+                switch route {
+                case "open": model.open(url, confirmChanges: false)
+                case "add": model.preparePageInsertion([url])
+                case "workspace drop":
+                    XCTAssertTrue(model.acceptDrop([try XCTUnwrap(NSItemProvider(contentsOf: url))]))
+                default:
+                    XCTAssertTrue(model.acceptPagePDFDrop([try XCTUnwrap(NSItemProvider(contentsOf: url))]))
+                }
+                // Drop providers return asynchronously before Workspace starts loading.
+                for _ in 0..<500 {
+                    if model.pdfInsertion != nil || model.source != nil || model.error != nil { break }
+                    try await Task.sleep(for: .milliseconds(10))
+                }
+                if let draft = model.pdfInsertion {
+                    try await model.insertPagePDFs(draft, mode: .singles)
+                }
+                try await settle(model)
+                XCTAssertNil(model.error, route)
+                let source = try XCTUnwrap(model.source, route)
+                XCTAssertEqual(model.pageSourceRecords.first?.reference.fileName, name)
+                XCTAssertEqual(source.pages.count, 1, route)
+                let metadata = try XCTUnwrap(info)
+                XCTAssertEqual(metadata.dpiX, 300, accuracy: 0.1)
+                XCTAssertEqual(metadata.pixelWidth, orientation == 6 ? 480 : 720)
+                XCTAssertEqual(source.pages[0].trimSize.width, metadata.defaultSettings.widthMM, accuracy: 0.015)
+                let preview = await source.image(page: 1, pixels: 128)
+                XCTAssertNotNil(preview, route)
+                let output = dir.appendingPathComponent(UUID().uuidString + ".pdf")
+                _ = try PDFExporter.export(plan: model.plan, source: source, destination: .singlePDF(output), marks: .none)
+                let document = try XCTUnwrap(CGPDFDocument(output as CFURL))
+                XCTAssertNotNil(document.page(at: 1))
+                XCTAssertNotNil(try Data(contentsOf: output).range(of: Data("/Subtype /Image".utf8)))
+            }
+        }
+    }
+
+    func testImageFormatFailureIsNotReportedAsDamagedPDF() async throws {
+        let invalid = try folder().appendingPathComponent("örnek.png")
+        try Data("wrong format".utf8).write(to: invalid)
+        let model = workspace(imageSizePicker: { $0.defaultSettings })
+        model.open(invalid, confirmChanges: false)
+        try await settle(model)
+        XCTAssertNil(model.pdfLoadFailure)
+        XCTAssertTrue(model.error?.contains("ImageIO") == true)
+        XCTAssertTrue(model.error?.contains(invalid.lastPathComponent) == true)
+        XCTAssertNil(model.source)
+    }
+
     func testMixedPDFAndImageRoundtripWithPrintSettingsAndRelink() async throws {
         let model = try await loaded()
         let dir = try folder()

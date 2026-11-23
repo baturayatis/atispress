@@ -104,7 +104,10 @@ extension Workspace {
             selected = settings
         } else {
             let info = try await ImageImport.inspect(url)
-            if configure {
+            if configure, let imageSizePicker {
+                guard let choice = imageSizePicker(info) else { throw CancellationError() }
+                selected = choice
+            } else if configure {
                 try Task.checkCancellation()
                 let size = ImagePrintSize(info)
                 let alert = NSAlert()

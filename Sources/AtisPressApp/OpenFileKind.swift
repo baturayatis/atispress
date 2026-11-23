@@ -1,3 +1,4 @@
+import Foundation
 import UniformTypeIdentifiers
 import PDFEngine
 
@@ -21,6 +22,24 @@ enum OpenFileKind {
         case .project: return "AtışPress projesi (.atispress) seçin"
         }
     }
+    static func droppedURLs(_ providers: [NSItemProvider]) async -> [URL]? {
+        var urls: [URL] = []
+        for provider in providers {
+            let url: URL? = await withCheckedContinuation { continuation in
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                    if let data = item as? Data {
+                        continuation.resume(returning: URL(dataRepresentation: data, relativeTo: nil))
+                    } else {
+                        continuation.resume(returning: item as? URL)
+                    }
+                }
+            }
+            guard let url, url.isFileURL else { return nil }
+            urls.append(url)
+        }
+        return urls
+    }
+
     func accepts(_ url: URL) -> Bool {
         guard url.isFileURL else { return false }
         switch self {

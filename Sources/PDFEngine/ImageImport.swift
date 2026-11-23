@@ -20,14 +20,20 @@ public struct ImagePrintSettings: Codable, Equatable, Sendable {
 }
 
 public enum ImageImportError: LocalizedError {
-    case unreadable, invalidSize, unsupportedColor, cmyk, writeFailed
+    case sourceAccess, unsupportedFormat, metadata, decode, invalidSize, unsupportedColor, cmyk
+    case temporaryStorage, writeFailed, pdfValidation(String)
     public var errorDescription: String? {
         switch self {
-        case .unreadable: return "Görsel okunamadı. Dosya bozuk olabilir veya biçim bu macOS sürümünde desteklenmiyor."
+        case .sourceAccess: return "Görsel dosyası bulunamadı veya okuma izni yok."
+        case .unsupportedFormat: return "ImageIO dosyanın görsel biçimini tanıyamadı veya bu biçim desteklenmiyor."
+        case .metadata: return "Görselin piksel boyutları okunamadı."
+        case .decode: return "ImageIO görselin piksel verisini açamadı."
         case .invalidSize: return "Görselin baskı ölçüsü geçersiz."
         case .unsupportedColor: return "Görselin renk uzayı baskı için desteklenmiyor."
         case .cmyk: return "Görselin CMYK renk uzayı PDF’de korunamadı."
-        case .writeFailed: return "Görsel için çalışma PDF’si oluşturulamadı."
+        case .temporaryStorage: return "Çalışma PDF’si için geçici klasör açılamadı."
+        case .writeFailed: return "Görsel çalışma PDF’sine yazılamadı."
+        case .pdfValidation(let detail): return "Çalışma PDF’si doğrulanamadı. \(detail)"
         }
     }
 }
@@ -79,7 +85,7 @@ public enum ImageImport {
             let source = try source(readURL)
             let info = try info(source)
             guard let image = CGImageSourceCreateImageAtIndex(source, info.index, nil) else {
-                throw ImageImportError.unreadable
+                throw ImageImportError.decode
             }
             let model = image.colorSpace?.model
             if info.colorModel == (kCGImagePropertyColorModelCMYK as String), model != .cmyk {
@@ -125,9 +131,10 @@ public enum ImageImport {
     }
 
     private static func source(_ url: URL) throws -> CGImageSource {
+        guard FileManager.default.isReadableFile(atPath: url.path) else { throw ImageImportError.sourceAccess }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let type = CGImageSourceGetType(source), types.contains(type as String) else {
-            throw ImageImportError.unreadable
+            throw ImageImportError.unsupportedFormat
         }
         return source
     }
@@ -137,7 +144,7 @@ public enum ImageImport {
         guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [String: Any],
               let width = properties[kCGImagePropertyPixelWidth as String] as? Int, width > 0,
               let height = properties[kCGImagePropertyPixelHeight as String] as? Int, height > 0 else {
-            throw ImageImportError.unreadable
+            throw ImageImportError.metadata
         }
         func dpi(_ key: CFString) -> Double? {
             guard let value = properties[key as String] as? Double, value.isFinite, value > 0 else { return nil }
@@ -179,13 +186,16 @@ public enum ImageImport {
     }
 
     private static func embeddedImage(_ url: URL, width: Int, height: Int) throws -> EmbeddedImage {
-        guard let page = CGPDFDocument(url as CFURL)?.page(at: 1), let dictionary = page.dictionary else {
-            throw ImageImportError.writeFailed
+        guard let document = CGPDFDocument(url as CFURL), let page = document.page(at: 1),
+              let dictionary = page.dictionary else {
+            throw ImageImportError.pdfValidation("Oluşturulan sayfa açılamadı.")
         }
+        // Core Graphics resource references are borrowed from the PDF document.
+        defer { withExtendedLifetime(document) {} }
         var resources: CGPDFDictionaryRef?, objects: CGPDFDictionaryRef?
         guard CGPDFDictionaryGetDictionary(dictionary, "Resources", &resources), let resources,
               CGPDFDictionaryGetDictionary(resources, "XObject", &objects), let objects else {
-            throw ImageImportError.writeFailed
+            throw ImageImportError.pdfValidation("Sayfanın görsel kaynakları bulunamadı.")
         }
         var image: CGPDFDictionaryRef?
         CGPDFDictionaryApplyBlock(objects, { _, object, _ in
@@ -200,7 +210,7 @@ public enum ImageImport {
             }
             return true
         }, nil)
-        guard let image else { throw ImageImportError.writeFailed }
+        guard let image else { throw ImageImportError.pdfValidation("Özgün piksel boyutlarına sahip görsel bulunamadı.") }
         var name: UnsafePointer<CChar>?
         var result = EmbeddedImage()
         var softMask: CGPDFStreamRef?, mask: CGPDFObjectRef?

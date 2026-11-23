@@ -119,19 +119,15 @@ extension Workspace {
         let providers=providers.filter{$0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)}
         guard canAddPagePDFs,!providers.isEmpty else {return false}
         Task {
-            do {
-                var urls:[URL]=[]
-                for provider in providers {
-                    let data:Data=try await withCheckedThrowingContinuation {continuation in
-                        provider.loadDataRepresentation(forTypeIdentifier:UTType.fileURL.identifier) {data,error in
-                            if let data {continuation.resume(returning:data)} else {continuation.resume(throwing:error ?? PDFReadError.unreadable)}
-                        }
-                    }
-                    guard let url=URL(dataRepresentation:data,relativeTo:nil),OpenFileKind.pdf.accepts(url) else {throw PDFReadError.unreadable}
-                    urls.append(url)
-                }
-                preparePageInsertion(urls,anchor:anchor)
-            } catch {self.error="Dosya eklenemedi: "+error.localizedDescription}
+            guard let urls = await OpenFileKind.droppedURLs(providers) else {
+                self.error = "Sürüklenen dosyanın konumu okunamadı."
+                return
+            }
+            guard urls.allSatisfy(OpenFileKind.pdf.accepts) else {
+                self.error = "Sayfalara eklemek için PDF veya desteklenen bir görsel bırakın."
+                return
+            }
+            preparePageInsertion(urls, anchor: anchor)
         }
         return true
     }
