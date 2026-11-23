@@ -357,7 +357,7 @@ final class Workspace: ObservableObject {
                 self.exportPanel = nil
                 guard response == .OK, let folder = panel.url, self.canExportNow else { return }
                 let granted = folder.startAccessingSecurityScopedResource()
-                let name = source.url.deletingPathExtension().lastPathComponent
+                let name = source.originalURL.deletingPathExtension().lastPathComponent
                 let directory = folder.appendingPathComponent("AtisPress-"+UUID().uuidString,isDirectory: true)
                 do {
                     try FileManager.default.createDirectory(at: directory,withIntermediateDirectories: false)
@@ -375,7 +375,7 @@ final class Workspace: ObservableObject {
             panel.title = "Bütün işi PDF olarak dışa aktar"; panel.prompt = "Dışa Aktar"
             panel.message = "Çıktı işaretleri önizleme katmanlarından bağımsızdır."
             panel.accessoryView = exportAccessory()
-            panel.nameFieldStringValue = source.url.deletingPathExtension().lastPathComponent+"-baski.pdf"
+            panel.nameFieldStringValue = source.originalURL.deletingPathExtension().lastPathComponent+"-baski.pdf"
             panel.begin { [weak self] response in
                 self?.exportPanel = nil
                 if response == .OK, let url = panel.url { self?.beginExport(to: .singlePDF(url)) }
@@ -608,16 +608,23 @@ final class Workspace: ObservableObject {
         if let filePicker { filePicker(kind,finish); return }
         let panel = NSOpenPanel()
         filePanel = panel
-        panel.allowedContentTypes = kind.contentTypes; panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = kind.contentTypes; panel.allowsMultipleSelection = kind != .project
         panel.canChooseDirectories = false; panel.canChooseFiles = true; panel.allowsOtherFileTypes = false
         panel.title = kind.title; panel.prompt = "Aç"; panel.message = kind.message
         panel.begin { [weak self] response in
             self?.filePanel = nil
-            finish(response == .OK ? panel.url : nil)
+            guard response == .OK else { return }
+            if panel.urls.count > 1, panel.urls.allSatisfy(OpenFileKind.pdf.accepts) {
+                self?.openArtworkBatch(panel.urls)
+            } else if panel.urls.count > 1 {
+                self?.error = "Proje dosyalarını tek tek açın. PDF ve görseller birlikte açılabilir."
+            } else {
+                finish(panel.url)
+            }
         }
     }
     func open(_ url: URL,confirmChanges: Bool = true, confirmTemplateSize: ((JobTemplateSizeMismatch) -> Bool)? = nil) {
-        if project.binding == .gang && project.team == nil && project.sourcePreparation?.hasPreparedProducts != true && project.sourcePreparation?.hiddenGuideGroups.isEmpty != false && url.pathExtension.lowercased() == "pdf" { addGangPDFs([url], confirmTemplateSize: confirmTemplateSize); return }
+        if project.binding == .gang && project.team == nil && project.sourcePreparation?.hasPreparedProducts != true && project.sourcePreparation?.hiddenGuideGroups.isEmpty != false && OpenFileKind.pdf.accepts(url) { addGangPDFs([url], confirmTemplateSize: confirmTemplateSize); return }
         guard !preparingSource,!loading, !exporting, !autoArranging, (!confirmChanges || confirmDiscard()) else { return }
         showingTeamImportChoice = false
         if url.pathExtension.lowercased() == "atispress" {
@@ -631,6 +638,16 @@ final class Workspace: ObservableObject {
             return
         }
         openPDFProject([url], confirmTemplateSize: confirmTemplateSize)
+    }
+
+    private func openArtworkBatch(_ urls: [URL]) {
+        if project.binding == .gang, project.team == nil,
+           project.sourcePreparation?.hasPreparedProducts != true,
+           project.sourcePreparation?.hiddenGuideGroups.isEmpty != false {
+            addGangPDFs(urls)
+        } else {
+            openExternalPDFs(urls)
+        }
     }
 
     func openExternalPDFs(_ urls: [URL], confirmChanges: (() -> Bool)? = nil) {
@@ -658,12 +675,12 @@ final class Workspace: ObservableObject {
                     try checkJobTemplateSize(pdf, confirm: confirmTemplateSize)
                     loaded.append(pdf)
                     if urls.count > 1 {
-                        let reference = try ProjectSource.capture(url, createBookmark: bookmarkCreator)
+                        let reference = try capturePageSource(url,imageSettings:pdf.imageSettings)
                         assets.append(GangAsset(saved: GangSourceReference(id: UUID(), reference: reference,
                                                                           pageCount: pdf.pages.count), source: pdf))
                     }
                 }
-                let source = loaded.count == 1 ? loaded[0] : try await PDFSource.combine(loaded, displayName: "Birden çok PDF")
+                let source = loaded.count == 1 ? loaded[0] : try await PDFSource.combine(loaded, displayName: loaded.contains { $0.imageSettings != nil } ? "Birden çok kaynak" : "Birden çok PDF")
                 var items: [PageListItem] = []
                 for asset in assets {
                     let offset = items.count
@@ -707,7 +724,7 @@ final class Workspace: ObservableObject {
                 clearRecovery(); projectIdentifier = UUID()
                 projectURL = nil; projectAccess = nil
                 sourceReference = assets.isEmpty
-                    ? try? ProjectSource.capture(source.preparationInput.originalURL,createBookmark: bookmarkCreator) : nil
+                    ? try? capturePageSource(source.preparationInput.originalURL,imageSettings:source.preparationInput.imageSettings) : nil
                 self.source = source
                 gangAssets = assets
                 selectedGangJobID = nil
@@ -730,6 +747,10 @@ final class Workspace: ObservableObject {
                 guard !Task.isCancelled, importRevision == token else { return }
                 loading = false
                 if !(error is CancellationError) {
+                    if ImageImport.accepts(activeURL) {
+                        self.error = "\(activeURL.lastPathComponent) — \(error.localizedDescription)"
+                        return
+                    }
                     let failure=recordPDFLoadFailure(error,url:activeURL,stage:"Ana PDF / ortak yükleyici")
                     pdfLoadFailure=failure;self.error=failure.localizedDescription
                 }
@@ -755,7 +776,7 @@ final class Workspace: ObservableObject {
         gangAssets=[];source=nil;sourceReference=nil;order=[];included=[];selectedPages=[]
         project=next;endUndoGroup()
     }
-    func capturePageSource(_ url:URL) throws -> ProjectSource {try ProjectSource.capture(url,createBookmark:bookmarkCreator)}
+    func capturePageSource(_ url:URL,imageSettings:ImagePrintSettings? = nil) throws -> ProjectSource {try ProjectSource.capture(url,imageSettings:imageSettings,createBookmark:bookmarkCreator)}
     func beginPDFImportScaling() {pdfImportSnapshot=editSnapshot;beginUndoGroup()}
     func finishPDFImportScaling(accepted:Bool) {
         guard let snapshot=pdfImportSnapshot else {return}
@@ -931,8 +952,9 @@ final class Workspace: ObservableObject {
                 }
                 if let url { urls.append(url) }
             }
-            if project.binding == .gang,project.team == nil,project.sourcePreparation?.separation == nil,urls.allSatisfy({ $0.pathExtension.lowercased()=="pdf" }) { addGangPDFs(urls) }
-            else if let url = urls.first { open(url) }
+            if urls.count > 1, urls.allSatisfy(OpenFileKind.pdf.accepts) { openArtworkBatch(urls) }
+            else if urls.count == 1, let url = urls.first, OpenFileKind.any.accepts(url) { open(url) }
+            else { self.error = "Bir proje dosyası veya PDF ve görsel dosyaları bırakın." }
         }
         return true
     }
@@ -983,7 +1005,7 @@ extension Workspace {
         flushUndoEdits()
         let access = ProjectFileAccess(url)
         var snapshot = state
-        if let source,gangAssets.isEmpty { snapshot.source = try ProjectSource.capture(source.preparationInput.originalURL,createBookmark: bookmarkCreator) }
+        if let source,gangAssets.isEmpty { snapshot.source = try capturePageSource(source.preparationInput.originalURL,imageSettings:source.preparationInput.imageSettings) }
         try snapshot.validateSelection(pageCount: source?.pages.count ?? 0)
         try ProjectDocument(state: snapshot).encoded().write(to: url,options: .atomic)
         sourceReference = snapshot.source; projectURL = url; projectAccess = access
@@ -1034,9 +1056,9 @@ extension Workspace {
     }
     private func chooseRelink(_ reference: ProjectSource) -> URL? {
         let panel = NSOpenPanel()
-        panel.title = "Kaynak PDF’yi Yeniden Bağla"; panel.prompt = "Yeniden Bağla"
-        panel.message = "Kaynak PDF bulunamadı veya değişmiş: \(reference.fileName) (\(reference.fileSize) bayt). Lütfen özgün PDF’yi seçin."
-        panel.allowedContentTypes = [.pdf]; panel.allowsMultipleSelection = false
+        panel.title = "Kaynak Dosyayı Yeniden Bağla"; panel.prompt = "Yeniden Bağla"
+        panel.message = "Kaynak dosya bulunamadı veya değişmiş: \(reference.fileName) (\(reference.fileSize) bayt). Lütfen özgün dosyayı seçin."
+        panel.allowedContentTypes = OpenFileKind.artworkTypes; panel.allowsMultipleSelection = false
         return panel.runModal() == .OK ? panel.url : nil
     }
     /// Loads into temporary values first: failure/cancel never replaces the active project.
@@ -1057,10 +1079,10 @@ extension Workspace {
                     guard let replacement = relink(saved.reference) else { throw CancellationError() }
                     sourceURL = replacement; relinked = true
                 }
-                var loaded = try await openPagePDF(sourceURL!,password:password)
+                var loaded = try await openPagePDF(sourceURL!,password:password,imageSettings:saved.reference.imageSettings,configureImage:false)
                 guard loaded.pages.count == saved.pageCount else { throw ProjectFileError.sourceMismatch }
                 if let preparation=snapshot.project.sourcePreparation,preparation.sourceID==saved.id { loaded = try await loaded.prepared(preparation) }
-                let reference = try ProjectSource.capture(sourceURL!,createBookmark: bookmarkCreator)
+                let reference = try capturePageSource(sourceURL!,imageSettings:loaded.preparationInput.imageSettings)
                 assets.append(GangAsset(saved: GangSourceReference(id: saved.id,reference: reference,pageCount: saved.pageCount),source: loaded))
             }
             if snapshot.project.team != nil, assets.count == 1 { loadedSource = assets[0].source }
@@ -1104,7 +1126,7 @@ extension Workspace {
                 guard let replacement = relink(reference) else { throw CancellationError() }
                 sourceURL = replacement; relinked = true
             }
-            loadedSource = try await openPagePDF(sourceURL!,password:password)
+            loadedSource = try await openPagePDF(sourceURL!,password:password,imageSettings:reference.imageSettings,configureImage:false)
             if let preparation=snapshot.project.sourcePreparation { loadedSource = try await loadedSource!.prepared(preparation) }
             try snapshot.validateSelection(pageCount: loadedSource!.pages.count)
             for item in snapshot.project.pageItems ?? [] {
@@ -1114,7 +1136,7 @@ extension Workspace {
                       item.sourcePage==assets.prefix(index).reduce(0,{$0+$1.source.pages.count})+local else {throw ProjectFileError.sourceMismatch}
             }
             guard snapshot.matchesPageMetadata(loadedSource!) else { throw ProjectFileError.sourceMismatch }
-            snapshot.source = try ProjectSource.capture(sourceURL!,createBookmark: bookmarkCreator)
+            snapshot.source = try capturePageSource(sourceURL!,imageSettings:loadedSource?.preparationInput.imageSettings)
         } else { try snapshot.validateSelection(pageCount: 0) }
         try Task.checkCancellation()
         clearRecovery()
@@ -1493,7 +1515,7 @@ extension Workspace {
         return single.repeatJobs.enumerated().map { index,pair in
             var f = pair.front; f.number += offset
             var b = pair.back; b?.number += offset
-            var job = GangJob(sourceID:id,name: source.url.deletingPathExtension().lastPathComponent+" · \(index+1)",front:f,back:b)
+            var job = GangJob(sourceID:id,name: source.originalURL.deletingPathExtension().lastPathComponent+" · \(index+1)",front:f,back:b)
             job.internalCuts = baseline.internalCutJobs?[pair.front.number]
             job.quantity = baseline.stepAndRepeat.quantity ?? 1000
             job.waste = baseline.stepAndRepeat.waste ?? WasteSettings()
@@ -1505,8 +1527,8 @@ extension Workspace {
     }
     func chooseGangPDFs() {
         guard !loading,!exporting else { return }
-        let panel = NSOpenPanel(); panel.allowedContentTypes = [.pdf]; panel.allowsMultipleSelection = true
-        panel.title = "Karışık işe PDF ekle"; panel.prompt = "Ekle"
+        let panel = NSOpenPanel(); panel.allowedContentTypes = OpenFileKind.artworkTypes; panel.allowsMultipleSelection = true
+        panel.title = "Karışık işe PDF veya görsel ekle"; panel.prompt = "Ekle"
         panel.begin { [weak self] response in if response == .OK { self?.addGangPDFs(panel.urls) } }
     }
     func addGangPDFs(_ urls: [URL], confirmTemplateSize: ((JobTemplateSizeMismatch) -> Bool)? = nil) {
@@ -1517,9 +1539,9 @@ extension Workspace {
                 var assets = gangAssets,settings = project.gang ?? GangSettings()
                 let originalCount = settings.jobs.count
                 for url in urls {
-                    let pdf = try await PDFSource.open(url),id = UUID()
+                    let pdf = try await openPagePDF(url),id = UUID()
                     try checkJobTemplateSize(pdf, confirm: confirmTemplateSize)
-                    let reference = try ProjectSource.capture(url,createBookmark: bookmarkCreator)
+                    let reference = try capturePageSource(url,imageSettings:pdf.imageSettings)
                     let offset = assets.reduce(0) { $0+$1.source.pages.count }
                     var added = makeGangJobs(source:pdf,id:id,offset:offset,baseline:project)
                     for i in added.indices { added[i].tint = (Double(settings.jobs.count+i)*0.61803398875+0.12).truncatingRemainder(dividingBy:1) }
@@ -1651,8 +1673,8 @@ extension Workspace {
     func chooseCoverPDF() {
         guard source != nil, !loading, !exporting,
               project.coverPreparation?.source == .separatePDF || project.isBooklet || project.isLeafBinding else { return }
-        let panel = NSOpenPanel(); panel.allowedContentTypes = [.pdf]; panel.allowsMultipleSelection = false
-        panel.title = "Ayrı kapak PDF’sini seçin"; panel.prompt = "Kapak yükle"
+        let panel = NSOpenPanel(); panel.allowedContentTypes = OpenFileKind.artworkTypes; panel.allowsMultipleSelection = false
+        panel.title = "Kapak PDF’si veya görseli seçin"; panel.prompt = "Kapak yükle"
         panel.begin { [weak self] response in if response == .OK,let url = panel.url { self?.loadCoverPDF(url, automatic:true) } }
     }
     func loadCoverPDF(_ url: URL, automatic: Bool = false) {
@@ -1662,16 +1684,16 @@ extension Workspace {
         loading = true; error = nil; pdfLoadFailure=nil
         importTask = Task {
             do {
-                let reference = try capturePageSource(url)
                 let cover = try await openPagePDF(url)
+                let reference = try capturePageSource(url,imageSettings:cover.imageSettings)
                 if tabSource && !(1...2).contains(cover.pages.count) {
-                    self.error = "Kapak PDF’si bir hazır açılım veya iki kapak yüzü içermelidir."
+                    self.error = "Kapak dosyası bir hazır açılım veya iki kapak yüzü içermelidir."
                     loading = false
                     return
                 }
                 var assets = gangAssets
                 if assets.isEmpty {
-                    let reference = try ProjectSource.capture(current.url,createBookmark:bookmarkCreator)
+                    let reference = try capturePageSource(current.preparationInput.originalURL,imageSettings:current.preparationInput.imageSettings)
                     assets = [GangAsset(saved:GangSourceReference(id:UUID(),reference:reference,pageCount:current.pages.count),source:current)]
                 }
                 var next = project
@@ -1916,7 +1938,7 @@ extension Workspace {
         guard persistenceEnabled,!loading,!restoring else { return }
         guard isModified else { try recoveryStore.remove(projectIdentifier); return }
         var snapshot = state
-        if let source,gangAssets.isEmpty { snapshot.source = try ProjectSource.capture(source.preparationInput.url,createBookmark:bookmarkCreator) }
+        if let source,gangAssets.isEmpty { snapshot.source = try capturePageSource(source.preparationInput.originalURL,imageSettings:source.preparationInput.imageSettings) }
         try snapshot.validateSelection(pageCount:source?.pages.count ?? 0)
         try recoveryStore.write(RecoveryRecord(id:projectIdentifier,originalProjectPath:projectURL?.path,document:ProjectDocument(state:snapshot)))
     }
@@ -2419,7 +2441,7 @@ extension Workspace {
         preparingSource=true;defer {preparingSource=false}
         let prepared=try await original.prepared(settings)
         try Task.checkCancellation()
-        let reference=try ProjectSource.capture(original.originalURL,createBookmark:bookmarkCreator)
+        let reference=try capturePageSource(original.originalURL,imageSettings:original.imageSettings)
         var next=project;next.sourcePreparation=settings
         var assets=gangAssets
         let restoresSeparationMode = settings.separation.map {

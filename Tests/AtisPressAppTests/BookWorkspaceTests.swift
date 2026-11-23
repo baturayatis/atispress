@@ -590,7 +590,7 @@ extension BookWorkspaceTests {
         XCTAssertEqual(workspace.coverPreparationPlan(.spread).sheets.first?.front.slots.compactMap(\.sourcePageNumber),[8,3])
         let url = folder.appendingPathComponent("kapak.atispress")
         try workspace.saveProject(as:url)
-        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:url)).version,33)
+        XCTAssertEqual(try ProjectDocument.decode(Data(contentsOf:url)).version,ProjectDocument.currentVersion)
         let reopened = model()
         try await reopened.loadProject(at:url)
         try await settle(reopened)

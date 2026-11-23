@@ -40,9 +40,12 @@ enum PDFPageRange {
 }
 
 extension Workspace {
-    func openPagePDF(_ url:URL,password:((URL)->String?)? = nil) async throws -> PDFSource {
+    func openPagePDF(_ url:URL,password:((URL)->String?)? = nil, imageSettings: ImagePrintSettings? = nil, configureImage: Bool = true) async throws -> PDFSource {
         let access=url.startAccessingSecurityScopedResource()
         defer {if access {url.stopAccessingSecurityScopedResource()}}
+        if ImageImport.accepts(url) || imageSettings != nil {
+            return try await openImageSource(url, settings: imageSettings, configure: configureImage)
+        }
         do {return try await PDFSource.open(url)}
         catch PDFReadError.locked {
             let value:String?
@@ -60,16 +63,16 @@ extension Workspace {
     var canAddPagePDFs:Bool {!loading && !preparingSource && !exporting && !autoArranging && project.binding != .gang}
     func choosePagePDFs(at row:Int? = nil) {
         guard canAddPagePDFs else {return}
-        let panel=NSOpenPanel();panel.allowedContentTypes=[.pdf];panel.allowsMultipleSelection=true
-        panel.title="Sayfalara PDF ekle"
+        let panel=NSOpenPanel();panel.allowedContentTypes=OpenFileKind.artworkTypes;panel.allowsMultipleSelection=true
+        panel.title="Sayfalara PDF veya görsel ekle"
         panel.begin { [weak self] response in
             guard response == .OK,let self else {return}
             if let url = panel.urls.first, panel.urls.count == 1, self.source != nil,
                self.project.isBooklet || self.project.isLeafBinding {
                 let choice = NSAlert()
-                choice.messageText = "PDF nasıl eklensin?"
+                choice.messageText = "Dosya nasıl eklensin?"
                 choice.addButton(withTitle:"Sayfalara ekle")
-                choice.addButton(withTitle:"Bu PDF kapaktır")
+                choice.addButton(withTitle:"Kapak olarak ekle")
                 choice.addButton(withTitle:"Vazgeç")
                 switch choice.runModal() {
                 case .alertSecondButtonReturn: self.loadCoverPDF(url, automatic:true); return
@@ -89,14 +92,15 @@ extension Workspace {
                 var values:[PDFInsertSource]=[]
                 for url in urls {
                     activeURL=url;stage="Yer imi oluşturma"
-                    let reference=try capturePageSource(url)
-                    stage="PDFKit / CGPDFDocument yükleme"
+                    stage="Kaynak yükleme"
                     let pdf=try await openPagePDF(url,password:password)
+                    let reference=try capturePageSource(url,imageSettings:pdf.imageSettings)
                     try checkJobTemplateSize(pdf)
                     values.append(PDFInsertSource(url:url,pdf:pdf,selected:Set(pdf.pages.map(\.number)),reference:reference))
                 }
                 pdfInsertion=PDFInsertionDraft(sources:values,anchor:anchor,position:anchor==nil ? .end:.above)
             } catch is CancellationError {} catch {
+                if ImageImport.accepts(activeURL) { self.error="\(activeURL.lastPathComponent) — \(error.localizedDescription)"; loading=false; return }
                 let failure=recordPDFLoadFailure(error,url:activeURL,stage:stage)
                 pdfLoadFailure=failure;self.error=failure.localizedDescription
             }
@@ -148,7 +152,7 @@ extension Workspace {
         let point=pageInsertionPoint(draft),target=insertionTargetSize
         var assets=gangAssets
         if assets.isEmpty,let original {
-            let reference=try state.source ?? capturePageSource(original.preparationInput.originalURL)
+            let reference=try state.source ?? capturePageSource(original.preparationInput.originalURL,imageSettings:original.preparationInput.imageSettings)
             assets=[GangAsset(saved:GangSourceReference(id:project.sourcePreparation?.sourceID ?? state.projectID ?? UUID(),reference:reference,pageCount:original.pages.count),source:original)]
         }
         var items=pageListItems
@@ -169,15 +173,17 @@ extension Workspace {
         guard !required.overflow,!nextID.addingReportingOverflow(required.partialValue+1).overflow else {throw ProjectFileError.invalidSelection}
         var added:[PageListItem]=[]
         for entry in draft.sources {
-            let existing=assets.firstIndex{PDFSource.sameFile($0.source.originalURL,entry.url)}
+            let existing=assets.firstIndex {
+                PDFSource.sameFile($0.source.originalURL,entry.url) && $0.saved.reference.imageSettings == entry.pdf.imageSettings
+            }
             let assetIndex:Int
             if let existing {
-                let ref=try entry.reference ?? capturePageSource(entry.url)
+                let ref=try entry.reference ?? capturePageSource(entry.url,imageSettings:entry.pdf.imageSettings)
                 guard ref.fileSize==assets[existing].saved.reference.fileSize,entry.pdf.pages.count==assets[existing].source.pages.count else {throw ProjectFileError.sourceMismatch}
                 assetIndex=existing
             }
             else {
-                let ref=try entry.reference ?? capturePageSource(entry.url)
+                let ref=try entry.reference ?? capturePageSource(entry.url,imageSettings:entry.pdf.imageSettings)
                 assets.append(GangAsset(saved:GangSourceReference(id:UUID(),reference:ref,pageCount:entry.pdf.pages.count),source:entry.pdf))
                 assetIndex=assets.count-1
             }

@@ -12,11 +12,11 @@ enum ProjectFileError: LocalizedError {
     case unsupportedVersion(Int), invalidSelection, sourceMismatch, sourceOverwrite, missingSource(String)
     var errorDescription: String? {
         switch self {
-        case .missingSource(let name): return "Kaynak PDF bulunamadı veya değişmiş: \(name). Lütfen dosyayı yeniden bağlayın."
+        case .missingSource(let name): return "Kaynak dosya bulunamadı veya değişmiş: \(name). Lütfen dosyayı yeniden bağlayın."
         case .unsupportedVersion(let version): return "Bu proje sürümü desteklenmiyor: \(version)."
         case .invalidSelection: return "Projenin sayfa seçimi veya sırası geçersiz."
-        case .sourceMismatch: return "Seçilen PDF projenin sayfa sayısı veya kesim ölçüleriyle eşleşmiyor. Lütfen özgün PDF’yi seçin."
-        case .sourceOverwrite: return "Proje, kaynak PDF’nin üzerine kaydedilemez."
+        case .sourceMismatch: return "Seçilen kaynak projenin sayfa sayısı veya kesim ölçüleriyle eşleşmiyor. Lütfen özgün dosyayı seçin."
+        case .sourceOverwrite: return "Proje, kaynak dosyanın üzerine kaydedilemez."
         }
     }
 }
@@ -26,17 +26,18 @@ struct ProjectSource: Codable, Equatable {
     var bookmark: Data
     var fileName: String
     var fileSize: Int64
+    var imageSettings: ImagePrintSettings? = nil
 
     static func securityBookmark(_ url: URL) throws -> Data {
         try url.bookmarkData(options: [.withSecurityScope,.securityScopeAllowOnlyReadAccess],
                              includingResourceValuesForKeys: [.fileSizeKey],relativeTo: nil)
     }
-    static func capture(_ url: URL,createBookmark: (URL) throws -> Data = securityBookmark) throws -> ProjectSource {
+    static func capture(_ url: URL,imageSettings: ImagePrintSettings? = nil,createBookmark: (URL) throws -> Data = securityBookmark) throws -> ProjectSource {
         let access = url.startAccessingSecurityScopedResource()
         defer { if access { url.stopAccessingSecurityScopedResource() } }
         let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
         let bookmark = try createBookmark(url)
-        return ProjectSource(path: url.path,bookmark: bookmark,fileName: url.lastPathComponent,fileSize: Int64(size))
+        return ProjectSource(path: url.path,bookmark: bookmark,fileName: url.lastPathComponent,fileSize: Int64(size),imageSettings: imageSettings)
     }
     /// A bookmark may follow a moved file. A changed size requires explicit relinking.
     func resolve() -> URL? {
@@ -100,7 +101,7 @@ struct ProjectState: Codable, Equatable {
     }
 }
 struct ProjectDocument: Codable, Equatable {
-    static let currentVersion = 33
+    static let currentVersion = 34
     var version: Int = currentVersion
     var state: ProjectState
     static func decode(_ data: Data) throws -> ProjectDocument {
@@ -168,7 +169,9 @@ struct ProjectDocument: Codable, Equatable {
             if item.side == .front || item.side == .back {guard item.pairID != nil else {throw ProjectFileError.invalidSelection}}
         }
 
-        guard Set(sources.map(\.id)).count == sources.count,sources.allSatisfy({ $0.pageCount > 0 }),
+        guard file.state.source?.imageSettings?.isValid != false,
+              Set(sources.map(\.id)).count == sources.count,
+              sources.allSatisfy({ $0.pageCount > 0 && $0.reference.imageSettings?.isValid != false }),
               (file.state.project.gang?.jobs ?? []).allSatisfy({ job in sources.contains { $0.id==job.sourceID } }) else { throw ProjectFileError.invalidSelection }
         if let preparation=file.state.project.sourcePreparation,preparation.hasPreparedProducts {
             guard sources.contains(where:{$0.id==preparation.sourceID}) else {throw ProjectFileError.invalidSelection}
@@ -183,7 +186,7 @@ struct ProjectDocument: Codable, Equatable {
     }
 }
 
-/// Owns project-file access until the document is replaced; PDFSource owns PDF access.
+/// Owns project-file access until the document is replaced; PDFSource owns artwork access.
 final class ProjectFileAccess {
     let url: URL
     private let active: Bool

@@ -17,7 +17,7 @@ struct PDFInsertionView:View {
     private var duplex:Bool {model.insertionUsesDuplex(draft)}
     var body:some View {
         VStack(alignment:.leading,spacing:14) {
-            Text("Sayfalara PDF ekle").font(.title2.bold())
+            Text("Sayfalara PDF veya görsel ekle").font(.title2.bold())
             ScrollView {
                 VStack(alignment:.leading,spacing:16) {
                     ForEach(draft.sources.indices,id:\.self) {index in
@@ -25,8 +25,8 @@ struct PDFInsertionView:View {
                             HStack {
                                 Text(draft.sources[index].url.lastPathComponent).bold()
                                 Spacer()
-                                Button("↑") {draft.sources.swapAt(index,index-1)}.disabled(index==0).help("PDF'yi yukarı taşı")
-                                Button("↓") {draft.sources.swapAt(index,index+1)}.disabled(index==draft.sources.count-1).help("PDF'yi aşağı taşı")
+                                Button("↑") {draft.sources.swapAt(index,index-1)}.disabled(index==0).help("Dosyayı yukarı taşı")
+                                Button("↓") {draft.sources.swapAt(index,index+1)}.disabled(index==draft.sources.count-1).help("Dosyayı aşağı taşı")
                             }
                             HStack {
                                 Button("Tümü") {draft.sources[index].selected=Set(draft.sources[index].pdf.pages.map(\.number));draft.sources[index].range=""}
@@ -85,7 +85,7 @@ struct PDFInsertionView:View {
         if model.insertionHasDifferentSize(draft) {
             let alert=NSAlert()
             let incoming=model.firstDifferentInsertionSize(draft) ?? Size(0,0),existing=model.insertionTargetSize ?? Size(0,0)
-            alert.messageText="Bu PDF'in ebadı farklı (\(TRFormat.size(incoming.width,incoming.height)), projede \(TRFormat.size(existing.width,existing.height)))."
+            alert.messageText="Bu kaynağın ebadı farklı (\(TRFormat.size(incoming.width,incoming.height)), projede \(TRFormat.size(existing.width,existing.height)))."
             if !model.project.isBooklet {alert.addButton(withTitle:"Ayrı iş olarak ekle (karışık iş)")}
             alert.addButton(withTitle:"Ölçeklendir…");alert.addButton(withTitle:"Vazgeç")
             let index=alert.runModal().rawValue-NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
@@ -127,11 +127,11 @@ extension Workspace {
                             if let data {continuation.resume(returning:data)} else {continuation.resume(throwing:error ?? PDFReadError.unreadable)}
                         }
                     }
-                    guard let url=URL(dataRepresentation:data,relativeTo:nil),url.isFileURL,url.pathExtension.lowercased()=="pdf" else {throw PDFReadError.unreadable}
+                    guard let url=URL(dataRepresentation:data,relativeTo:nil),OpenFileKind.pdf.accepts(url) else {throw PDFReadError.unreadable}
                     urls.append(url)
                 }
                 preparePageInsertion(urls,anchor:anchor)
-            } catch {self.error="PDF eklenemedi: "+error.localizedDescription}
+            } catch {self.error="Dosya eklenemedi: "+error.localizedDescription}
         }
         return true
     }

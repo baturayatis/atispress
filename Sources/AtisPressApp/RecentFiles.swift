@@ -30,7 +30,7 @@ final class RecentFilesStore {
         entries = Array(entries.prefix(5))
     }
     func record(_ url: URL,bookmark: Data?) {
-        guard url.isFileURL,["pdf","atispress"].contains(url.pathExtension.lowercased()) else { return }
+        guard OpenFileKind.any.accepts(url) else { return }
         let normalized = url.standardizedFileURL
         entries.removeAll { $0.url.standardizedFileURL == normalized || $0.resolvedURL.standardizedFileURL == normalized }
         entries.insert(Entry(url: normalized,bookmark: bookmark),at: 0)

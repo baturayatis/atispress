@@ -75,9 +75,9 @@ final class HomeScreenTests: XCTestCase {
         let original = workspace.project
         workspace.choosePDF(); workspace.chooseProject(); workspace.openPanel()
         XCTAssertEqual(requests,[.pdf,.project,.any])
-        XCTAssertEqual(OpenFileKind.pdf.contentTypes,[.pdf])
+        XCTAssertEqual(OpenFileKind.pdf.contentTypes,[.pdf,.jpeg,.png,.tiff,.heic,.webP])
         XCTAssertEqual(OpenFileKind.project.contentTypes,[.projectFile])
-        XCTAssertEqual(OpenFileKind.any.contentTypes,[.pdf,.projectFile])
+        XCTAssertEqual(OpenFileKind.any.contentTypes,[.pdf,.jpeg,.png,.tiff,.heic,.webP,.projectFile])
         XCTAssertNil(workspace.source); XCTAssertNil(workspace.error)
         XCTAssertEqual(workspace.project,original); XCTAssertFalse(workspace.isModified)
         XCTAssertTrue(workspace.recentFiles.isEmpty)

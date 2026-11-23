@@ -42,7 +42,7 @@ struct BookInspectorView: View {
                     Button("Kaldır",action:model.removeCoverPDF)
                 }
             } else {
-                Button("PDF ekle…",action:model.chooseCoverPDF)
+                Button("PDF veya görsel ekle…",action:model.chooseCoverPDF)
                     .disabled(model.source == nil || model.project.sourcePreparation?.hasPreparedProducts == true)
             }
             DisclosureGroup("Daha fazla",isExpanded:$more) {

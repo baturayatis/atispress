@@ -241,6 +241,66 @@ import ImpositionCore
         XCTAssertEqual(opened.plan.sheets,model.plan.sheets)
         XCTAssertEqual(try outputPixels(opened),try outputPixels(model))
     }
+    func testMixedPDFAndImageRoundtripWithPrintSettingsAndRelink() async throws {
+        let model = try await loaded()
+        let dir = try folder()
+        let image = dir.appendingPathComponent("görsel.webp")
+        let bytes = try XCTUnwrap(Data(base64Encoded: "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAAAfQ//73v/+BiOh/AAA="))
+        try bytes.write(to: image)
+        let printSize = ImagePrintSize(try await ImageImport.inspect(image))
+        printSize.text(.width).wrappedValue = "85"
+        XCTAssertEqual(printSize.settings.heightMM, 85)
+        XCTAssertLessThan(printSize.dpi, 150)
+        printSize.text(.dpi).wrappedValue = "300"
+        XCTAssertEqual(printSize.dpi, 300, accuracy: 0.01)
+        printSize.locked.wrappedValue = false
+        printSize.text(.width).wrappedValue = "85"
+        printSize.text(.height).wrappedValue = "55,5"
+        XCTAssertEqual(printSize.settings.heightMM, 55.5)
+        printSize.text(.height).wrappedValue = "55"
+        let size = printSize.settings
+        let artwork = try await model.openPagePDF(image, imageSettings: size, configureImage: false)
+        let draft = PDFInsertionDraft(sources: [PDFInsertSource(url: image, pdf: artwork, selected: [1])],
+                                      anchor: nil, position: .end)
+        try await model.insertPagePDFs(draft, mode: .fronts)
+        try await settle(model)
+        XCTAssertTrue(model.plan.canExport)
+        XCTAssertEqual(model.pageSourceRecords.count, 2)
+
+        let fileURL = dir.appendingPathComponent("karışık.atispress")
+        try model.saveProject(as: fileURL)
+        let file = try ProjectDocument.decode(Data(contentsOf: fileURL))
+        let reference = try XCTUnwrap(file.state.gangSources?.last?.reference)
+        XCTAssertEqual(reference.path, image.path)
+        XCTAssertEqual(reference.imageSettings, size)
+        XCTAssertNil(file.state.gangSources?.first?.reference.imageSettings)
+        let opened = workspace()
+        try await opened.loadProject(at: fileURL)
+        try await settle(opened)
+        XCTAssertEqual(opened.plan.sheets, model.plan.sheets)
+        XCTAssertEqual(opened.pageListItems, model.pageListItems)
+        let output = dir.appendingPathComponent("karışık.pdf")
+        _ = try PDFExporter.export(plan: opened.plan, source: XCTUnwrap(opened.source),
+                                   destination: .singlePDF(output), marks: .none)
+        XCTAssertNotNil(try Data(contentsOf: output).range(of: Data("/Subtype /Image".utf8)))
+
+        let replacement = dir.appendingPathComponent("taşınmış.webp")
+        try FileManager.default.removeItem(at: image)
+        do {
+            try await opened.loadProject(at: fileURL)
+            XCTFail("Missing image was accepted")
+        } catch ProjectFileError.missingSource(let name) {
+            XCTAssertEqual(name, image.lastPathComponent)
+        }
+        XCTAssertEqual(opened.project, model.project)
+        try bytes.write(to: replacement)
+        try await opened.loadProject(at: fileURL, relink: { _ in replacement })
+        try await settle(opened)
+        XCTAssertEqual(opened.pageSourceRecords.last?.reference.imageSettings, size)
+        XCTAssertEqual(opened.pageSourceRecords.last?.reference.path, replacement.path)
+        XCTAssertEqual(opened.plan.sheets, model.plan.sheets)
+    }
+
     func testRemovingAndRelinkingSourcesKeepsReferencesConsistent() async throws {
         let model=try await loaded(),value=try await draft(try await loaded())
         try await model.insertPagePDFs(value,mode:.pairs);try await settle(model)

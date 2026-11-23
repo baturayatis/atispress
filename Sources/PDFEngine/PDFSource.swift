@@ -33,7 +33,33 @@ public final class PDFSource: @unchecked Sendable {
     var originalPDFDetails:String?
     private var encryptedOrigin:URL?
     private var encryptedOriginAccess=false
-    public var originalURL:URL {encryptedOrigin ?? url}
+    private var imageOrigin: URL?
+    private var imageOriginAccess = false
+    public private(set) var imageSettings: ImagePrintSettings?
+    public var originalURL:URL {imageOrigin ?? encryptedOrigin ?? url}
+
+    public static func openImage(_ origin: URL, settings: ImagePrintSettings) async throws -> (PDFSource, [String]) {
+        let scoped = origin.startAccessingSecurityScopedResource()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("AtisPress-image-" + UUID().uuidString)
+        let output = folder.appendingPathComponent(origin.deletingPathExtension().lastPathComponent + ".pdf")
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let warnings = try await Task.detached(priority: .userInitiated) {
+                try ImageImport.write(origin, to: output, settings: settings)
+            }.value
+            try Task.checkCancellation()
+            let result = try await open(output)
+            result.imageOrigin = origin
+            result.imageOriginAccess = scoped
+            result.imageSettings = settings
+            result.temporaryDirectory = folder
+            return (result, warnings)
+        } catch {
+            if scoped { origin.stopAccessingSecurityScopedResource() }
+            try? FileManager.default.removeItem(at: folder)
+            throw error
+        }
+    }
     func retainUnlockedOrigin(_ origin:URL,folder:URL,scoped:Bool,pages:[PDFPageInfo]) {
         encryptedOrigin=origin;encryptedOriginAccess=scoped;temporaryDirectory=folder;self.pages=pages
         for i in guides.groups.indices {guides.groups[i].canHide=false}
@@ -47,8 +73,13 @@ public final class PDFSource: @unchecked Sendable {
     private var linkedSources: [PDFSource] = []
     private var compositeTitle: String?
     private var temporaryDirectory: URL?
-    public var protectedURLs: [URL] { if let encryptedOrigin {return [encryptedOrigin,url]};if let preparationParent { return preparationParent.protectedURLs+[url]+(preparedGuideURL.map{[$0]} ?? []) };return linkedSources.isEmpty ? [url] : linkedSources.flatMap(\.protectedURLs)+[url] }
-    public var displayName: String { compositeTitle ?? (linkedSources.isEmpty ? originalURL.lastPathComponent : "Karışık iş (\(linkedSources.count) PDF)") }
+    public var protectedURLs: [URL] { if let imageOrigin {return [imageOrigin,url]};if let encryptedOrigin {return [encryptedOrigin,url]};if let preparationParent { return preparationParent.protectedURLs+[url]+(preparedGuideURL.map{[$0]} ?? []) };return linkedSources.isEmpty ? [url] : linkedSources.flatMap(\.protectedURLs)+[url] }
+    public var displayName: String {
+        if let compositeTitle { return compositeTitle }
+        if linkedSources.isEmpty { return originalURL.lastPathComponent }
+        let unit = linkedSources.contains { $0.preparationInput.imageSettings != nil } ? "kaynak" : "PDF"
+        return "Karışık iş (\(linkedSources.count) \(unit))"
+    }
     public let bindingStripCache = PDFBindingStripCache()
     public let edgeSamples = PDFEdgeSampleCache()
     public let id = UUID()
@@ -70,6 +101,7 @@ public final class PDFSource: @unchecked Sendable {
         cache.totalCostLimit = 64 * 1024 * 1024
     }
     deinit {
+        if imageOriginAccess {imageOrigin?.stopAccessingSecurityScopedResource()}
         if encryptedOriginAccess {encryptedOrigin?.stopAccessingSecurityScopedResource()}
         if scopedAccess { url.stopAccessingSecurityScopedResource() }
         if let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) }

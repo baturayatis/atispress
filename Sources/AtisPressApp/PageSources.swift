@@ -24,7 +24,7 @@ extension Workspace {
         return [GangAsset(saved:GangSourceReference(id:record.id,reference:record.reference,pageCount:record.pageCount),source:source)]
     }
     func choosePageSourceRelink(_ id:UUID) {
-        let panel=NSOpenPanel();panel.allowedContentTypes=[.pdf];panel.allowsMultipleSelection=false;panel.title="Kaynağı değiştir"
+        let panel=NSOpenPanel();panel.allowedContentTypes=OpenFileKind.artworkTypes;panel.allowsMultipleSelection=false;panel.title="Kaynağı değiştir"
         panel.begin { [weak self] result in
             guard result == .OK,let url=panel.url,let self else {return}
             Task {do {try await self.relinkPageSource(id,url:url)} catch is CancellationError {} catch {self.error=error.localizedDescription}}
@@ -35,7 +35,7 @@ extension Workspace {
         preparingSource=true;defer {preparingSource=false}
         var assets=try currentPageAssets()
         guard let index=assets.firstIndex(where:{$0.saved.id==id}) else {throw ProjectFileError.invalidSelection}
-        var pdf=try await openPagePDF(url,password:password)
+        var pdf=try await openPagePDF(url,password:password,imageSettings:assets[index].saved.reference.imageSettings,configureImage:false)
         if let preparation=project.sourcePreparation,preparation.sourceID==id {pdf=try await pdf.prepared(preparation)}
         let old=assets[index]
         let offset=assets.prefix(index).reduce(0){$0+$1.source.pages.count}
@@ -45,7 +45,7 @@ extension Workspace {
             guard pdf.pages.indices.contains(local-1),pdf.pages[local-1].trimSize==items[i].size else {throw ProjectFileError.sourceMismatch}
             items[i].sourceID=id;items[i].localPage=local;items[i].availableBleed=pdf.pages[local-1].availableBleed
         }
-        assets[index]=GangAsset(saved:GangSourceReference(id:id,reference:try capturePageSource(url),pageCount:pdf.pages.count),source:pdf)
+        assets[index]=GangAsset(saved:GangSourceReference(id:id,reference:try capturePageSource(url,imageSettings:pdf.preparationInput.imageSettings),pageCount:pdf.pages.count),source:pdf)
         let combined=try await PDFSource.combine(assets.map(\.source))
         items=resolveSourceOffsets(items,assets:assets)
         var next=project;next.pageItems=items
@@ -62,7 +62,7 @@ extension Workspace {
     }
     func requestRemovePageSource(_ id:UUID) {
         let alert=NSAlert();alert.messageText="Kaynak ve sayfaları kaldırılsın mı?"
-        alert.informativeText="Kaynak PDF diskte korunur. Sayfaları tutmak için kaynağı başka bir PDF'ye bağlayabilirsiniz."+(pageSourceRecords.count==1 ? " Son kaynak kaldırılınca boş satırlar da temizlenir.":"")
+        alert.informativeText="Sayfaları tutmak için başka bir kaynak dosya seçebilirsiniz."+(pageSourceRecords.count==1 ? " Son kaynak kaldırılınca boş satırlar da temizlenir.":"")
         alert.addButton(withTitle:"Sayfalarıyla kaldır");alert.addButton(withTitle:"Sayfaları tut, kaynağı değiştir…");alert.addButton(withTitle:"Vazgeç")
         let result=alert.runModal()
         if result == .alertSecondButtonReturn {choosePageSourceRelink(id)}

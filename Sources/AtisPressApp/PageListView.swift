@@ -71,7 +71,7 @@ struct PageActionsMenu:View {
         Button("Kaç kopya?…") {model.requestPageDuplicate(row,chooseCount:true)}
         Button("Sil") {model.requestPageDelete(row)}.help("Listeden sil · Kaynak PDF korunur")
         Divider()
-        Button("Buraya PDF ekle…") {model.choosePagePDFs(at:row)}
+        Button("Buraya PDF veya görsel ekle…") {model.choosePagePDFs(at:row)}
         Menu("Yüz") {
             Button("Ön") {model.setPageSide(row,.front)}
             Button("Arka") {model.setPageSide(row,.back)}

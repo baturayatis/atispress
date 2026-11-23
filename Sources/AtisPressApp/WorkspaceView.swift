@@ -51,7 +51,7 @@ struct WorkspaceView: View {
         .sheet(isPresented:$model.preparingExport) { ExportPreparationView(model:model) }
         .sheet(item:$model.scaleWindow,onDismiss:{model.finishPDFImportScaling(accepted:false)}) { ScaleWindowView(model:model,request:$0) }
         .toolbar {
-            Button(action:model.choosePDF) { HStack { Image(systemName:"doc.badge.plus"); Text("PDF Seç") } }.help("PDF seç · ⌘O")
+            Button(action:model.choosePDF) { HStack { Image(systemName:"doc.badge.plus"); Text("PDF veya Görsel Seç") } }.help("PDF veya görsel seç · ⌘O")
             JobTemplateMenu(model: model)
             UpdateToolbarBadge(checker:UpdateChecker.shared)
             Spacer()
@@ -82,7 +82,7 @@ struct WorkspaceView: View {
                 }.buttonStyle(.borderless).disabled(model.source == nil).padding(.horizontal,12).padding(.bottom,8)
                 if model.project.isBooklet && model.blankSettings.mode == .manual { BlankPageOrderView(model:model).padding(.horizontal,8) }
                 HStack(spacing:8) {
-                    Button("PDF ekle…") {model.choosePagePDFs()}.disabled(!model.canAddPagePDFs)
+                    Button("PDF veya görsel ekle…") {model.choosePagePDFs()}.disabled(!model.canAddPagePDFs)
                     Button("Kaynaklar") {pageSources.toggle()}.popover(isPresented:$pageSources) {PageSourcesPopover(model:model)}
                 }.buttonStyle(.borderless).font(.system(size:12)).padding(.horizontal,8).padding(.bottom,8)
                 HStack(spacing:8) {
@@ -242,7 +242,7 @@ struct WorkspaceView: View {
             Divider()
             HStack(spacing:DesignSystem.Space.md) {
                 if !model.project.hasPanelItems {
-                    Label(model.source==nil ? "PDF seçin":"Baskıya dahil sayfa yok",systemImage:"doc.badge.plus")
+                    Label(model.source==nil ? "PDF veya görsel seçin":"Baskıya dahil sayfa yok",systemImage:"doc.badge.plus")
                 } else if model.workflowIssues.isEmpty {
                     Label(model.workflowReadyText,systemImage:"checkmark.circle.fill")
                         .foregroundStyle(DesignSystem.success).padding(DesignSystem.Space.sm)
